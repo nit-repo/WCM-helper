@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "notes": "Page location, market/region and environment detection. Country codes are context-gated: a bare 'IT' or 'US' never counts on its own — it must sit within `anchorWindow` words of a market anchor term.",
+
+  "anchorWindow": 4,
+  "marketAnchors": [
+    "site", "sites", "market", "markets", "region", "regional", "country", "countries",
+    "publication", "locale", "rollout", "roll out", "publish to", "rolled out to",
+    "live copy", "domain", "kone", "kone com", "www", "for the", "on the"
+  ],
+
+  "countries": [
+    { "code": "AU", "name": "Australia", "region": "FPL" },
+    { "code": "NZ", "name": "New Zealand", "region": "FPL" },
+    { "code": "UK", "name": "United Kingdom", "region": "FPL" },
+    { "code": "GB", "name": "United Kingdom", "region": "FPL" },
+    { "code": "IE", "name": "Ireland", "region": "FPL" },
+    { "code": "FR", "name": "France", "region": "FPL" },
+    { "code": "DE", "name": "Germany", "region": "FPL" },
+    { "code": "IT", "name": "Italy", "region": "FPL" },
+    { "code": "ES", "name": "Spain", "region": "FPL" },
+    { "code": "NL", "name": "Netherlands", "region": "FPL" },
+    { "code": "SE", "name": "Sweden", "region": "FPL" },
+    { "code": "NO", "name": "Norway", "region": "FPL" },
+    { "code": "DK", "name": "Denmark", "region": "FPL" },
+    { "code": "FI", "name": "Finland", "region": "FPL" },
+    { "code": "PL", "name": "Poland", "region": "FPL" },
+    { "code": "AT", "name": "Austria", "region": "FPL" },
+    { "code": "CH", "name": "Switzerland", "region": "FPL" },
+    { "code": "BE", "name": "Belgium", "region": "FPL" },
+    { "code": "CN", "name": "China", "region": "FPL" },
+    { "code": "IN", "name": "India", "region": "FPL" },
+    { "code": "JP", "name": "Japan", "region": "FPL" },
+    { "code": "SG", "name": "Singapore", "region": "FPL" },
+    { "code": "HK", "name": "Hong Kong", "region": "FPL" },
+    { "code": "MY", "name": "Malaysia", "region": "FPL" },
+    { "code": "KR", "name": "South Korea", "region": "FPL" },
+    { "code": "US", "name": "United States", "region": "AME" },
+    { "code": "CA", "name": "Canada", "region": "AME" },
+    { "code": "MX", "name": "Mexico", "region": "AME" },
+    { "code": "BR", "name": "Brazil", "region": "AME" },
+    { "code": "AR", "name": "Argentina", "region": "AME" },
+    { "code": "CL", "name": "Chile", "region": "AME" },
+    { "code": "AE", "name": "United Arab Emirates", "region": "AME" },
+    { "code": "SA", "name": "Saudi Arabia", "region": "AME" },
+    { "code": "ZA", "name": "South Africa", "region": "AME" },
+    { "code": "EG", "name": "Egypt", "region": "AME" },
+    { "code": "TR", "name": "Turkey", "region": "AME" }
+  ],
+
+  "regions": [
+    { "code": "AME", "label": "Region Master AME (Americas, Middle East, Africa)", "terms": ["ame", "americas", "region master ame"] },
+    { "code": "FPL", "label": "Region Master FPL (Asia Pacific, Europe)", "terms": ["fpl", "asia pacific", "apac", "region master fpl"] },
+    { "code": "MASTER", "label": "Master EN", "terms": ["master en", "master english", "global master", "master publication"] },
+    { "code": "GLOBAL", "label": "All markets / global", "terms": ["all markets", "all country sites", "all sites", "every market", "globally", "global rollout", "worldwide"] }
+  ],
+
+  "environments": [
+    { "code": "DEV", "terms": ["dev", "development environment"] },
+    { "code": "QA", "terms": ["qa environment", "qa tier", "on qa", "qa site"] },
+    { "code": "STAGE", "terms": ["stage", "staging"] },
+    { "code": "PRE-PROD", "terms": ["pre-prod", "preprod", "pre prod", "pre-production", "uat environment"] },
+    { "code": "PROD", "terms": ["prod", "production", "live site", "on live", "published site"] }
+  ],
+
+  "pathPatterns": [
+    { "id": "aem-content-path", "regex": "/content/[a-z0-9/_\\-]+", "label": "AEM /content path" },
+    { "id": "aem-author-host", "regex": "author-p[0-9]+-e[0-9]+\\.adobeaemcloud\\.com[^\\s]*", "label": "AEM author URL" },
+    { "id": "url", "regex": "https?://[^\\s<>\"')]+", "label": "URL" },
+    { "id": "wcmmode", "regex": "\\?wcmmode=disabled", "label": "AEM author preview link" }
+  ],
+
+  "cmsSignals": {
+    "AEM": [
+      { "term": "author-p", "weight": 3 },
+      { "term": "adobeaemcloud.com", "weight": 3 },
+      { "term": "wcmmode=disabled", "weight": 3 },
+      { "term": "/content/", "weight": 3 },
+      { "term": "aem", "weight": 3 },
+      { "term": "experience fragment", "weight": 3 },
+      { "term": "exf", "weight": 3 },
+      { "term": "crx", "weight": 3 },
+      { "term": "smart crop", "weight": 2 },
+      { "term": "dam", "weight": 2 },
+      { "term": "path picker", "weight": 2 },
+      { "term": "live copy", "weight": 2 },
+      { "term": "blueprint", "weight": 2 },
+      { "term": "page properties", "weight": 2 },
+      { "term": "touch ui", "weight": 2 },
+      { "term": "dispatcher", "weight": 2 },
+      { "term": "kone-container", "weight": 2 },
+      { "term": "content fragment", "weight": 2 }
+    ],
+    "Tridion": [
+      { "term": "tridion", "weight": 3 },
+      { "term": "sdl", "weight": 3 },
+      { "term": "structure group", "weight": 3 },
+      { "term": "publication id", "weight": 3 },
+      { "term": "core service", "weight": 3 },
+      { "term": "cme", "weight": 3 },
+      { "term": "undo-localize", "weight": 3 },
+      { "term": "child publication", "weight": 3 },
+      { "term": "master publication", "weight": 2 },
+      { "term": "rtf", "weight": 2 },
+      { "term": "component template", "weight": 2 },
+      { "term": "multimedia repository", "weight": 2 },
+      { "term": "localize", "weight": 2 },
+      { "term": "broker", "weight": 2 }
+    ]
+  }
+}

@@ -1,0 +1,391 @@
+{
+  "version": 1,
+  "notes": "AEM + Tridion component dictionary. `pageTypes` drives the commonly-expected-but-absent nudge; `requiredAssets` drives missing-asset detection. Trigger terms are matched case-insensitively on word boundaries.",
+
+  "assets": {
+    "dam_image": {
+      "label": "DAM image reference",
+      "question": "Which DAM asset should be used? Please give the /content/dam path or the assets.kone.com URL.",
+      "detect": [{ "regex": "/content/dam|assets\\.kone\\.com|urn:aaid:aem|dam path|dam asset|\\.jpe?g|\\.png|\\.webp|\\.avif" }]
+    },
+    "alt_text": {
+      "label": "Image alt text",
+      "question": "What alt text should the image carry? It's mandatory for WCAG 2.1/2.2 AA.",
+      "detect": [{ "regex": "alt ?text|alt attribute|alt=" }]
+    },
+    "video_url": {
+      "label": "Video URL",
+      "question": "What's the video URL to embed — YouTube, Vimeo, or an Adobe Media asset?",
+      "detect": [{ "regex": "youtube|youtu\\.be|vimeo|video url|video link|adobe media" }]
+    },
+    "form_fields": {
+      "label": "Form field list",
+      "question": "Which fields does the form need, and where should submissions go?",
+      "detect": [{ "regex": "field list|form fields|first name|last name|email field|submit to|recipient" }]
+    },
+    "link_target": {
+      "label": "Link target",
+      "question": "Where should this link or CTA point? Give the target page path so it can be set via Path Picker.",
+      "detect": [{ "signal": "urlPresent" }, { "signal": "contentPathPresent" }, { "regex": "links? to|points? to|target page|destination" }]
+    },
+    "copy": {
+      "label": "Final copy",
+      "question": "Please supply the final approved copy for this component.",
+      "detect": [{ "regex": "copy is|copy:|text is|text:|headline|reads:|should say|should read|wording|body copy" }]
+    }
+  },
+
+  "recommendOrder": [
+    "cta-button", "hero", "grid-block", "accordion", "form", "media-block",
+    "related-stories", "teaser", "cmp-image", "carousel", "video-embed",
+    "sidebar-cta", "title-header", "language-selector", "kone-container", "content-fragment"
+  ],
+
+  "pageTypes": {
+    "homepage": ["homepage", "home page", "landing hub", "front page"],
+    "pdp": ["product page", "product detail", "pdp", "elevator product", "escalator product", "product spec"],
+    "campaign": ["campaign", "promo page", "promotion", "seasonal", "launch page", "campaign landing"],
+    "article": ["article", "editorial", "story", "stories hub", "blog", "case study", "news page"],
+    "category": ["category page", "listing page", "plp", "overview page", "hub page", "services page", "digital-services"],
+    "contact": ["contact page", "contact us", "enquiry page", "get in touch", "reach us", "lead gen page"]
+  },
+
+  "components": [
+    {
+      "id": "kone-container",
+      "name": "kone-container / Container",
+      "platform": "AEM",
+      "type": "Layout / Structural",
+      "triggers": ["container", "section", "anchor", "anchor id", "layout", "wrapper"],
+      "pageTypes": ["homepage", "pdp", "campaign", "article", "category", "contact"],
+      "requiredAssets": [],
+      "effortAuthor": "Very Low",
+      "effortQA": "Low",
+      "riskFlags": ["accented-anchor-id", "rte-anchor-rollout"],
+      "note": "Anchor IDs must be plain ASCII. In-page anchors belong in the Container Anchor ID field, never in RTE HTML."
+    },
+    {
+      "id": "exf",
+      "name": "Experience Fragment (cmp-experiencefragment)",
+      "platform": "AEM",
+      "type": "Shared / Reusable",
+      "triggers": ["exf", "experience fragment", "header", "footer", "navigation", "mega menu", "nav link", "drawer", "promo drawer"],
+      "pageTypes": ["homepage", "pdp", "campaign", "article", "category", "contact"],
+      "requiredAssets": [],
+      "effortAuthor": "High",
+      "effortQA": "High",
+      "riskFlags": ["exf-child-publish", "async-rollout-collision", "untranslated-nav-labels"],
+      "note": "Master EN → Region Master (AME/FPL) → Country Site. Publishing the folder does not publish children."
+    },
+    {
+      "id": "title-header",
+      "name": "Title Header XL / L",
+      "platform": "AEM",
+      "type": "Content",
+      "triggers": ["title", "heading", "h1", "h2", "page title", "section heading", "title header"],
+      "pageTypes": ["homepage", "pdp", "campaign", "article", "category", "contact"],
+      "requiredAssets": ["copy"],
+      "effortAuthor": "Very Low",
+      "effortQA": "Low",
+      "riskFlags": ["missing-h1", "h1-equals-page-title"],
+      "note": "XL = H1, one per page, and its text must differ from the Page Properties Title."
+    },
+    {
+      "id": "text-block",
+      "name": "Text Block / AEM RTE",
+      "platform": "AEM",
+      "type": "Content",
+      "triggers": ["body copy", "paragraph", "rte", "rich text", "inline link", "text block", "copy block"],
+      "pageTypes": ["homepage", "pdp", "campaign", "article", "category", "contact"],
+      "requiredAssets": ["copy"],
+      "effortAuthor": "Low",
+      "effortQA": "Medium",
+      "riskFlags": ["rte-anchor-rollout", "author-url-leak"],
+      "note": "Internal links inside RTE must be set via Path Picker; RTE-embedded anchors break on multi-region rollout."
+    },
+    {
+      "id": "hero",
+      "name": "Hero / Banner",
+      "platform": "AEM",
+      "type": "Content / Visual",
+      "triggers": ["hero", "banner", "top of page", "full width image", "above the fold", "hero image"],
+      "pageTypes": ["homepage", "pdp", "campaign"],
+      "requiredAssets": ["dam_image", "alt_text"],
+      "effortAuthor": "Low",
+      "effortQA": "Low",
+      "riskFlags": ["png-smart-crop"],
+      "note": "Prefer JPG/WebP — PNG breaks Smart Crop."
+    },
+    {
+      "id": "media-block",
+      "name": "Media Block",
+      "platform": "AEM",
+      "type": "Content / Layout",
+      "triggers": ["media block", "image and text", "side by side", "split layout"],
+      "pageTypes": ["pdp", "campaign", "article"],
+      "requiredAssets": ["dam_image", "alt_text", "copy"],
+      "effortAuthor": "Low",
+      "effortQA": "Low",
+      "riskFlags": [],
+      "note": ""
+    },
+    {
+      "id": "teaser",
+      "name": "cmp-teaser / kone-teaser",
+      "platform": "AEM",
+      "type": "Navigation / Promo",
+      "triggers": ["teaser", "card with link", "promo tile", "featured card"],
+      "pageTypes": ["homepage", "pdp", "campaign", "category"],
+      "requiredAssets": ["dam_image", "link_target"],
+      "effortAuthor": "Low",
+      "effortQA": "Low",
+      "riskFlags": ["author-url-leak"],
+      "note": ""
+    },
+    {
+      "id": "grid-block",
+      "name": "Grid Block / Card Grid",
+      "platform": "AEM",
+      "type": "Layout / Navigation",
+      "triggers": ["grid", "card grid", "tile", "feature list", "3 column", "4 column", "cards"],
+      "pageTypes": ["homepage", "pdp", "campaign", "category"],
+      "requiredAssets": ["copy"],
+      "effortAuthor": "Medium",
+      "effortQA": "Medium",
+      "riskFlags": [],
+      "note": ""
+    },
+    {
+      "id": "accordion",
+      "name": "Accordion Block",
+      "platform": "AEM",
+      "type": "Content / Interactive",
+      "triggers": ["accordion", "faq", "expand", "collapse", "expandable", "questions"],
+      "pageTypes": ["pdp", "contact"],
+      "requiredAssets": ["copy"],
+      "effortAuthor": "Medium",
+      "effortQA": "High",
+      "riskFlags": ["accordion-prod-save"],
+      "note": "Known PROD save bug — delete and re-create the component if text will not persist."
+    },
+    {
+      "id": "cmp-image",
+      "name": "cmp-image / kone-image",
+      "platform": "AEM",
+      "type": "Media",
+      "triggers": ["image", "photo", "dam", "smart crop", "dynamic media", "rendition", "asset", "picture"],
+      "pageTypes": ["homepage", "pdp", "campaign", "article", "category"],
+      "requiredAssets": ["dam_image", "alt_text"],
+      "effortAuthor": "Low",
+      "effortQA": "Medium",
+      "riskFlags": ["png-smart-crop"],
+      "note": "Alt text mandatory; width + height required to avoid CLS."
+    },
+    {
+      "id": "carousel",
+      "name": "Carousel / Image Gallery",
+      "platform": "AEM",
+      "type": "Media / Interactive",
+      "triggers": ["carousel", "slider", "gallery", "image gallery", "rotating"],
+      "pageTypes": ["pdp", "campaign", "article"],
+      "requiredAssets": ["dam_image", "alt_text"],
+      "effortAuthor": "Medium",
+      "effortQA": "Medium",
+      "riskFlags": ["png-smart-crop"],
+      "note": ""
+    },
+    {
+      "id": "cta-button",
+      "name": "CTA / Button Block",
+      "platform": "AEM",
+      "type": "Navigation / Action",
+      "triggers": ["cta", "button", "call to action", "link button", "primary cta"],
+      "pageTypes": ["homepage", "pdp", "campaign", "article", "category", "contact"],
+      "requiredAssets": ["link_target", "copy"],
+      "effortAuthor": "Very Low",
+      "effortQA": "Low",
+      "riskFlags": ["author-url-leak"],
+      "note": "Internal CTA targets must be set via Path Picker."
+    },
+    {
+      "id": "form",
+      "name": "Form / Lead Gen",
+      "platform": "AEM",
+      "type": "Interactive / Data Capture",
+      "triggers": ["form", "contact form", "lead", "sign up", "subscribe", "enquiry", "reach us"],
+      "pageTypes": ["campaign", "contact"],
+      "requiredAssets": ["form_fields"],
+      "effortAuthor": "High",
+      "effortQA": "High",
+      "riskFlags": [],
+      "note": "Every field needs a label and an autocomplete attribute for WCAG AA."
+    },
+    {
+      "id": "video-embed",
+      "name": "Video Embed",
+      "platform": "AEM",
+      "type": "Media",
+      "triggers": ["video", "embed", "youtube", "vimeo", "media player"],
+      "pageTypes": ["pdp", "campaign", "article"],
+      "requiredAssets": ["video_url"],
+      "effortAuthor": "Low",
+      "effortQA": "Low",
+      "riskFlags": [],
+      "note": ""
+    },
+    {
+      "id": "related-stories",
+      "name": "Related Stories Widget",
+      "platform": "AEM",
+      "type": "Navigation / Dynamic",
+      "triggers": ["related stories", "related articles", "similar content", "you may also like"],
+      "pageTypes": ["article", "category"],
+      "requiredAssets": [],
+      "effortAuthor": "Low",
+      "effortQA": "Medium",
+      "riskFlags": [],
+      "note": "CMS-rendered — confirm crawler visibility in the rendered DOM."
+    },
+    {
+      "id": "sidebar-cta",
+      "name": "Sidebar / Footer CTA",
+      "platform": "AEM",
+      "type": "Navigation / Action",
+      "triggers": ["sidebar cta", "footer cta", "secondary cta", "side panel"],
+      "pageTypes": ["pdp", "article", "category"],
+      "requiredAssets": ["link_target"],
+      "effortAuthor": "Low",
+      "effortQA": "Low",
+      "riskFlags": ["author-url-leak"],
+      "note": ""
+    },
+    {
+      "id": "language-selector",
+      "name": "Language & Location Selector",
+      "platform": "AEM",
+      "type": "Navigation / Global",
+      "triggers": ["language selector", "location selector", "country picker", "locale", "region switcher"],
+      "pageTypes": ["homepage"],
+      "requiredAssets": [],
+      "effortAuthor": "Medium",
+      "effortQA": "High",
+      "riskFlags": [],
+      "note": "Sitewide, managed via EXF."
+    },
+    {
+      "id": "navigation",
+      "name": "Navigation / Mega Menu",
+      "platform": "AEM",
+      "type": "Navigation / Global",
+      "triggers": ["mega menu", "navigation", "nav item", "level 1", "level 2", "sub-link", "drawer"],
+      "pageTypes": [],
+      "requiredAssets": ["link_target"],
+      "effortAuthor": "High",
+      "effortQA": "High",
+      "riskFlags": ["matrushka-l1-l2", "untranslated-nav-labels", "exf-child-publish"],
+      "note": "Matrushka model: Level 1 Link or Label → Level 2 drawers/sub-links."
+    },
+    {
+      "id": "path-picker",
+      "name": "Path Picker",
+      "platform": "AEM",
+      "type": "Authoring Tool / Utility",
+      "triggers": ["path picker", "link picker", "page reference"],
+      "pageTypes": [],
+      "requiredAssets": [],
+      "effortAuthor": "Very Low",
+      "effortQA": "Low",
+      "riskFlags": [],
+      "note": "All internal links must be set here so a relative /content path is stored."
+    },
+    {
+      "id": "content-fragment",
+      "name": "Content Fragment (Headless)",
+      "platform": "AEM",
+      "type": "Structured Content / Headless",
+      "triggers": ["content fragment", "headless", "graphql", "structured content", "decoupled"],
+      "pageTypes": ["pdp", "article"],
+      "requiredAssets": [],
+      "effortAuthor": "High",
+      "effortQA": "High",
+      "riskFlags": [],
+      "note": "Model design sits with the Information Architect."
+    },
+    {
+      "id": "tridion-rtf",
+      "name": "Rich Text Field (RTF)",
+      "platform": "Tridion",
+      "type": "Content",
+      "triggers": ["rtf", "rich text field", "tridion text", "source view", "html source"],
+      "pageTypes": [],
+      "requiredAssets": ["copy"],
+      "effortAuthor": "Low",
+      "effortQA": "Medium",
+      "riskFlags": ["rtf-table-conversion"],
+      "note": "Tables go in as inline-styled HTML via source view."
+    },
+    {
+      "id": "tridion-rtf-table",
+      "name": "RTF HTML Table",
+      "platform": "Tridion",
+      "type": "Content",
+      "triggers": ["table", "pipe-delimited", "comparison table", "html table"],
+      "pageTypes": [],
+      "requiredAssets": ["copy"],
+      "effortAuthor": "Low",
+      "effortQA": "Medium",
+      "riskFlags": ["rtf-table-conversion"],
+      "note": "Use the inline-styled table standard (border-collapse, 100% width, styled thead)."
+    },
+    {
+      "id": "tridion-component-template",
+      "name": "Tridion Component Template",
+      "platform": "Tridion",
+      "type": "Template / Schema",
+      "triggers": ["component template", "component schema", "tridion component"],
+      "pageTypes": [],
+      "requiredAssets": [],
+      "effortAuthor": "Medium",
+      "effortQA": "Medium",
+      "riskFlags": [],
+      "note": "AEM equivalent is an HTL/Sling component."
+    },
+    {
+      "id": "tridion-page-template",
+      "name": "Tridion Page Template",
+      "platform": "Tridion",
+      "type": "Template",
+      "triggers": ["page template", "tridion page", "template mapping"],
+      "pageTypes": [],
+      "requiredAssets": [],
+      "effortAuthor": "Medium",
+      "effortQA": "Medium",
+      "riskFlags": [],
+      "note": "AEM equivalent is an editable template."
+    },
+    {
+      "id": "tridion-multimedia",
+      "name": "Tridion Multimedia Component",
+      "platform": "Tridion",
+      "type": "Media",
+      "triggers": ["tridion image", "multimedia", "media asset"],
+      "pageTypes": [],
+      "requiredAssets": ["dam_image"],
+      "effortAuthor": "Low",
+      "effortQA": "Low",
+      "riskFlags": [],
+      "note": "Maps to cmp-image / kone-image on the AEM side."
+    }
+  ],
+
+  "componentMapping": [
+    { "tridion": "Rich Text Field (RTF)", "aem": "Text Block / AEM RTE" },
+    { "tridion": "RTF HTML Table", "aem": "Inline-styled table or AEM Table component" },
+    { "tridion": "Tridion Image Component", "aem": "cmp-image / kone-image (DAM asset)" },
+    { "tridion": "Tridion CTA Link", "aem": "kone-teaser / CTA Button Block" },
+    { "tridion": "Tridion Header/Footer", "aem": "Experience Fragment (EXF)" },
+    { "tridion": "Tridion Navigation", "aem": "Mega Menu EXF (Navigation EXF)" },
+    { "tridion": "Tridion Accordion", "aem": "Accordion Block" },
+    { "tridion": "Tridion Content Page", "aem": "AEM Sites Page + kone-container sections" }
+  ]
+}

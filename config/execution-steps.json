@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "notes": "CMS-specific step sequences. Every step carries a machine-readable `action` alongside the human instruction — v1 has no executor, but a later agent layer needs the action type to be data rather than prose.",
+
+  "sequences": {
+    "new-page-aem": [
+      { "action": "raise_ticket", "instruction": "Raise the JIRA ticket with the brief attached and the named approver on it." },
+      { "action": "create_page", "instruction": "Create the page at the target AEM path, inside the correct Blueprint hierarchy (Master EN → Region → Country)." },
+      { "action": "set_page_properties", "instruction": "Set Page Properties: Title (10–60 chars), Meta Description (120–160 chars), Canonical, Robots tag, og:image, hreflang." },
+      { "action": "add_container", "instruction": "In the Author editor, add kone-container sections and give each one an ASCII-only Anchor ID." },
+      { "action": "add_h1", "instruction": "Add Title Header XL for the H1 — one per page, and its text must differ from the Page Properties Title." },
+      { "action": "add_components", "instruction": "Add and configure the components named in the brief." },
+      { "action": "set_links", "instruction": "Set every internal link via Path Picker — never paste an author URL." },
+      { "action": "add_assets", "instruction": "Place images from the DAM, set alt text, and configure Smart Crop (JPG/WebP, not PNG)." },
+      { "action": "preview", "instruction": "Preview with ?wcmmode=disabled appended to the author URL." },
+      { "action": "run_qa", "instruction": "Run the 52-point QA checklist across all four pillars (Metadata, Content, Responsive, Accessibility & Performance)." },
+      { "action": "submit_uat", "instruction": "Submit for UAT — zero S1/S2 defects before sign-off." },
+      { "action": "publish", "instruction": "Activate / publish the page and re-validate on the live URL." }
+    ],
+
+    "new-page-tridion": [
+      { "action": "raise_ticket", "instruction": "Raise the JIRA ticket with the brief attached and the named approver on it." },
+      { "action": "verify_structure_group", "instruction": "Confirm the target Structure Group exists in the publication — if it does not, the page will be invisible with no error shown." },
+      { "action": "create_page", "instruction": "Create the page in the correct Structure Group using the agreed Page Template." },
+      { "action": "add_components", "instruction": "Add the Component Presentations required by the brief and populate the RTF fields." },
+      { "action": "set_metadata", "instruction": "Populate page metadata: Title, Meta Description, Canonical." },
+      { "action": "add_assets", "instruction": "Link Multimedia Components from the Tridion Multimedia Repository." },
+      { "action": "preview", "instruction": "Preview the page in the publication before publishing." },
+      { "action": "run_qa", "instruction": "Run the QA checklist — metadata, content accuracy, links, responsive, accessibility." },
+      { "action": "publish", "instruction": "Publish to the presentation server and validate the live URL." }
+    ],
+
+    "content-update-aem": [
+      { "action": "locate_page", "instruction": "Open the target page in AEM Sites at the path given in the brief." },
+      { "action": "confirm_inheritance", "instruction": "Check the Blueprint / Live Copy tab — if the page inherits, confirm whether the edit should be made at master level instead." },
+      { "action": "edit_component", "instruction": "Open the named component and apply the change exactly as specified." },
+      { "action": "set_links", "instruction": "If a link changed, set it via Path Picker so a relative /content path is stored." },
+      { "action": "add_assets", "instruction": "If an image changed, reference the new DAM asset and update the alt text." },
+      { "action": "preview", "instruction": "Preview with ?wcmmode=disabled and confirm the change renders as intended." },
+      { "action": "run_qa", "instruction": "Spot-check QA Pillar 2 items on the changed section: links resolve, no /content/ leak, alt text present." },
+      { "action": "publish", "instruction": "Publish the page and re-validate the live URL in Incognito to bypass the Dispatcher cache." }
+    ],
+
+    "content-update-tridion": [
+      { "action": "locate_page", "instruction": "Open the target page in the Tridion CME at the path given in the brief." },
+      { "action": "confirm_inheritance", "instruction": "Check whether the component is inherited from the Master publication — localize it first if a local-only change is intended." },
+      { "action": "edit_component", "instruction": "Open the Component and apply the change; use RTF source view for HTML-level edits such as tables." },
+      { "action": "preview", "instruction": "Preview the page in the publication." },
+      { "action": "publish", "instruction": "Publish the page and validate on the live URL." }
+    ],
+
+    "exf-update-aem": [
+      { "action": "locate_exf", "instruction": "Open the Master EN EXF in AEM Sites → Experience Fragments." },
+      { "action": "edit_exf", "instruction": "Apply the change, setting every internal link via Path Picker." },
+      { "action": "publish_exf_children", "instruction": "Publish the Master EN EXF and explicitly select each child EXF — publishing the folder does NOT publish children." },
+      { "action": "wait_async", "instruction": "Wait for the async publish to complete (20–60 seconds) before doing anything downstream." },
+      { "action": "rollout_region", "instruction": "Roll out Master EN → Region Master (AME / FPL) and wait for the rollout job to finish." },
+      { "action": "publish_exf_children", "instruction": "Explicitly publish the Region Master child EXFs." },
+      { "action": "rollout_country", "instruction": "Roll out Region Master → Country Sites." },
+      { "action": "publish_exf_children", "instruction": "Publish the Country Site EXFs." },
+      { "action": "validate_live", "instruction": "Validate on live published URLs across at least three country sites, in Incognito." },
+      { "action": "validate_html", "instruction": "Check the rendered HTML for residual /content/ paths or author domain URLs." },
+      { "action": "validate_l1_l2", "instruction": "Validate Level 1 (Link vs Label) and Level 2 sub-links separately, and check non-English markets for un-translated labels." }
+    ],
+
+    "seo-aem": [
+      { "action": "confirm_scope", "instruction": "Confirm the affected URL list and whether the issue is per-page or template-level — query-string variants are fixed at template level, not per URL." },
+      { "action": "audit_current", "instruction": "Record the current state per URL (nofollow / noindex / canonical / metadata) so the change is evidenced." },
+      { "action": "set_page_properties", "instruction": "For metadata and canonical issues, correct them in Page Properties → Basic / Advanced." },
+      { "action": "fix_links", "instruction": "For nofollow issues, remove the attribute from internal service/tool links — internal links must never carry nofollow." },
+      { "action": "fix_indexation", "instruction": "For indexation issues, apply the belt-and-braces approach: robots.txt Disallow plus a template-level noindex meta tag on thin pages." },
+      { "action": "fix_orphans", "instruction": "For orphaned pages, add contextual internal links from the recommended source pages using the suggested anchor text." },
+      { "action": "publish", "instruction": "Publish the affected pages." },
+      { "action": "run_qa", "instruction": "Re-run QA Pillar 1 (Metadata) — 12 checks: title, meta description, canonical, robots, og:image, twitter:card, hreflang, JSON-LD, URL format." },
+      { "action": "validate_live", "instruction": "Verify the rendered live HTML — check the tag is actually present on the published page, not just in the author config." }
+    ],
+
+    "seo-tridion": [
+      { "action": "confirm_scope", "instruction": "Confirm the affected URL list and which publication each page sits in." },
+      { "action": "audit_current", "instruction": "Record the current metadata / indexation state per URL." },
+      { "action": "set_metadata", "instruction": "Correct the metadata fields on the page or component in the CME." },
+      { "action": "fix_indexation", "instruction": "Escalate template-level robots/noindex changes to Dev — they sit in the Page Template, not the page." },
+      { "action": "publish", "instruction": "Publish the affected pages and validate the live rendered HTML." }
+    ],
+
+    "bug-fix-aem": [
+      { "action": "reproduce", "instruction": "Reproduce on the stated environment using the steps in the brief; capture evidence if it is missing." },
+      { "action": "classify_severity", "instruction": "Confirm severity S1–S4 and the release impact — any S1 is a P1 Hard Block on sign-off." },
+      { "action": "check_known_bugs", "instruction": "Check the finding against the known bug catalogue before investigating — several of these have standing workarounds." },
+      { "action": "diagnose", "instruction": "Inspect the rendered DOM, DevTools console, and network trace on the affected page." },
+      { "action": "apply_fix", "instruction": "Apply the fix or the documented workaround in the CMS; escalate to Dev if it is template- or code-level." },
+      { "action": "verify_fix", "instruction": "Re-test on the same environment with the original reproduction steps." },
+      { "action": "regression_check", "instruction": "Check the same component on at least two other pages/markets for the same defect." },
+      { "action": "publish", "instruction": "Promote through the environment gates — DEV→QA needs zero S1/S2, QA→PRE-PROD needs UAT sign-off." }
+    ],
+
+    "bug-fix-tridion": [
+      { "action": "reproduce", "instruction": "Reproduce on the stated environment using the steps in the brief; capture evidence if it is missing." },
+      { "action": "classify_severity", "instruction": "Confirm severity S1–S4 and release impact." },
+      { "action": "check_inheritance", "instruction": "Check whether the defect comes from the Master publication — if so, fix at master rather than per market." },
+      { "action": "apply_fix", "instruction": "Apply the fix in the CME, or escalate template/schema-level issues to Dev." },
+      { "action": "verify_fix", "instruction": "Re-test and publish, then validate the live URL." }
+    ],
+
+    "migration-aem": [
+      { "action": "audit_source", "instruction": "Open the source Tridion page and inventory every component, asset and link on it." },
+      { "action": "check_migration_sheet", "instruction": "Audit the retrofitting / migration spreadsheet for duplicate rows before executing — duplicates create the wrong page." },
+      { "action": "confirm_mapping", "instruction": "Confirm the Tridion → AEM component mapping for every component on the source page." },
+      { "action": "create_page", "instruction": "Create the AEM page at the target path, inside the correct Blueprint hierarchy." },
+      { "action": "set_page_properties", "instruction": "Set Page Properties from the SEO mapping sheet — Title, Meta Description, and the canonical that matches the new live URL." },
+      { "action": "add_container", "instruction": "Rebuild the page structure as kone-container sections with ASCII-only Anchor IDs." },
+      { "action": "migrate_content", "instruction": "Move content into the mapped AEM components; convert pipe-delimited or RTF tables to the inline-styled HTML table standard." },
+      { "action": "add_assets", "instruction": "Re-point images to DAM assets (JPG/WebP for Smart Crop) and carry over or write alt text." },
+      { "action": "set_links", "instruction": "Rebuild every internal link with Path Picker — do not carry across legacy absolute URLs." },
+      { "action": "verify_hierarchy", "instruction": "Verify the parent/child position in AEM Sites so breadcrumbs render correctly." },
+      { "action": "verify_redirects", "instruction": "Confirm the 301 from the legacy URL and the canonical both match the SEO mapping sheet." },
+      { "action": "run_qa", "instruction": "Run the 8-section AEM Migration QA checklist, ending on both Preview mode and the live published URL." },
+      { "action": "publish", "instruction": "Publish the page once UAT is signed off with zero S1/S2." }
+    ],
+
+    "rollout-aem": [
+      { "action": "publish_master", "instruction": "Author and publish the Master EN pages/EXFs first." },
+      { "action": "publish_exf_children", "instruction": "Explicitly publish EACH child EXF — a folder publish silently skips them." },
+      { "action": "rollout_region", "instruction": "Roll out Master EN → Region Master (AME / FPL)." },
+      { "action": "wait_async", "instruction": "Wait for the async rollout job to complete (20–60 seconds) before triggering anything downstream." },
+      { "action": "publish_exf_children", "instruction": "Explicitly publish the Region Master EXF children." },
+      { "action": "rollout_country", "instruction": "Roll out Region Master → Country Sites." },
+      { "action": "publish", "instruction": "Publish the Country Site pages and EXFs." },
+      { "action": "validate_live", "instruction": "Validate the live published URLs in Incognito to bypass the Dispatcher cache." },
+      { "action": "validate_html", "instruction": "Confirm no raw /content/ paths in the published HTML, and that every region named in the brief is covered." }
+    ],
+
+    "blueprint-adoption-aem": [
+      { "action": "confirm_scope", "instruction": "Confirm the market list and split into one ticket per market — bundling breaches One-Ticket-Per-Market." },
+      { "action": "confirm_readiness", "instruction": "Run the Content Readiness Checklist: copy, images, metadata and links all validated before build starts." },
+      { "action": "publish_master", "instruction": "Publish the source Master EN page." },
+      { "action": "rollout_region", "instruction": "Roll out Master EN → Region Master and wait for the async job." },
+      { "action": "rollout_country", "instruction": "Roll out Region Master → the target country sites." },
+      { "action": "localize", "instruction": "Where the market needs a local variation, localize only the affected sections — everything else stays inherited." },
+      { "action": "translate", "instruction": "Apply translations per the localization scope and check for English strings left in navigation or hardcoded labels." },
+      { "action": "approve", "instruction": "Route to the named local approver in each market — the 3-day SLA runs per market." },
+      { "action": "publish", "instruction": "Publish the country pages and validate each live URL." }
+    ],
+
+    "blueprint-adoption-tridion": [
+      { "action": "confirm_scope", "instruction": "Confirm the market list and split into one ticket per market." },
+      { "action": "verify_structure_group", "instruction": "Verify the Structure Group exists in every child publication — if missing, the page is invisible with no error shown." },
+      { "action": "adopt_blueprint", "instruction": "Push the Master content down the Blueprint chain to the child publications." },
+      { "action": "localize", "instruction": "Localize only where the market needs a variation; use Undo-Localize to re-sync a market with global." },
+      { "action": "translate", "instruction": "Apply translations per the localization scope." },
+      { "action": "approve", "instruction": "Route to the named local approver in each market." },
+      { "action": "publish", "instruction": "Publish per publication and validate each live URL." }
+    ],
+
+    "qa-audit-aem": [
+      { "action": "confirm_scope", "instruction": "Confirm the page/component/region list and the environment to audit." },
+      { "action": "run_pillar_1", "instruction": "Pillar 1 — Page Properties & Metadata (12 checks): title, meta description, canonical, robots, og:image, twitter:card, hreflang, JSON-LD, URL format." },
+      { "action": "run_pillar_2", "instruction": "Pillar 2 — Content & Components (19 checks, highest priority): single H1, broken internal links, raw /content/ paths, author domain leaks, 404 CTAs, missing alt text, modern image formats, width/height attributes." },
+      { "action": "run_pillar_3", "instruction": "Pillar 3 — Responsive Layout (8 checks): 375px / 768px / 1440px breakpoints, touch targets ≥ 44px, no horizontal overflow." },
+      { "action": "run_pillar_4", "instruction": "Pillar 4 — Accessibility & Performance (13 checks): skip links, form labels, autocomplete, HTTPS, cookie consent, TTFB, response size, WCAG 2.1/2.2 AA." },
+      { "action": "raise_defects", "instruction": "Raise each finding with severity S1–S4 and evidence attached." },
+      { "action": "gate_check", "instruction": "Apply the promotion gates: DEV→QA zero S1/S2; QA→PRE-PROD UAT sign-off and zero S1/S2/S3; PRE-PROD→PROD LCP ≤ 2.5s, CLS ≤ 0.1, INP ≤ 200ms, WCAG AA." },
+      { "action": "sign_off", "instruction": "Sign off only after verifying on both Preview mode and the live published URL, in Incognito." }
+    ]
+  }
+}

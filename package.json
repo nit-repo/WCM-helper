@@ -1,0 +1,12 @@
+{
+  "name": "wcm-brief-analyser",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Deterministic, auditable analysis of AEM and Tridion web content management briefs",
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node serve.js",
+    "test": "node test/engine.test.js"
+  }
+}
