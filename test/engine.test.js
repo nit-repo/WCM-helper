@@ -31,7 +31,7 @@ function has(list, id) { return list.indexOf(id) !== -1; }
 function allQuestions(a) { return a.questions.join(' | '); }
 
 // ─── FIXTURES ────────────────────────────────────────────────────────────
-// Four real briefs, one per playbook.
+// Real briefs, at least one per playbook.
 
 // The x column marks each source page for removal, so this sheet is a
 // takedown, not a plain redirect.
@@ -47,6 +47,13 @@ var DENMARK_TAKEDOWN = [
 var PLAIN_REDIRECTS = [
   'https://www.kone.dk/old-services/\thttps://www.kone.dk/services/',
   'https://www.kone.dk/old-maintenance/\thttps://www.kone.dk/maintenance/'
+].join('\n');
+
+var AU_KEYWORDS = [
+  'URL\tPage Type\tPriority\tPrimary Keyword',
+  'https://www.kone.com.au/\tHomepage\tHigh\tElevators and escalators Australia',
+  'https://www.kone.com.au/new-buildings/\tHub\tHigh\tNew building solutions Australia',
+  'https://www.kone.com.au/new-buildings/elevators-lifts/\tCategory\tHigh\tElevators and lifts Australia'
 ].join('\n');
 
 var UK_IE_REMOVAL = [
@@ -347,6 +354,42 @@ test('14. localization recipe localizes existing components — it does not crea
   assert.ok(/left in English/i.test(steps), 'it should check nothing is left untranslated');
 });
 
+// ─── Keyword update ──────────────────────────────────────────────────────
+
+test('14a. a keyword mapping sheet → keyword update, complete as it stands', function () {
+  var a = engine.analyse(AU_KEYWORDS);
+
+  assert.strictEqual(a.workType.id, 'keyword-update', 'expected keyword-update, got ' + a.workType.id);
+  assert.ok(a.workType.confident, 'should be a confident call');
+  assert.strictEqual(a.cms.value, 'Tridion', 'kone.com.au is not a migrated market');
+  assert.strictEqual(a.needs.missing.length, 0,
+    'pages and keywords are both here, and the author writes nothing else: ' + ids(a.needs.missing));
+  assert.ok(a.ready);
+});
+
+test('14b. the keyword recipe changes the keyword and nothing else', function () {
+  var a = engine.analyse(AU_KEYWORDS);
+  var steps = JSON.stringify(a.steps);
+
+  assert.ok(/keyword field/i.test(steps), 'the recipe should set the keyword field');
+  assert.ok(/Leave the meta title, meta description and body copy/i.test(steps),
+    'and explicitly leave the title, description and copy alone');
+  assert.ok(/priority order/i.test(steps), 'and work down the sheet in priority order');
+});
+
+test('14c. a localization brief listing keywords is still localization', function () {
+  // The Slovenia brief carries "Primary keywords" and "Secondary Keywords"
+  // rows of its own, so these two playbooks share vocabulary. The translated
+  // column has to outweigh it.
+  var a = engine.analyse(SLOVENIA_LOCALIZATION +
+    '\nPrimary keywords\tresidential elevator (9.6K)\tstanovanjsko dvigalo (9,6 tisoč)' +
+    '\nSecondary Keywords\tmrl elevator (2.6K)\tdvigalo mrl (2,6 tisoč)');
+
+  assert.strictEqual(a.workType.id, 'localization', 'got ' + a.workType.id + ' — ' +
+    a.workType.alternatives.map(function (s) { return s.id + '=' + s.score; }).join(' '));
+  assert.ok(a.workType.confident);
+});
+
 // ─── Cross-cutting ───────────────────────────────────────────────────────
 
 test('15. every brief is scored against every playbook, and carries its signals', function () {
@@ -408,7 +451,7 @@ test('19. determinism — the same brief analyses identically twice', function (
 });
 
 test('20. no brief is ever asked for something outside its own playbook', function () {
-  var briefs = [PLAIN_REDIRECTS, DENMARK_TAKEDOWN, UK_IE_REMOVAL, CYPRUS_PARAGRAPH, INDIA_BLOG, SLOVENIA_LOCALIZATION];
+  var briefs = [PLAIN_REDIRECTS, DENMARK_TAKEDOWN, UK_IE_REMOVAL, CYPRUS_PARAGRAPH, INDIA_BLOG, SLOVENIA_LOCALIZATION, AU_KEYWORDS];
 
   briefs.forEach(function (brief) {
     var a = engine.analyse(brief);

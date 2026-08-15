@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "notes": "Five playbooks, one per kind of job a WCM author actually gets. Each one carries only what that job needs and the literal steps to do it in each CMS. Signal weights: 4 = structural giveaway, 3 = strong, 2 = medium, 1 = weak. Every brief is scored against every playbook; highest total wins.",
+  "notes": "Six playbooks, one per kind of job a WCM author actually gets. Each one carries only what that job needs and the literal steps to do it in each CMS. Signal weights: 4 = structural giveaway, 3 = strong, 2 = medium, 1 = weak. Every brief is scored against every playbook; highest total wins.",
 
   "cms": {
     "damHosts": ["adobecqms.net"],
@@ -243,6 +243,55 @@
           "Fill in the page metadata: meta title, meta description, meta keywords.",
           "Images — open the named asset in Adobe DAM, choose Smart Crop, pick the preset for the slot, copy the embed URL, and paste it into the component.",
           "Save the page, then publish it."
+        ]
+      }
+    },
+
+    {
+      "id": "keyword-update",
+      "label": "Keyword update",
+      "summary": "Set the primary keyword on each page in a keyword mapping sheet. The keyword only — not the title, description or copy.",
+      "signals": [
+        { "term": "primary keyword", "weight": 3 },
+        { "term": "primary keywords", "weight": 3 },
+        { "term": "target keyword", "weight": 3 },
+        { "term": "focus keyword", "weight": 3 },
+        { "term": "keyword mapping", "weight": 3 },
+        { "term": "secondary keyword", "weight": 2 },
+        { "term": "secondary keywords", "weight": 2 },
+        { "term": "page type", "weight": 2 },
+        { "term": "keyword", "weight": 2 }
+      ],
+      "needs": [
+        {
+          "id": "pages",
+          "label": "Page(s) to update",
+          "question": "Which pages does this cover? Give the full URL for each row.",
+          "detect": [{ "signal": "hasSiteUrl" }]
+        },
+        {
+          "id": "primary_keyword",
+          "label": "Primary keyword per page",
+          "question": "Which keyword should each page target?",
+          "detect": [{ "regex": "primary keyword|target keyword|focus keyword|keyword\\s*:" }]
+        }
+      ],
+      "steps": {
+        "AEM": [
+          "Open AEM Sites and navigate to the page.",
+          "Open Page Properties and set the keyword field to the primary keyword given for that row.",
+          "Leave the meta title, meta description and body copy exactly as they are — this job is the keyword only.",
+          "Save, then publish the page.",
+          "Check the published page's metadata carries the keyword.",
+          "Repeat for every row in the sheet, working down in priority order."
+        ],
+        "Tridion": [
+          "Find the site folder, then the page from its URL structure (or open it by TCM ID).",
+          "Open the page's metadata and set the keyword field to the primary keyword given for that row.",
+          "Leave the meta title, meta description and body copy exactly as they are — this job is the keyword only.",
+          "Save, then publish the page.",
+          "Check the published page's metadata carries the keyword.",
+          "Repeat for every row in the sheet, working down in priority order."
         ]
       }
     },
