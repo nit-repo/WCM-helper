@@ -46,7 +46,6 @@
       ],
       "steps": {
         "AEM": [
-          "Confirm the CMS from the source URL — no .aspx means the site is on AEM.",
           "Open AEM Author → Tools → ACS Commons → Redirect Manager.",
           "Select the redirect configuration for this site.",
           "Add one row per pair: Source = the old path, Target = the destination URL, Status = 301.",
@@ -55,7 +54,6 @@
           "Open a source URL in a private window and confirm it lands on the destination."
         ],
         "Tridion": [
-          "Confirm the CMS from the source URL — .aspx means the site is on Tridion.",
           "Find the site folder in Tridion for that domain.",
           "Check which redirect mechanism this site uses, then follow either A or B below.",
           "A — Redirect component: open Building Blocks → the Redirection folder → create a new redirect component holding the source and destination → save.",
@@ -108,7 +106,6 @@
       ],
       "steps": {
         "AEM": [
-          "Confirm the CMS from the page URL — no .aspx means AEM.",
           "Open AEM Sites and navigate to the page.",
           "Find the component holding the content named in the brief.",
           "Make the change exactly as the brief states.",
@@ -118,7 +115,6 @@
           "Publish, then check the live URL in a private window."
         ],
         "Tridion": [
-          "Confirm the CMS from the page URL — .aspx means Tridion.",
           "Find the site folder, then the page from its URL structure (or open it by TCM ID).",
           "Open the component holding the content named in the brief.",
           "Make the change exactly as the brief states.",
@@ -176,7 +172,6 @@
       ],
       "steps": {
         "AEM": [
-          "Confirm the CMS from the URL path — no .aspx means AEM.",
           "In AEM Sites, open the parent folder for that path and create the page from the right template. Set the page name to the last segment of the URL path.",
           "Open Page Properties and set the meta title, meta description and meta keywords from the brief.",
           "Work down the brief section by section, adding the component each section calls for and filling in its heading and body.",
@@ -186,7 +181,6 @@
           "Preview the page, then publish."
         ],
         "Tridion": [
-          "Confirm the CMS from the URL path — .aspx means Tridion.",
           "Find the site folder and the parent structure group matching the URL path.",
           "Create the page from the right page template.",
           "Create the components the brief calls for in Building Blocks and add them to the page in the brief's order.",
@@ -240,7 +234,6 @@
       ],
       "steps": {
         "AEM": [
-          "Confirm the CMS and the target market site.",
           "Open the market's page in AEM Sites — it already carries the English master content rolled out from the master.",
           "Go component by component in the brief's order, replacing the English text with the local-language text from the brief.",
           "Update each component's config as the brief states: CTA labels, link paths, anchor targets, spec table values.",
@@ -249,7 +242,6 @@
           "Publish, then check the live URL in a private window."
         ],
         "Tridion": [
-          "Confirm the CMS and the target market site.",
           "Find the market's site folder — the English master content is already there, ready to localize.",
           "Open each component in the brief's order and replace the English text with the local-language text from the brief.",
           "Update each component's config as the brief states: CTA labels, link paths, anchor targets, spec table values.",

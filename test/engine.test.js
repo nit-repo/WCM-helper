@@ -296,6 +296,22 @@ test('15. every brief is scored against every playbook, and carries its signals'
   });
 });
 
+test('15a. no recipe step re-asks a question the analysis has already answered', function () {
+  // Block 1 states the CMS and the reason it decided. A step telling the
+  // author to work it out again is noise, and one phrased around .aspx also
+  // contradicts how detection actually works.
+  config['work-types'].workTypes.forEach(function (playbook) {
+    ['AEM', 'Tridion'].forEach(function (cms) {
+      playbook.steps[cms].forEach(function (step) {
+        assert.ok(!/confirm the cms|determine the cms|check (which )?cms/i.test(step),
+          playbook.id + '/' + cms + ' re-asks for the CMS: ' + step);
+        assert.ok(!/\.aspx/i.test(step),
+          playbook.id + '/' + cms + ' restates the .aspx rule: ' + step);
+      });
+    });
+  });
+});
+
 test('16. an empty brief guesses nothing', function () {
   var a = engine.analyse('');
 
