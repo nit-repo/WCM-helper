@@ -33,12 +33,28 @@ function allQuestions(a) { return a.questions.join(' | '); }
 // ─── FIXTURES ────────────────────────────────────────────────────────────
 // Four real briefs, one per playbook.
 
-var DENMARK_REDIRECTS = [
+// The x column marks each source page for removal, so this sheet is a
+// takedown, not a plain redirect.
+var DENMARK_TAKEDOWN = [
   'https://www.kone.dk/dxexperiments.aspx\tx\thttps://www.kone.dk/',
   'https://www.kone.dk/searchresults.aspx\tx\thttps://www.kone.dk/',
   'https://www.kone.dk/campaign/\tx\thttps://www.kone.dk/',
   'https://www.kone.dk/campaign/24-7-connect-escalators/\tx\thttps://www.kone.dk/',
   'https://www.kone.dk/nyheder-referencer-historier/nyheder/kone-top-klima-performer.aspx\tx\thttps://www.kone.dk/'
+].join('\n');
+
+// The same shape with no x: the old URLs move, the pages themselves stay.
+var PLAIN_REDIRECTS = [
+  'https://www.kone.dk/old-services/\thttps://www.kone.dk/services/',
+  'https://www.kone.dk/old-maintenance/\thttps://www.kone.dk/maintenance/'
+].join('\n');
+
+var UK_IE_REMOVAL = [
+  'Please remove this reference as been superseded by updated version:',
+  '',
+  'https://www.kone.co.uk/stories-and-references/references/engineering-the-project-of-a-lifetime.aspx',
+  '',
+  'https://www.kone.ie/stories-and-references/references/engineering-the-project-of-a-lifetime.aspx'
 ].join('\n');
 
 var CYPRUS_PARAGRAPH = [
@@ -98,7 +114,7 @@ console.log('WCM Brief Analyser — verification\n');
 // ─── 1. Redirect ─────────────────────────────────────────────────────────
 
 test('1. redirect list with no word "redirect" in it → redirect, from the URL-pair rows alone', function () {
-  var a = engine.analyse(DENMARK_REDIRECTS);
+  var a = engine.analyse(PLAIN_REDIRECTS);
 
   assert.strictEqual(a.workType.id, 'redirect', 'expected redirect, got ' + a.workType.id);
   assert.ok(a.workType.confident, 'should be a confident call');
@@ -111,7 +127,7 @@ test('1. redirect list with no word "redirect" in it → redirect, from the URL-
 });
 
 test('2. redirect brief → Tridion, because the source URLs carry .aspx', function () {
-  var a = engine.analyse(DENMARK_REDIRECTS);
+  var a = engine.analyse('Redirect https://www.kone.dk/old.aspx to https://www.kone.dk/new/');
 
   assert.strictEqual(a.cms.value, 'Tridion', 'expected Tridion, got ' + a.cms.value);
   assert.ok(/\.aspx/.test(a.cms.reason), 'the reason should name the marker it read: ' + a.cms.reason);
@@ -183,7 +199,7 @@ test('4. redirect with a source but no destination → asks for the destination 
 });
 
 test('5. redirect asks nothing about components, assets, markets or environments', function () {
-  var a = engine.analyse(DENMARK_REDIRECTS);
+  var a = engine.analyse(PLAIN_REDIRECTS);
   var q = allQuestions(a);
 
   assert.ok(!/component/i.test(q), 'must not ask for components');
@@ -191,6 +207,53 @@ test('5. redirect asks nothing about components, assets, markets or environments
   assert.ok(!/market|region|country/i.test(q), 'must not ask for markets');
   assert.ok(!/environment|dev|qa|prod/i.test(q), 'must not ask for environments');
   assert.ok(!/approver|approval|sign.?off/i.test(q), 'must not ask for an approver');
+});
+
+// ─── Page removal ────────────────────────────────────────────────────────
+// A takedown is not a content update and not a plain redirect. The page comes
+// off the live site AND its URL has to land somewhere, so a removal brief
+// that names no replacement is incomplete however complete it looks.
+
+test('5a. "remove this reference, superseded" → removal, and it is NOT ready', function () {
+  var a = engine.analyse(UK_IE_REMOVAL);
+
+  assert.strictEqual(a.workType.id, 'removal', 'expected removal, got ' + a.workType.id);
+  assert.ok(a.workType.confident, 'should be a confident call');
+  assert.deepStrictEqual(ids(a.needs.missing), ['destination_url'],
+    'the replacement URL is the one thing this brief never gives');
+  assert.ok(!a.ready, 'a removal with nowhere to redirect must never read as ready to action');
+  assert.ok(/supersede/i.test(allQuestions(a)), 'it should ask which URL supersedes them: ' + allQuestions(a));
+});
+
+test('5b. removal unpublishes the page and leaves it in the CMS', function () {
+  var a = engine.analyse(UK_IE_REMOVAL);
+  var steps = JSON.stringify(a.steps);
+
+  assert.strictEqual(a.cms.value, 'Tridion', 'both URLs carry .aspx');
+  assert.ok(/unpublish/i.test(steps), 'the recipe should unpublish the page');
+  assert.ok(/not deleting it|not deleting/i.test(steps), 'and say the page stays in the CMS');
+  assert.ok(/404/i.test(steps), 'and check the old URL no longer 404s');
+  assert.ok(/every market/i.test(steps), 'and cover both markets in the brief');
+});
+
+test('5c. the x column marks a takedown, not a plain redirect', function () {
+  var takedown = engine.analyse(DENMARK_TAKEDOWN);
+  var redirects = engine.analyse(PLAIN_REDIRECTS);
+
+  assert.strictEqual(takedown.workType.id, 'removal', 'x column → removal, got ' + takedown.workType.id);
+  assert.ok(
+    takedown.workType.matched.some(function (m) { return m.label === 'removalMarkers'; }),
+    'the x column should be among the signals that decided it'
+  );
+  assert.strictEqual(redirects.workType.id, 'redirect', 'same shape without x → redirect');
+  assert.ok(takedown.ready, 'the sheet pairs every source with a destination, so nothing is missing');
+});
+
+test('5d. removing a paragraph is still a content update, not a page removal', function () {
+  var a = engine.analyse(CYPRUS_PARAGRAPH);
+
+  assert.strictEqual(a.workType.id, 'content-update',
+    'removing something on a page is not removing the page: got ' + a.workType.id);
 });
 
 // ─── 2. Content update ───────────────────────────────────────────────────
@@ -345,7 +408,7 @@ test('19. determinism — the same brief analyses identically twice', function (
 });
 
 test('20. no brief is ever asked for something outside its own playbook', function () {
-  var briefs = [DENMARK_REDIRECTS, CYPRUS_PARAGRAPH, INDIA_BLOG, SLOVENIA_LOCALIZATION];
+  var briefs = [PLAIN_REDIRECTS, DENMARK_TAKEDOWN, UK_IE_REMOVAL, CYPRUS_PARAGRAPH, INDIA_BLOG, SLOVENIA_LOCALIZATION];
 
   briefs.forEach(function (brief) {
     var a = engine.analyse(brief);

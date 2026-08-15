@@ -18,11 +18,12 @@ npm test      # 20 verification cases
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
 
-## The four playbooks
+## The five playbooks
 
 | Job | Needs | Where the work happens |
 |---|---|---|
 | **Redirect** | source URL(s), destination URL(s) | AEM: ACS Commons Redirect Manager. Tridion: a redirect component in Building Blocks, or the source page's metadata |
+| **Page removal** | page(s) to remove, replacement URL | The page is unpublished — it stays in the CMS — and its old URL is redirected to whatever supersedes it |
 | **Content update** | target URL, what to change | The page's component. Covers copy, images, links, and components added, removed or moved |
 | **New page** | URL path, meta title, meta description, section content | Page created from a template, then built section by section down the brief |
 | **Localization** | target market site, page path, localized content | The English master already exists — each component's text is replaced with the market's own language |
@@ -43,7 +44,7 @@ Assets now live in Adobe DAM whichever CMS serves the page, so a `adobecqms.net`
 index.html            UI
 app.js                renders the engine's result — no analysis of its own
 engine.js             classify → detect CMS → check needs → return steps
-config/work-types.json  the four playbooks
-test/engine.test.js   20 cases, fixtures are real briefs
+config/work-types.json  the five playbooks
+test/engine.test.js   29 cases, fixtures are real briefs
 serve.js              local static server
 ```

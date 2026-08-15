@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "notes": "Four playbooks, one per kind of job a WCM author actually gets. Each one carries only what that job needs and the literal steps to do it in each CMS. Signal weights: 4 = structural giveaway, 3 = strong, 2 = medium, 1 = weak. Every brief is scored against every playbook; highest total wins.",
+  "notes": "Five playbooks, one per kind of job a WCM author actually gets. Each one carries only what that job needs and the literal steps to do it in each CMS. Signal weights: 4 = structural giveaway, 3 = strong, 2 = medium, 1 = weak. Every brief is scored against every playbook; highest total wins.",
 
   "cms": {
     "damHosts": ["adobecqms.net"],
@@ -61,6 +61,62 @@
           "B — Page metadata: find the source page from the URL structure, or open it by TCM ID → open the page → fill the redirect fields in its metadata → save.",
           "B — Publish the page.",
           "Open a source URL in a private window and confirm it lands on the destination."
+        ]
+      }
+    },
+
+    {
+      "id": "removal",
+      "label": "Page removal",
+      "summary": "Take a page off the live site because something supersedes it, and send its URL to the replacement.",
+      "signals": [
+        { "signal": "removalMarkers", "weight": 5 },
+        { "term": "superseded", "weight": 3 },
+        { "term": "supersedes", "weight": 3 },
+        { "term": "decommission", "weight": 3 },
+        { "term": "unpublish", "weight": 3 },
+        { "term": "take down", "weight": 3 },
+        { "term": "remove this reference", "weight": 3 },
+        { "term": "remove the page", "weight": 3 },
+        { "term": "remove this page", "weight": 3 },
+        { "term": "delete the page", "weight": 3 },
+        { "term": "no longer needed", "weight": 2 },
+        { "term": "retire", "weight": 2 },
+        { "term": "remove", "weight": 2 }
+      ],
+      "needs": [
+        {
+          "id": "pages_to_remove",
+          "label": "Page(s) to remove",
+          "question": "Which page(s) are being taken down? Give the full URL for each one.",
+          "detect": [{ "signal": "hasSiteUrl" }]
+        },
+        {
+          "id": "destination_url",
+          "label": "Replacement URL to redirect to",
+          "question": "Which URL supersedes these — where should the old URLs land once the pages are down?",
+          "detect": [
+            { "signal": "urlPairRows" },
+            { "regex": "(redirect(s|ed)? to|point(s|ing)? to|replaced by|superseded by|replacement is)\\s*:?\\s*<?https?://" }
+          ]
+        }
+      ],
+      "steps": {
+        "AEM": [
+          "Open AEM Sites and navigate to the page.",
+          "Unpublish the page: Manage Publication → Unpublish. Leave the page in AEM — removal here means taking it off the live site, not deleting it.",
+          "Open Tools → ACS Commons → Redirect Manager and add the redirect: Source = the old path, Target = the replacement URL, Status = 301.",
+          "Publish the redirect configuration.",
+          "Open the old URL in a private window and confirm it lands on the replacement rather than a 404.",
+          "Repeat for every market listed in the brief — each country site is its own page and its own redirect."
+        ],
+        "Tridion": [
+          "Find the site folder, then the page from its URL structure (or open it by TCM ID).",
+          "Unpublish the page from the live site. Leave it in Tridion — removal here means taking it off the live site, not deleting it.",
+          "Set up the redirect to the replacement, using whichever mechanism this site uses: Building Blocks → the Redirection folder → a new redirect component, or the old page's metadata.",
+          "Publish the redirect — the redirect root page under root/system/redirects, or the page itself if the redirect sits in its metadata.",
+          "Open the old URL in a private window and confirm it lands on the replacement rather than a 404.",
+          "Repeat for every market listed in the brief — each country site is its own page and its own redirect."
         ]
       }
     },

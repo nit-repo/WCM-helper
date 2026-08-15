@@ -100,12 +100,20 @@
       return l.indexOf('\t') !== -1 && ACCENTED_RE.test(l);
     }).length;
 
+    // A lone "x" in its own column marks the source page for removal. That is
+    // what separates a takedown sheet from a plain redirect sheet: both pair
+    // source with destination, but only a removal also retires the old page.
+    var removalRows = lines.filter(function (l) {
+      return /(^|\t)\s*x\s*(\t|$)/i.test(l) && splitUrls(l, cmsConfig).site.length >= 1;
+    }).length;
+
     return {
       hasSiteUrl: urls.site.length >= 1,
       hasTwoSiteUrls: urls.site.length >= 2,
       hasContentPath: /\/content\/[a-z0-9\-/]+/i.test(text) || /^\s*\/[a-z0-9][a-z0-9\-/]*\/\s*$/im.test(text),
       hasDamAsset: urls.dam.length >= 1 || /aem assets\s*[-–]/i.test(text),
       urlPairRows: countUrlPairRows(text, cmsConfig) >= 1,
+      removalMarkers: removalRows >= 1,
       hasSections: sectionMarkers >= 2,
       hasLongBody: paragraphs >= 3,
       translatedColumns: translatedRows >= 3,
