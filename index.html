@@ -7,22 +7,18 @@
   <title>WCM Brief Analyser</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><g fill='%231450F5'><rect x='1' y='6' width='6' height='20'/><rect x='9' y='6' width='6' height='20'/><rect x='17' y='6' width='6' height='20'/><rect x='25' y='6' width='6' height='20'/></g></svg>">
 
-  <!-- Zero external requests: no CDN, no webfont, no analytics. This runs behind
-       a strict CSP and on an air-gapped network exactly as it does here. -->
+  <!-- Zero external requests: no CDN, no webfont, no analytics. -->
   <style>
     :root {
       --kone-blue: #1450F5;
-      --blue-80: #4373F7;
       --blue-20: #D0DCFD;
       --white: #FFFFFF;
       --black: #141414;
       --sand: #F3EEE6;
       --black-60: #727272;
-      --black-40: #A1A1A1;
       --black-20: #D0D0D0;
       --hairline: #E6E6E6;
       --red: #C42B1C;
-      --red-bg: #FDECEA;
       --amber: #9A6700;
       --amber-bg: #FFF4CE;
       --green: #1A7F37;
@@ -40,50 +36,33 @@
       line-height: 1.5;
     }
 
-    /* Brand moment: solid KONE Blue block, white mark, white text. No gradients. */
     header.navbar {
       background: var(--kone-blue);
       color: var(--white);
       padding: 20px 32px;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 24px;
-      flex-wrap: wrap;
+      gap: 16px;
     }
-    .logo { display: flex; align-items: center; gap: 16px; }
-    .logo svg { height: 26px; width: auto; display: block; }
-    .logo h1 { font-size: 20px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
-    .logo p { margin: 2px 0 0; font-size: 13px; opacity: 0.85; }
-
-    .nav-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    header.navbar svg { height: 24px; width: auto; display: block; }
+    header.navbar h1 { font-size: 19px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+    header.navbar p { margin: 2px 0 0; font-size: 13px; opacity: 0.85; }
 
     button {
-      font: inherit;
-      font-size: 14px;
-      border-radius: 8px;
-      border: 1px solid transparent;
-      padding: 9px 16px;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
+      font: inherit; font-size: 14px; border-radius: 8px;
+      border: 1px solid transparent; padding: 9px 16px; cursor: pointer;
     }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
     .btn-primary { background: var(--kone-blue); color: var(--white); }
     .btn-primary:hover:not(:disabled) { background: #0F3FCC; }
-    .btn-onblue { background: var(--white); color: var(--kone-blue); }
-    .btn-onblue:hover { background: var(--blue-20); }
     .btn-ghost { background: var(--white); color: var(--black); border-color: var(--black-20); }
-    .btn-ghost:hover { background: var(--sand); }
-    .btn-small { padding: 5px 10px; font-size: 13px; }
+    .btn-ghost:hover:not(:disabled) { background: var(--sand); }
 
     main {
       display: grid;
       grid-template-columns: minmax(340px, 5fr) minmax(420px, 7fr);
-      gap: 0;
       align-items: start;
-      min-height: calc(100vh - 88px);
+      min-height: calc(100vh - 84px);
     }
     @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
 
@@ -91,124 +70,68 @@
     .pane-output { padding: 28px 32px; background: #FCFCFC; }
 
     h2.pane-title {
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--black-60);
-      margin: 0 0 12px;
-      font-weight: 600;
+      font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--black-60); margin: 0 0 12px; font-weight: 600;
     }
 
     textarea#brief {
-      width: 100%;
-      min-height: 320px;
-      padding: 14px;
-      border: 1px solid var(--black-20);
-      border-radius: 8px;
-      font: inherit;
-      font-size: 14px;
-      resize: vertical;
-      background: var(--white);
+      width: 100%; min-height: 340px; padding: 14px;
+      border: 1px solid var(--black-20); border-radius: 8px;
+      font: inherit; font-size: 14px; resize: vertical; background: var(--white);
     }
     textarea#brief:focus { outline: 2px solid var(--kone-blue); outline-offset: -1px; border-color: var(--kone-blue); }
 
-    .input-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
-    .file-note { font-size: 12px; color: var(--black-60); margin-top: 8px; }
+    .input-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 
-    .cms-override { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--hairline); }
-    .cms-override label { font-size: 13px; color: var(--black-60); display: block; margin-bottom: 6px; }
+    .override { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--hairline); }
+    .override label { font-size: 13px; color: var(--black-60); display: block; margin-bottom: 6px; }
     select {
-      font: inherit; font-size: 14px; padding: 8px 10px;
+      font: inherit; font-size: 14px; padding: 8px 10px; width: 100%;
       border: 1px solid var(--black-20); border-radius: 8px; background: var(--white); color: var(--black);
     }
 
-    /* ---- Results ---- */
-    .empty-state { color: var(--black-60); font-size: 14px; max-width: 46ch; }
+    .empty-state { color: var(--black-60); font-size: 14px; max-width: 48ch; }
     .empty-state ol { padding-left: 18px; }
-
-    .verdict { background: var(--white); border: 1px solid var(--hairline); border-radius: 8px; padding: 18px 20px; margin-bottom: 16px; }
-    .verdict-type { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 4px; }
-    .verdict-meta { font-size: 13px; color: var(--black-60); }
-    .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-    .badge {
-      font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
-      background: var(--sand); color: var(--black);
-    }
-    .badge.blue { background: var(--blue-20); color: #0F3FCC; }
-    .badge.red { background: var(--red-bg); color: var(--red); }
-    .badge.amber { background: var(--amber-bg); color: var(--amber); }
-    .badge.green { background: var(--green-bg); color: var(--green); }
-
-    .ambiguous-note {
-      margin-top: 12px; padding: 10px 12px; border-radius: 8px;
-      background: var(--amber-bg); color: var(--amber); font-size: 13px;
-    }
-
-    details.why { margin-top: 12px; }
-    details.why summary { font-size: 13px; color: var(--kone-blue); cursor: pointer; }
-    details.why table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
-    details.why td { padding: 4px 8px; border-bottom: 1px solid var(--hairline); }
-    details.why td:last-child { text-align: right; color: var(--black-60); width: 90px; }
+    .empty-state code { background: var(--sand); padding: 1px 6px; border-radius: 4px; font-size: 13px; }
 
     section.card {
       background: var(--white); border: 1px solid var(--hairline); border-radius: 8px;
       padding: 16px 20px; margin-bottom: 16px;
     }
     section.card > h3 {
-      margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em;
-      color: var(--black-60); font-weight: 600; display: flex; align-items: center; gap: 8px;
+      margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--black-60); font-weight: 600;
     }
-    section.card.blocks { border-left: 4px solid var(--red); }
-    section.card.risks { border-left: 4px solid var(--amber); }
 
-    ul.plain { list-style: none; padding: 0; margin: 0; }
-    ul.plain > li { padding: 8px 0; border-bottom: 1px solid var(--hairline); font-size: 14px; }
-    ul.plain > li:last-child { border-bottom: 0; }
-    .sub { font-size: 13px; color: var(--black-60); margin-top: 3px; }
+    .headline { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+    .sub { font-size: 13px; color: var(--black-60); margin: 4px 0 0; }
+    .cms { font-size: 13px; color: var(--black-60); margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--hairline); }
+    .cms strong { color: var(--black); }
 
-    .sev { font-weight: 700; font-size: 12px; padding: 2px 7px; border-radius: 4px; margin-right: 8px; }
-    .sev.S1 { background: var(--red-bg); color: var(--red); }
-    .sev.S2 { background: var(--red-bg); color: var(--red); }
-    .sev.S3 { background: var(--amber-bg); color: var(--amber); }
-    .sev.S4 { background: var(--sand); color: var(--black-60); }
-    .standing { opacity: 0.72; }
+    .note { font-size: 13px; margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--sand); }
+    .note.warn { background: var(--amber-bg); color: var(--amber); }
 
-    .meter { height: 8px; border-radius: 999px; background: var(--hairline); overflow: hidden; margin: 6px 0 10px; }
-    .meter > span { display: block; height: 100%; }
-    .meter.green > span { background: var(--green); }
-    .meter.amber > span { background: var(--amber); }
-    .meter.red > span { background: var(--red); }
+    details { margin-top: 12px; }
+    summary { font-size: 13px; color: var(--kone-blue); cursor: pointer; }
+    ul.signals { list-style: none; padding: 0; margin: 10px 0 0; font-size: 13px; }
+    ul.signals li { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--hairline); }
+    ul.signals li:last-child { border-bottom: 0; }
+    ul.signals span:last-child { color: var(--black-60); }
+    ul.signals em { color: var(--black-60); font-style: normal; font-size: 12px; }
 
-    .field-row { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-    .field-row .q { font-size: 13px; color: var(--kone-blue); margin-top: 3px; }
-    .tick { color: var(--green); font-weight: 700; }
-    .cross { color: var(--red); font-weight: 700; }
+    ul.needs { list-style: none; padding: 0; margin: 0; font-size: 14px; }
+    ul.needs li { padding: 7px 0; border-bottom: 1px solid var(--hairline); }
+    ul.needs li:last-child { border-bottom: 0; }
+    .tick { color: var(--green); font-weight: 700; margin-right: 8px; }
+    .cross { color: var(--red); font-weight: 700; margin-right: 8px; }
 
     ol.steps { padding-left: 20px; margin: 0; font-size: 14px; }
     ol.steps li { padding: 5px 0; }
-    ol.steps code {
-      font-size: 11px; background: var(--sand); padding: 1px 6px; border-radius: 4px;
-      color: var(--black-60); margin-left: 6px;
-    }
 
-    .answer-box { display: flex; gap: 8px; margin-top: 8px; }
-    .answer-box input {
-      flex: 1; font: inherit; font-size: 13px; padding: 7px 10px;
-      border: 1px solid var(--black-20); border-radius: 8px;
-    }
+    ul.questions { padding-left: 20px; margin: 10px 0 0; font-size: 14px; }
+    ul.questions li { padding: 5px 0; }
 
-    .queue-item { padding: 10px 0; border-bottom: 1px solid var(--hairline); font-size: 14px; }
-    .queue-item:last-child { border-bottom: 0; }
-
-    dialog {
-      border: 1px solid var(--hairline); border-radius: 8px; padding: 0;
-      max-width: 640px; width: 92%; color: var(--black);
-    }
-    dialog::backdrop { background: rgba(20, 20, 20, 0.45); }
-    .dialog-head { padding: 16px 20px; border-bottom: 1px solid var(--hairline); display: flex; justify-content: space-between; align-items: center; }
-    .dialog-head h3 { margin: 0; font-size: 16px; }
-    .dialog-body { padding: 16px 20px; max-height: 60vh; overflow-y: auto; }
-    .dialog-foot { padding: 12px 20px; border-top: 1px solid var(--hairline); display: flex; justify-content: flex-end; gap: 8px; }
+    .ready { font-size: 14px; color: var(--green); background: var(--green-bg); padding: 10px 12px; border-radius: 8px; margin: 0; }
 
     .toast {
       position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
@@ -221,92 +144,57 @@
 
 <body>
   <header class="navbar">
-    <div class="logo">
-      <svg viewBox="0 0 1193.36 461.76" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="KONE">
-        <rect x="0" y="0" width="269.36" height="461.76" fill="#FFFFFF"></rect>
-        <rect x="307.84" y="0" width="269.36" height="461.76" fill="#FFFFFF"></rect>
-        <rect x="615.67" y="0" width="269.36" height="461.76" fill="#FFFFFF"></rect>
-        <rect x="924.01" y="0" width="269.36" height="461.76" fill="#FFFFFF"></rect>
-        <path d="M48.22 132.07 100.91 132.07 100.91 218.29 166.14 132.07 228.2 132.07 156.18 225.09 233.14 329.69 168.65 329.69 100.91 236.06 100.91 329.69 48.22 329.69 48.22 132.07Z" fill="#1450F5"></path>
-        <path d="M662.48 132.07 708.51 132.07 789.32 239.42 789.32 132.07 838.22 132.07 838.22 329.69 794.28 329.69 711.22 214.01 711.22 329.69 662.48 329.69 662.48 132.07Z" fill="#1450F5"></path>
-        <path d="M442.5 127.72C385.71 127.72 340.03 169.65 340.03 230.84 340.03 292.03 385.71 334.04 442.5 334.04 499.29 334.04 544.99 292.02 544.99 230.84 544.99 169.66 499.31 127.72 442.5 127.72ZM442.5 287.4C414.42 287.4 392.72 264.39 392.72 230.85 392.72 197.31 414.41 174.3 442.5 174.3 470.59 174.3 492.27 197.39 492.27 230.85 492.27 264.31 470.5 287.4 442.5 287.4Z" fill="#1450F5"></path>
-        <path d="M1133.44 175.62 1036 175.62 1036 209.03 1117.47 209.03 1117.45 251.34 1036 251.34 1036 284.85 1133.44 284.85 1133.44 329.71 983.93 329.71 983.93 132.05 1133.44 132.05 1133.44 175.62Z" fill="#1450F5"></path>
-      </svg>
-      <div>
-        <h1>WCM Brief Analyser</h1>
-        <p>Deterministic analysis of AEM and Tridion work briefs</p>
-      </div>
-    </div>
-    <div class="nav-actions">
-      <button id="queue-btn" class="btn-onblue" type="button">Review queue (<span id="queue-count">0</span>)</button>
-      <button id="export-btn" class="btn-onblue" type="button" disabled>Export to Excel</button>
+    <svg viewBox="0 0 1193.36 461.76" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="KONE">
+      <rect x="0" y="0" width="269.36" height="461.76" fill="#FFFFFF"></rect>
+      <rect x="307.84" y="0" width="269.36" height="461.76" fill="#FFFFFF"></rect>
+      <rect x="615.67" y="0" width="269.36" height="461.76" fill="#FFFFFF"></rect>
+      <rect x="924.01" y="0" width="269.36" height="461.76" fill="#FFFFFF"></rect>
+      <path d="M48.22 132.07 100.91 132.07 100.91 218.29 166.14 132.07 228.2 132.07 156.18 225.09 233.14 329.69 168.65 329.69 100.91 236.06 100.91 329.69 48.22 329.69 48.22 132.07Z" fill="#1450F5"></path>
+      <path d="M662.48 132.07 708.51 132.07 789.32 239.42 789.32 132.07 838.22 132.07 838.22 329.69 794.28 329.69 711.22 214.01 711.22 329.69 662.48 329.69 662.48 132.07Z" fill="#1450F5"></path>
+      <path d="M442.5 127.72C385.71 127.72 340.03 169.65 340.03 230.84 340.03 292.03 385.71 334.04 442.5 334.04 499.29 334.04 544.99 292.02 544.99 230.84 544.99 169.66 499.31 127.72 442.5 127.72ZM442.5 287.4C414.42 287.4 392.72 264.39 392.72 230.85 392.72 197.31 414.41 174.3 442.5 174.3 470.59 174.3 492.27 197.39 492.27 230.85 492.27 264.31 470.5 287.4 442.5 287.4Z" fill="#1450F5"></path>
+      <path d="M1133.44 175.62 1036 175.62 1036 209.03 1117.47 209.03 1117.45 251.34 1036 251.34 1036 284.85 1133.44 284.85 1133.44 329.71 983.93 329.71 983.93 132.05 1133.44 132.05 1133.44 175.62Z" fill="#1450F5"></path>
+    </svg>
+    <div>
+      <h1>WCM Brief Analyser</h1>
+      <p>What kind of job is this, what does it need, and how is it done</p>
     </div>
   </header>
 
   <main>
     <div class="pane-input">
       <h2 class="pane-title">Brief</h2>
-      <textarea id="brief" placeholder="Paste the brief here — an email, a ticket description, or a paragraph from a stakeholder.
-&#10;&#10;Example: Please update the Header EXF in AEM. Add a new Level 1 nav item to the mega menu pointing at /content/frontlines/uk/en/services. Roll out from Master EN to Region Master AME, then to all country sites. PROD. Approver: [Approver Name]."></textarea>
+      <textarea id="brief" placeholder="Paste the brief here — a ticket, an email, a spreadsheet of URLs, a page of copy."></textarea>
 
       <div class="input-actions">
-        <button id="analyse-btn" class="btn-primary" type="button">Analyse brief</button>
-        <button id="upload-btn" class="btn-ghost" type="button">Upload file</button>
+        <button id="analyse-btn" class="btn-primary" type="button" disabled>Analyse</button>
         <button id="sample-btn" class="btn-ghost" type="button">Load sample</button>
         <button id="clear-btn" class="btn-ghost" type="button">Clear</button>
-        <input type="file" id="file-input" accept=".txt,.md,.docx" hidden>
+        <button id="copy-btn" class="btn-ghost" type="button" disabled>Copy questions</button>
       </div>
-      <p class="file-note">Accepts .txt, .md and .docx. Nothing leaves the browser — no upload, no network call.</p>
 
-      <div class="cms-override">
+      <div class="override">
+        <label for="type-select">Work type — override if the call is wrong</label>
+        <select id="type-select">
+          <option value="">Let the analyser decide</option>
+        </select>
+      </div>
+
+      <div class="override">
         <label for="cms-select">CMS platform</label>
         <select id="cms-select">
-          <option value="">Auto-detect</option>
+          <option value="">Read it from the site URL</option>
           <option value="AEM">AEM</option>
           <option value="Tridion">Tridion</option>
         </select>
       </div>
-
-      <div class="cms-override">
-        <label for="type-select">Work type (override the classification if it is wrong)</label>
-        <select id="type-select">
-          <option value="">Use the engine's classification</option>
-        </select>
-      </div>
     </div>
 
-    <div class="pane-output" id="output">
-      <h2 class="pane-title">Analysis</h2>
-      <div class="empty-state">
-        <p>Paste a brief and hit <strong>Analyse brief</strong>. The analyser reports, in priority order:</p>
-        <ol>
-          <li>Hard blocks that stop the work starting at all</li>
-          <li>Scope risks — multi-market bundling, approval SLA, known bugs</li>
-          <li>Completeness score against the required fields for that work type</li>
-          <li>Effort tier, components, assets, and the CMS-specific execution steps</li>
-        </ol>
-        <p>Every classification shows the keywords that produced it, so you can check its working rather than trust it.</p>
-      </div>
-    </div>
+    <div class="pane-output" id="output"></div>
   </main>
-
-  <dialog id="queue-dialog">
-    <div class="dialog-head">
-      <h3>Correction review queue</h3>
-      <button class="btn-ghost btn-small" type="button" data-close-dialog>Close</button>
-    </div>
-    <div class="dialog-body" id="queue-body"></div>
-    <div class="dialog-foot">
-      <button id="queue-clear" class="btn-ghost btn-small" type="button">Clear log</button>
-      <button class="btn-primary btn-small" type="button" data-close-dialog>Done</button>
-    </div>
-  </dialog>
 
   <div class="toast" id="toast"></div>
 
   <script src="engine.js"></script>
-  <script src="export.js"></script>
-  <script src="feedback.js"></script>
   <script src="app.js"></script>
 </body>
 
