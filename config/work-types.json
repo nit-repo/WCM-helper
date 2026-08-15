@@ -5,8 +5,10 @@
   "cms": {
     "damHosts": ["adobecqms.net"],
     "damPathMarkers": ["/content/dam/", "assetdetails.html", "assets.html"],
+    "aemMarkets": [".in", ".ae", ".us", ".fr"],
     "tridionMarkers": [".aspx"],
-    "note": "All assets live in Adobe DAM now whichever CMS serves the site, so DAM links never decide the CMS. Only the target site URL does: .aspx means Tridion, anything else means AEM."
+    "default": "Tridion",
+    "note": "The estate is mid-migration and most of it is still Tridion, so AEM is the exception: only the markets listed in aemMarkets have moved. Add a market here when it migrates. A .aspx page is Tridion whatever market it sits on. All assets live in Adobe DAM now whichever CMS serves the site, so DAM links never decide the platform — only the target site URL does."
   },
 
   "workTypes": [

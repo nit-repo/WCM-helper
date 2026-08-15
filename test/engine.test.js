@@ -127,9 +127,49 @@ test('3. AEM redirect → ACS Commons Redirect Manager, not the Tridion route', 
   var a = engine.analyse('Redirect https://www.kone.in/old-services to https://www.kone.in/services');
 
   assert.strictEqual(a.workType.id, 'redirect');
-  assert.strictEqual(a.cms.value, 'AEM', 'no .aspx means the site is migrated');
+  assert.strictEqual(a.cms.value, 'AEM', 'kone.in is a migrated market');
   assert.ok(/ACS Commons/i.test(JSON.stringify(a.steps)), 'the AEM recipe should name ACS Commons');
   assert.ok(!/Building Blocks/i.test(JSON.stringify(a.steps)), 'the AEM recipe should not mention Tridion Building Blocks');
+});
+
+// ─── CMS detection ───────────────────────────────────────────────────────
+// Most of the estate is still Tridion. AEM is the exception, so a URL with no
+// .aspx in it proves nothing on its own — kone.co.uk is the case that caught
+// the old "no .aspx means migrated" rule out.
+
+test('3a. kone.co.uk has no .aspx and is still Tridion', function () {
+  var a = engine.analyse('Update the intro copy on https://www.kone.co.uk/existing-buildings/');
+
+  assert.strictEqual(a.cms.value, 'Tridion', 'got ' + a.cms.value + ' — ' + a.cms.reason);
+  assert.ok(/not one of the migrated markets/i.test(a.cms.reason), 'the reason should name the rule: ' + a.cms.reason);
+});
+
+test('3b. every migrated market resolves to AEM', function () {
+  [
+    'https://www.kone.in/services/',
+    'https://www.kone.ae/services/',
+    'https://www.kone.us/services/',
+    'https://www.kone.fr/services/'
+  ].forEach(function (url) {
+    var a = engine.analyse('Update the intro copy on ' + url);
+    assert.strictEqual(a.cms.value, 'AEM', url + ' → ' + a.cms.value);
+    assert.ok(/migrated market/i.test(a.cms.reason), 'the reason should name the rule: ' + a.cms.reason);
+  });
+});
+
+test('3c. non-migrated markets resolve to Tridion', function () {
+  ['https://www.kone.dk/', 'https://www.kone.si/', 'https://www.kone.com.cy/', 'https://www.kone.lt/']
+    .forEach(function (url) {
+      var a = engine.analyse('Update the intro copy on ' + url);
+      assert.strictEqual(a.cms.value, 'Tridion', url + ' → ' + a.cms.value);
+    });
+});
+
+test('3d. an .aspx page is Tridion even on a migrated market', function () {
+  var a = engine.analyse('Update the intro copy on https://www.kone.in/legacy/services.aspx');
+
+  assert.strictEqual(a.cms.value, 'Tridion', 'the page itself is un-migrated: ' + a.cms.reason);
+  assert.ok(/\.aspx/.test(a.cms.reason), 'the reason should name the marker it read: ' + a.cms.reason);
 });
 
 test('4. redirect with a source but no destination → asks for the destination only', function () {
@@ -159,7 +199,7 @@ test('6. "delete this paragraph" + a URL → content update, nothing missing', f
   var a = engine.analyse(CYPRUS_PARAGRAPH);
 
   assert.strictEqual(a.workType.id, 'content-update', 'expected content-update, got ' + a.workType.id);
-  assert.strictEqual(a.cms.value, 'AEM', 'kone.com.cy has no .aspx');
+  assert.strictEqual(a.cms.value, 'Tridion', 'kone.com.cy is not a migrated market');
   assert.strictEqual(a.needs.missing.length, 0, 'where and what are both here: ' + ids(a.needs.missing));
   assert.strictEqual(a.questions.length, 0, 'a complete brief gets no questions back');
   assert.ok(a.ready);

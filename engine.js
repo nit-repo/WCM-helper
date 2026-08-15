@@ -116,26 +116,45 @@
 
   // ─── CMS ─────────────────────────────────────────────────────────────────
 
+  function hostOf(url) {
+    var m = /^https?:\/\/([^/?#]+)/i.exec(url);
+    return m ? m[1].toLowerCase().replace(/:\d+$/, '') : '';
+  }
+
+  // Most of the estate is still Tridion, so AEM is the exception rather than
+  // the default: a market is on AEM only once it appears in aemMarkets. A page
+  // ending .aspx is Tridion whatever market it sits on, which is what an
+  // un-migrated page on an otherwise-migrated site looks like.
   function detectCms(text, cmsConfig, signals, override) {
     if (override) return { value: override, reason: 'Set by hand.' };
 
+    var urls = signals._urls.site;
+    if (!urls.length) {
+      return { value: 'Unknown', reason: 'No target site URL in the brief, so the platform cannot be read off it.' };
+    }
+
     var markers = cmsConfig.tridionMarkers || [];
-    var hit = null;
-    signals._urls.site.forEach(function (url) {
-      if (hit) return;
+    var aspx = null;
+    urls.forEach(function (url) {
+      if (aspx) return;
       markers.forEach(function (mk) {
-        if (!hit && url.toLowerCase().indexOf(mk.toLowerCase()) !== -1) hit = { url: url, marker: mk };
+        if (!aspx && url.toLowerCase().indexOf(mk.toLowerCase()) !== -1) aspx = { url: url, marker: mk };
       });
     });
+    if (aspx) return { value: 'Tridion', reason: 'The page URL carries ' + aspx.marker + ' — ' + aspx.url };
 
-    if (hit) return { value: 'Tridion', reason: 'The site URL carries ' + hit.marker + ' — ' + hit.url };
-    if (signals.hasSiteUrl) {
-      return {
-        value: 'AEM',
-        reason: 'No .aspx in the site URL, so the site has been migrated to AEM — ' + signals._urls.site[0]
-      };
-    }
-    return { value: 'Unknown', reason: 'No target site URL in the brief, so the platform cannot be read off it.' };
+    var host = hostOf(urls[0]);
+    var market = (cmsConfig.aemMarkets || []).filter(function (suffix) {
+      return host.slice(-suffix.length) === suffix.toLowerCase();
+    })[0];
+
+    if (market) return { value: 'AEM', reason: host + ' is a migrated market (' + market + ').' };
+
+    return {
+      value: cmsConfig['default'] || 'Tridion',
+      reason: host + ' is not one of the migrated markets (' +
+        (cmsConfig.aemMarkets || []).join(', ') + '), so it is still on Tridion.'
+    };
   }
 
   // ─── CLASSIFICATION ──────────────────────────────────────────────────────
