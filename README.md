@@ -46,7 +46,11 @@ Two limits worth stating plainly:
 
 **Some defects need no brief at all.** A link still pointing at `href="#"`, a call to action that is bare text with no link, and a stat card whose figure contradicts its own caption — `70%` above "Até 74% de poupança energética" — are all reported from the page alone. All three were found on a real KONE page.
 
-Anchors that are legitimately `href="#"` are left alone: back-to-top and skip links by label, accordion and tab toggles by their ARIA attributes. Add market-language labels to `compare.safeAnchorLabels` in the config. A stat and its caption are paired by distance **in text, not markup** — a real card puts a dozen wrapper divs between them, and a window counted in raw characters missed the contradiction on the page it was built for.
+Anchors that are legitimately `href="#"` are left alone: back-to-top and skip links by label, accordion and tab toggles by their ARIA attributes. Add market-language labels to `compare.safeAnchorLabels` in the config.
+
+**The stat check reads text, not tags.** Two earlier versions of it missed the `70%` over "Até 74%" on the real page because they keyed off the element holding the figure — the tag list left out headings, nested markup hid the number, and a window counted in raw characters put the caption out of range behind a dozen wrapper divs. It now reads the page's text nodes, so no amount of template nesting hides a figure. A row of bare numbers is not mistaken for a caption: the text after a figure has to be words, not the next cell of a table.
+
+**Findings that need no brief survive a brief that could not be read.** Placeholder links, dead CTAs, contradictory stats and a heading used twice are reported under both guards. Categories that found nothing are withheld rather than shown empty, because an empty category reads as a pass and nothing in it was checked.
 
 **Body text is matched paragraph first, then sentence by sentence.** A brief cell holding two sentences is often rendered by the page in two separate elements, so the paragraph never appears as one continuous string. Only when the whole paragraph fails does the tool descend to sentences, which keeps a fragment from matching by accident while letting correctly-built pages pass.
 
@@ -76,7 +80,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 107 verification cases across the four modules
+npm test      # 115 verification cases across the four modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -113,7 +117,7 @@ filler.js               find the row from its English master → carry the marku
 readers.js              .docx / .xlsx / .csv → text, with no dependencies
 config/work-types.json  the six playbooks, plus the compare settings
 test/engine.test.js     32 cases, fixtures are real briefs
-test/compare.test.js    50 cases, deviations planted one per category
+test/compare.test.js    58 cases, deviations planted one per category
 test/readers.test.js    9 cases, run against real ZIP bytes
 test/filler.test.js     16 cases, including markup that must never be guessed
 serve.js                local static server

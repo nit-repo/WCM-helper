@@ -267,7 +267,12 @@
     // look nothing like one.
     if (result.unreadable) {
       el.output.innerHTML = head + section('Could not read the brief',
-        '<p class="note warn">' + esc(result.note) + '</p>');
+        '<p class="note warn">' + esc(result.note) + '</p>') +
+        (result.categories.length
+          ? '<p class="tally"><b>' + result.breaks + '</b> to fix, <b>' + result.checks +
+            '</b> to check by eye — from the page alone.</p>' +
+            result.categories.map(renderCategory).join('')
+          : '');
       return;
     }
 

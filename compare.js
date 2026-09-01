@@ -162,6 +162,20 @@
     return patterns.some(function (p) { return text.indexOf(String(p).toLowerCase()) !== -1; });
   }
 
+  // The visible text in document order, one entry per run between tags. Lets
+  // a check reason about what a reader sees without depending on which
+  // elements a template happened to wrap it in.
+
+  function textNodes(html) {
+    var out = [], re = /<[^>]*>/g, last = 0, m;
+    while ((m = re.exec(html)) !== null) {
+      if (m.index > last) out.push(html.slice(last, m.index));
+      last = re.lastIndex;
+    }
+    if (last < html.length) out.push(html.slice(last));
+    return out;
+  }
+
   function stripTags(html) {
     return normalise(String(html).replace(/<[^>]*>/g, ' '));
   }
@@ -250,30 +264,56 @@
       if (label2 && inner.indexOf('<a') === -1) deadCtas.push(label2);
     }
 
-    // A stat card is a short element holding just a figure, captioned by the
-    // text that follows it. When the figure and the caption disagree, the page
-    // contradicts itself and no brief is needed to see it.
-    var statConflicts = [], sm;
-    var sre = /<(span|div|strong|p)\b[^>]*>\s*((?:\d[\d.,]*)\s*%)\s*<\/\1>/gi;
-    while ((sm = sre.exec(region.html)) !== null) {
-      var figure = normalise(sm[2]).replace(/\s+/g, '');
-      // Measure the gap in text, not markup. A stat card on a real template
-      // puts several wrapper divs with long class lists between the figure and
-      // its caption, and a window counted in raw characters falls short of a
-      // caption sitting directly underneath it on screen. This is why the
-      // 70%/74% contradiction on the KONE Portugal page went unreported.
-      var from = sm.index + sm[0].length;
-      var after = stripTags(region.html.slice(from, from + 6000)).slice(0, 200);
-      var caption = /((?:\d[\d.,]*)\s*%)/.exec(after);
-      if (!caption) continue;
-      var captionFigure = caption[1].replace(/\s+/g, '');
-      if (captionFigure !== figure) {
-        var end = after.indexOf('.', caption.index);
-        statConflicts.push({
-          figure: figure,
-          caption: after.slice(0, end === -1 ? Math.min(after.length, caption.index + 60) : end + 1).trim()
-        });
+    // A stat card is a figure standing on its own, captioned by the text that
+    // follows it. When the two disagree the page contradicts itself, and no
+    // brief is needed to see it.
+    //
+    // Deliberately structure-independent. Earlier versions keyed off the tag
+    // holding the figure and kept missing real cards: the tag list left out
+    // headings, the figure had to be the tag's entire content so nested markup
+    // hid it, and a non-breaking space between the number and its percent sign
+    // broke the match. Reading the text nodes instead means the markup around
+    // the figure — however a template chooses to nest it — cannot hide it.
+    var statConflicts = [];
+    var statNodes = textNodes(region.html.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, ''))
+      .map(function (t) { return normalise(t); })
+      .filter(function (t) { return t !== ''; });
+
+    for (var si = 0; si < statNodes.length; si++) {
+      var node = statNodes[si], figure = null, nextAt = si + 1;
+
+      if (/^\d[\d.,]*\s*%$/.test(node)) {
+        figure = node.replace(/\s+/g, '');
+      } else if (/^\d[\d.,]*$/.test(node) && /^%/.test(statNodes[si + 1] || '')) {
+        // Templates that style the percent sign separately split it off.
+        figure = node + '%';
+        nextAt = si + 2;
       }
+      if (!figure) continue;
+
+      // A caption is prose, not the next cell of a table. A row of bare
+      // figures reads as figure-then-different-figure and would otherwise be
+      // reported as a contradiction on every column. Two conditions keep that
+      // out: the text immediately after must not itself be a bare figure, and
+      // the window must contain actual words. The cost is a caption whose own
+      // percentage is styled into a separate element, which is rare enough to
+      // be worth trading for silence on data tables.
+      if (/^\d[\d.,]*\s*%?$/.test(statNodes[nextAt] || '')) continue;
+
+      var after = statNodes.slice(nextAt).join(' ').slice(0, 200);
+      if ((after.match(/[A-Za-z\u00C0-\u024F]/g) || []).length < 3) continue;
+
+      var caption = /(\d[\d.,]*\s*%)/.exec(after);
+      if (!caption) continue;
+
+      var captionFigure = caption[1].replace(/\s+/g, '');
+      if (captionFigure === figure) continue;
+
+      var stop = after.indexOf('.', caption.index);
+      statConflicts.push({
+        figure: figure,
+        caption: after.slice(0, stop === -1 ? Math.min(after.length, caption.index + 60) : stop + 1).trim()
+      });
     }
 
     return {
@@ -512,13 +552,6 @@
       });
     });
 
-    var seen = {};
-    page.headings.forEach(function (h) {
-      var k = normalise(h.text).toLowerCase();
-      if (!k) return;
-      if (seen[k]) { if (seen[k] === 1) out.push({ expected: h.text, note: 'section appears more than once on the page', severity: 'break' }); seen[k]++; }
-      else seen[k] = 1;
-    });
     return out;
   }
 
@@ -593,6 +626,19 @@
 
   function structureDeviations(expect, page) {
     var out = [];
+
+    // A heading that appears twice is a structural fault and needs no brief to
+    // be one, so it is reported whether or not the brief listed any sections.
+    var seen = {};
+    page.headings.forEach(function (h) {
+      var k = normalise(h.text).toLowerCase();
+      if (!k) return;
+      if (seen[k]) {
+        if (seen[k] === 1) out.push({ expected: h.text, note: 'this heading appears more than once on the page', severity: 'break' });
+        seen[k]++;
+      } else seen[k] = 1;
+    });
+
     if (!expect.sections.length) return out;
     var pageHeadings = page.headings.map(function (h) { return normalise(h.text).toLowerCase(); });
     var cursor = -1;
@@ -603,6 +649,34 @@
       cursor = Math.max(cursor, at);
     });
     return out;
+  }
+
+  // The five categories with every brief-derived finding removed — what the
+  // page says about itself. Used by both guards: a brief that could not be
+  // read and a brief that was read wrongly should still surface these.
+
+  function pageOnlyCategories(page, cfg) {
+    var expect = { mode: null, metadata: {}, sections: [], body: [], images: [], links: [] };
+    var categories = [
+      { id: 'metadata', label: 'Metadata', deviations: metadataDeviations(expect, page) },
+      { id: 'body', label: 'Body Text', deviations: bodyDeviations(expect, page) },
+      { id: 'images', label: 'Images', deviations: imageDeviations(expect, page, cfg.assetVariantPattern) },
+      { id: 'links', label: 'Hyperlinks / CTAs', deviations: linkDeviations(expect, page) },
+      { id: 'structure', label: 'Structure', deviations: structureDeviations(expect, page) }
+    ];
+    var breaks = 0, checks = 0;
+    categories.forEach(function (c) {
+      c.deviations = c.deviations.filter(function (d) { return !d.fromBrief; });
+      c.deviations.forEach(function (d) { if (d.severity === 'check') checks++; else breaks++; });
+    });
+    // An empty category here would render as "No deviations", and nothing in
+    // it was checked — that is the false pass these guards exist to prevent.
+    // Only categories that actually found something are shown.
+    return {
+      categories: categories.filter(function (c) { return c.deviations.length > 0; }),
+      breaks: breaks,
+      checks: checks
+    };
   }
 
   function create(config) {
@@ -635,18 +709,25 @@
         expect.sections.length + expect.body.length + expect.images.length + expect.links.length;
 
       if (expectationCount === 0) {
+        // Nothing to compare against does not mean nothing to say. The checks
+        // that read the page alone — placeholder links, dead CTAs, a figure
+        // that contradicts its caption, a heading used twice — are as true
+        // without a brief as with one, so they are still reported here.
+        var pageOnly = pageOnlyCategories(page, cfg);
         return {
           generatedAt: new Date().toISOString(),
           supported: true,
           unreadable: true,
           workTypeId: workTypeId,
           mode: expect.mode,
+          regionVia: page.regionVia,
           note: 'Nothing could be read out of this brief, so there was nothing to compare the page against — ' +
                 'this is not a pass. A localization brief needs either tab-separated columns or the localized ' +
-                'copy as text; a new-page brief needs its Meta Title, Meta Description and URL Path lines.',
-          breaks: 0,
-          checks: 0,
-          categories: []
+                'copy as text; a new-page brief needs its Meta Title, Meta Description and URL Path lines. ' +
+                'The findings below come from the page alone and need no brief to be right.',
+          breaks: pageOnly.breaks,
+          checks: pageOnly.checks,
+          categories: pageOnly.categories
         };
       }
 
@@ -682,13 +763,7 @@
 
       if (expectationCount >= 8 && missRate >= 0.9) {
         // Keep what needs no brief to be right — those findings still stand.
-        categories.forEach(function (c) {
-          c.deviations = c.deviations.filter(function (d) { return !d.fromBrief; });
-        });
-        var pageBreaks = 0, pageChecks = 0;
-        categories.forEach(function (c) {
-          c.deviations.forEach(function (d) { if (d.severity === 'check') pageChecks++; else pageBreaks++; });
-        });
+        var pageView = pageOnlyCategories(page, cfg);
         return {
           generatedAt: new Date().toISOString(),
           supported: true,
@@ -705,9 +780,9 @@
                 (expect.mode === 'columns' ? 'a table, so check the column order and that no row has been torn in half.'
                                            : 'prose, so check that its table columns survived the paste — an Excel or ' +
                                              'Word brief should be uploaded rather than pasted.'),
-          breaks: pageBreaks,
-          checks: pageChecks,
-          categories: categories
+          breaks: pageView.breaks,
+          checks: pageView.checks,
+          categories: pageView.categories
         };
       }
 

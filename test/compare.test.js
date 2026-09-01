@@ -28,7 +28,10 @@ function test(name, fn) {
 }
 
 function cat(result, id) {
-  return result.categories.filter(function (c) { return c.id === id; })[0].deviations;
+  // A category the tool withheld reported nothing, which is what the callers
+  // asking "was this flagged?" mean by an empty list.
+  var found = result.categories.filter(function (c) { return c.id === id; })[0];
+  return found ? found.deviations : [];
 }
 function textOf(deviations) { return JSON.stringify(deviations); }
 
@@ -135,11 +138,18 @@ test('5. body text — a reworded sentence is caught', function () {
   assert.ok(/advanced door sensors/.test(d[0].expected), 'should quote the brief copy that went missing');
 });
 
-test('6. body text — a duplicated section is caught', function () {
+test('6. structure — a duplicated heading is caught, with or without a brief', function () {
+  // Reported under Structure, not Body Text: the finding is about the shape of
+  // the page, and it needs no brief to be true.
   var doubled = CLEAN_MAIN + '<h2>Emergency Braking Systems</h2><p>Duplicate block.</p>';
-  var d = cat(comparer.compare(BRIEF, page({ main: doubled }), { workTypeId: 'new-page' }), 'body');
+  var d = cat(comparer.compare(BRIEF, page({ main: doubled }), { workTypeId: 'new-page' }), 'structure');
 
   assert.ok(d.some(function (x) { return /more than once/.test(x.note); }), 'reported: ' + textOf(d));
+
+  // Same page, a brief that names no sections at all.
+  var bare = cat(comparer.compare('Nothing to say here.', page({ main: doubled }), { workTypeId: 'localization' }), 'structure');
+  assert.ok(bare.some(function (x) { return /more than once/.test(x.note); }),
+    'a page-only fault must not depend on the brief: ' + textOf(bare));
 });
 
 test('7. images — an asset named in the brief but absent from the page is caught', function () {
@@ -341,8 +351,11 @@ test('14h. a brief that parses to nothing is reported unreadable, never clean', 
   var r = comparer.compare('a\nb\nc', CLEAN, { workTypeId: 'new-page' });
 
   assert.strictEqual(r.unreadable, true, 'must say it could not read the brief');
-  assert.strictEqual(r.categories.length, 0, 'and must not show five empty categories');
   assert.ok(/not a pass/i.test(r.note), 'and must say so in as many words: ' + r.note);
+  r.categories.forEach(function (c) {
+    assert.ok(c.deviations.length > 0,
+      'a category with nothing in it renders as "No deviations" and reads as a pass: ' + c.label);
+  });
 });
 
 test('14i. a localization brief written as prose still produces expectations', function () {
@@ -590,8 +603,11 @@ test('28. failing nearly every expectation is reported as a parse failure, not d
 
   assert.strictEqual(r.parseFailed, true, 'a near-total miss is evidence about the parse');
   assert.ok(/misread brief/i.test(r.note), r.note);
-  cat(r, 'body').forEach(function (d) {
-    assert.ok(!d.fromBrief, 'brief-derived findings must be withheld: ' + JSON.stringify(d));
+  r.categories.forEach(function (c) {
+    assert.ok(c.deviations.length > 0, 'an empty category would read as a pass: ' + c.label);
+    c.deviations.forEach(function (d) {
+      assert.ok(!d.fromBrief, 'brief-derived findings must be withheld: ' + JSON.stringify(d));
+    });
   });
 });
 
@@ -674,6 +690,77 @@ test('35. a percentage far away in reading order is not treated as a caption', f
 
   assert.deepStrictEqual(comparer.readPage(page).statConflicts, [],
     'unrelated figures elsewhere on the page must not pair up');
+});
+
+// The 70%/74% contradiction on the real KONE Portugal page went unreported
+// through two rounds of fixes, because the detector kept depending on which
+// elements the template wrapped the figure in. It no longer looks at tags.
+
+var STAT_CAPTION = '<h6>Até 74% de poupança energética.</h6>';
+
+function statsIn(markup) {
+  return comparer.readPage('<html><body><main>' + markup + '</main></body></html>').statConflicts;
+}
+
+test('36. a contradicting figure is caught whatever markup holds it', function () {
+  var shapes = {
+    'a span': '<span>70%</span>',
+    'a heading': '<h2>70%</h2>',
+    'a heading the old tag list left out': '<h4><strong>70%</strong></h4>',
+    'nested elements': '<div class="big"><span>70%</span></div>',
+    'the percent sign styled separately': '<span>70</span><span>%</span>',
+    'a non-breaking space before the sign': '<span>70&nbsp;%</span>',
+    'a link around the figure': '<a href="/x"><span>70%</span></a>'
+  };
+
+  Object.keys(shapes).forEach(function (name) {
+    var found = statsIn(shapes[name] + STAT_CAPTION);
+    assert.strictEqual(found.length, 1, 'missed when the figure sits in ' + name);
+    assert.strictEqual(found[0].figure, '70%');
+  });
+});
+
+test('37. wrapper markup between a figure and its caption is not distance', function () {
+  var wrappers = '<div class="proof-point-card-inner-wrapper text-center">'.repeat(14);
+
+  assert.strictEqual(statsIn('<h2>70%</h2>' + wrappers + STAT_CAPTION).length, 1);
+});
+
+test('38. a figure that agrees with its caption is never reported', function () {
+  assert.deepStrictEqual(statsIn('<h2>74%</h2>' + STAT_CAPTION), []);
+});
+
+test('39. a row of bare figures is not a figure and a caption', function () {
+  // Reading text instead of tags makes a data table look like a stat card
+  // followed by a different number. It is not, and must stay silent.
+  assert.deepStrictEqual(statsIn('<table><tr><td>70%</td><td>74%</td><td>88%</td></tr></table>'), []);
+  assert.deepStrictEqual(statsIn('<table><tr><td>70%</td><td>74%</td><td>Energy</td></tr></table>'), []);
+});
+
+test('40. consecutive stat cards do not caption each other', function () {
+  var cards =
+    '<div><span>70%</span><h6>Até 70% de poupança.</h6></div>' +
+    '<div><span>88%</span><h6>Até 88% mais rápido.</h6></div>';
+
+  assert.deepStrictEqual(statsIn(cards), []);
+});
+
+test('41. percentages in running prose are not stat cards', function () {
+  assert.deepStrictEqual(statsIn('<p>Reduza o consumo em 70% e melhore 74% da eficiência.</p>'), []);
+});
+
+test('42. an unreadable brief still reports what the page says about itself', function () {
+  var page = '<html><body><main><h2>Repetido</h2><h2>Repetido</h2>' +
+    '<a href="#">Saiba mais</a><span>70%</span><h6>Até 74% de poupança.</h6></main></body></html>';
+
+  var r = comparer.compare('x\ny\nz', page, { workTypeId: 'new-page' });
+
+  assert.strictEqual(r.unreadable, true);
+  assert.ok(r.breaks > 0, 'these need no brief to be true');
+  var all = textOf(r.categories);
+  assert.ok(/more than once/.test(all), all);
+  assert.ok(/placeholder/.test(all), all);
+  assert.ok(/disagree/.test(all), all);
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
