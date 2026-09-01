@@ -263,9 +263,17 @@
       return;
     }
 
-    var region = result.regionVia
-      ? '<p class="region-note">Read the page content from: ' + esc(result.regionVia) + '</p>'
-      : '';
+    // Five empty categories would read as a pass. An unreadable brief has to
+    // look nothing like one.
+    if (result.unreadable) {
+      el.output.innerHTML = head + section('Could not read the brief',
+        '<p class="note warn">' + esc(result.note) + '</p>');
+      return;
+    }
+
+    var region = '<p class="region-note">Read the page content from: ' + esc(result.regionVia || 'the page body') +
+      ' · brief read as <b>' + esc(result.mode || 'labelled') + '</b>, ' + result.expectations +
+      ' things to check</p>';
 
     var tally = '<p class="tally"><b>' + result.breaks + '</b> to fix, <b>' + result.checks +
       '</b> to check by eye.</p>';

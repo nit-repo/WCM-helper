@@ -332,6 +332,96 @@ test('14. a redirect brief has no page to read, and the comparer says so', funct
   assert.ok(/following the URL/i.test(r.note), 'and should say how to check it instead: ' + r.note);
 });
 
+// ─── A comparison that never happened ────────────────────────────────────
+// The bug this suite exists for: a real Portuguese brief and the real KONE
+// Portugal page came back "No deviations" in all five categories, because the
+// brief parsed to nothing and nothing compared against a page finds nothing.
+
+test('14h. a brief that parses to nothing is reported unreadable, never clean', function () {
+  var r = comparer.compare('a\nb\nc', CLEAN, { workTypeId: 'new-page' });
+
+  assert.strictEqual(r.unreadable, true, 'must say it could not read the brief');
+  assert.strictEqual(r.categories.length, 0, 'and must not show five empty categories');
+  assert.ok(/not a pass/i.test(r.note), 'and must say so in as many words: ' + r.note);
+});
+
+test('14i. a localization brief written as prose still produces expectations', function () {
+  var prose = [
+    'Impulsione a sustentabilidade e reduza o consumo energético',
+    'A KONE Modernization oferece-lhe um plano de ciclo de vida com melhorias inteligentes que prolongam a vida útil dos seus equipamentos.',
+    'Até 74% de poupança de energia'
+  ].join('\n');
+
+  var r = comparer.compare(prose, CLEAN, { workTypeId: 'localization' });
+
+  assert.strictEqual(r.unreadable, false, 'prose is readable');
+  assert.strictEqual(r.mode, 'prose', 'and the mode is stated: ' + r.mode);
+  assert.ok(r.expectations > 0);
+  assert.ok(r.breaks > 0, 'copy that is not on the page must be reported');
+});
+
+test('14j. a tab-separated localization brief still parses by column', function () {
+  var r = comparer.compare(
+    'Meta title\tKONE\tKONE Portugal\nHeadline\tUpgrades\tModernizações\nBody\tFast\tRápida',
+    CLEAN, { workTypeId: 'localization' });
+
+  assert.strictEqual(r.mode, 'columns', 'got ' + r.mode);
+});
+
+// ─── Defects the page shows without any brief ────────────────────────────
+
+test('14k. placeholder and link-less calls to action are caught', function () {
+  var main = CLEAN_MAIN +
+    '<div class="actions"><a class="ctalink" href="#">Saiba mais</a></div>' +
+    '<div class="actions">Learn more</div>';
+  var d = cat(comparer.compare(BRIEF, page({ main: main }), { workTypeId: 'new-page' }), 'links');
+
+  assert.ok(d.some(function (x) { return /placeholder href/.test(x.note); }), 'href="#" missed: ' + textOf(d));
+  assert.ok(d.some(function (x) { return /bare text with no link/.test(x.note); }), 'dead CTA missed: ' + textOf(d));
+  d.forEach(function (x) { assert.strictEqual(x.severity, 'break', 'these are never intentional'); });
+});
+
+test('14l. an in-page anchor is a real destination, not a placeholder', function () {
+  var main = CLEAN_MAIN + '<a href="#item-136420">Jump to the form</a>';
+  var d = cat(comparer.compare(BRIEF, page({ main: main }), { workTypeId: 'new-page' }), 'links');
+
+  assert.ok(!d.some(function (x) { return /placeholder/.test(x.note); }), 'reported: ' + textOf(d));
+});
+
+test('14m. a figure that contradicts its own caption is caught', function () {
+  // Straight from the live page: the card reads 70% above "Até 74%".
+  var main = CLEAN_MAIN +
+    '<div class="highlight"><span>70%</span></div><h6>Até 74% de poupança energética.</h6>';
+  var d = cat(comparer.compare(BRIEF, page({ main: main }), { workTypeId: 'new-page' }), 'body');
+  var conflict = d.filter(function (x) { return /disagree/.test(x.note); })[0];
+
+  assert.ok(conflict, 'reported: ' + textOf(d));
+  assert.strictEqual(conflict.expected, '70%');
+  assert.ok(/74%/.test(conflict.found), 'the caption should be quoted back: ' + conflict.found);
+});
+
+test('14n. a figure that agrees with its caption is not reported', function () {
+  var main = CLEAN_MAIN +
+    '<div class="highlight"><span>70%</span></div><h6>Até 70% de poupança energética.</h6>';
+  var d = cat(comparer.compare(BRIEF, page({ main: main }), { workTypeId: 'new-page' }), 'body');
+
+  assert.ok(!d.some(function (x) { return /disagree/.test(x.note); }), 'false alarm: ' + textOf(d));
+});
+
+test('14o. a lazy-loaded image resolves to the asset, not the placeholder', function () {
+  var loader = '/Content/ajax-loader-big.gif?t=20260724';
+  var real = 'https://s7g10.scene7.com/is/image/kone/2_2-9:760x428';
+
+  ['<img data-src="' + real + '" src="' + loader + '" alt="a">',
+   '<img src="' + loader + '" data-src="' + real + '" alt="a">'].forEach(function (tag) {
+    var img = comparer.readPage('<html><body><main>' + tag + '</main></body></html>').images[0];
+    assert.strictEqual(img.src, real, 'attribute order must not matter: ' + tag);
+  });
+
+  var plain = comparer.readPage('<html><body><main><img src="plain.jpg" alt="a"></main></body></html>').images[0];
+  assert.strictEqual(plain.src, 'plain.jpg', 'a normal image is untouched');
+});
+
 // ─── Cross-cutting ───────────────────────────────────────────────────────
 
 test('15. determinism — the same pair compares identically twice', function () {

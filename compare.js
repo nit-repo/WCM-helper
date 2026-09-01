@@ -97,10 +97,25 @@
 
   var CHROME_RE = /<(nav|header|footer|script|style|noscript|svg)\b[^>]*>[\s\S]*?<\/\1>/gi;
 
+  // The leading (?:^|[\s]) matters: without it, a search for "src" happily
+  // matches inside "data-src", which is how a lazy-loading placeholder and the
+  // real image can swap places depending on attribute order.
   function attr(tag, name) {
-    var m = new RegExp(name + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i').exec(tag);
+    var m = new RegExp('[\\s]' + name + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i').exec(tag);
     if (!m) return '';
     return decodeEntities(m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]);
+  }
+
+  // A lazy-loaded image carries the placeholder in src and the real asset in
+  // data-src. Prefer whichever actually names an asset.
+  var PLACEHOLDER_RE = /ajax-loader|\bloader\b|\bblank\.|\bspacer\.|data:image\/gif|1x1\./i;
+
+  function imageSrc(tag) {
+    var src = attr(tag, 'src');
+    var lazy = attr(tag, 'data-src') || attr(tag, 'data-original') || attr(tag, 'data-lazy-src');
+    if (!src) return lazy;
+    if (lazy && PLACEHOLDER_RE.test(src)) return lazy;
+    return src;
   }
 
   function stripTags(html) {
@@ -158,14 +173,50 @@
 
     var images = [], im, ire = /<img\b[^>]*>/gi;
     while ((im = ire.exec(region.html)) !== null) {
-      images.push({ src: attr(im[0], 'src'), alt: attr(im[0], 'alt') });
+      images.push({ src: imageSrc(im[0]), alt: attr(im[0], 'alt') });
     }
 
-    var links = [], lm, lre = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
+    var links = [], placeholders = [], lm, lre = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
     while ((lm = lre.exec(region.html)) !== null) {
       var href = attr('<a ' + lm[1] + '>', 'href');
-      if (!href || href.charAt(0) === '#') continue;
-      links.push({ href: href, text: stripTags(lm[2]) });
+      var label = stripTags(lm[2]);
+      // href="#" and an empty href are placeholders someone meant to fill in.
+      // An in-page anchor (#item-123) is a real destination and is not.
+      if (!href || href === '#') { placeholders.push({ href: href, text: label }); continue; }
+      if (href.charAt(0) === '#') continue;
+      links.push({ href: href, text: label });
+    }
+
+    // A call to action rendered as bare text: the label shipped, the link did
+    // not. Matches a single-level container, which is how these are written.
+    var deadCtas = [], cm;
+    var cre = new RegExp('<(?:div|p|span)\\b[^>]*class\\s*=\\s*["\'][^"\']*\\b(?:' +
+      ((cfg && cfg.ctaContainers) || ['actions', 'cta', 'ctalink']).join('|') +
+      ')\\b[^"\']*["\'][^>]*>([\\s\\S]*?)</(?:div|p|span)>', 'gi');
+    while ((cm = cre.exec(region.html)) !== null) {
+      var inner = cm[1];
+      var label2 = stripTags(inner);
+      if (label2 && inner.indexOf('<a') === -1) deadCtas.push(label2);
+    }
+
+    // A stat card is a short element holding just a figure, captioned by the
+    // text that follows it. When the figure and the caption disagree, the page
+    // contradicts itself and no brief is needed to see it.
+    var statConflicts = [], sm;
+    var sre = /<(span|div|strong|p)\b[^>]*>\s*((?:\d[\d.,]*)\s*%)\s*<\/\1>/gi;
+    while ((sm = sre.exec(region.html)) !== null) {
+      var figure = normalise(sm[2]).replace(/\s+/g, '');
+      var after = stripTags(region.html.slice(sm.index + sm[0].length, sm.index + sm[0].length + 500));
+      var caption = /((?:\d[\d.,]*)\s*%)/.exec(after);
+      if (!caption) continue;
+      var captionFigure = caption[1].replace(/\s+/g, '');
+      if (captionFigure !== figure) {
+        var end = after.indexOf('.', caption.index);
+        statConflicts.push({
+          figure: figure,
+          caption: after.slice(0, end === -1 ? Math.min(after.length, caption.index + 60) : end + 1).trim()
+        });
+      }
     }
 
     return {
@@ -177,6 +228,9 @@
       headings: headings,
       images: images,
       links: links,
+      placeholderLinks: placeholders,
+      deadCtas: deadCtas,
+      statConflicts: statConflicts,
       text: stripTags(region.html),
       regionVia: region.via
     };
@@ -207,10 +261,25 @@
 
   function readBrief(text, workTypeId) {
     text = String(text == null ? '' : text);
-    var expect = { metadata: {}, sections: [], body: [], images: [], links: [] };
+    var expect = { mode: null, metadata: {}, sections: [], body: [], images: [], links: [] };
     var i, m;
 
     if (workTypeId === 'localization') {
+      // Localization briefs arrive both ways: a table with an English master
+      // column, or the localized copy as prose. Columns are exact, so use them
+      // when they are there and fall back to prose when they are not.
+      var tabular = text.split(/\r?\n/).filter(function (l) { return l.split('\t').length >= 3; }).length;
+      if (tabular < 2) {
+        expect.mode = 'prose';
+        text.split(/\r?\n/).forEach(function (line) {
+          var v = line.trim();
+          if (!v) return;
+          if (v.length <= 80) expect.sections.push(v);
+          else expect.body.push(v);
+        });
+        return expect;
+      }
+      expect.mode = 'columns';
       expect.metadata.title = localisedRow(text, 'Meta title');
       expect.metadata.description = localisedRow(text, 'Meta description');
       ['Headline', 'Subheading', 'Title', 'Body'].forEach(function (label) {
@@ -251,6 +320,7 @@
     }
 
     if (workTypeId === 'keyword-update') {
+      expect.mode = 'columns';
       var rows = text.split(/\r?\n/);
       for (i = 0; i < rows.length; i++) {
         var cells = rows[i].split('\t');
@@ -263,6 +333,7 @@
     }
 
     // new-page, and content-update briefs that carry replacement copy
+    expect.mode = 'labelled';
     expect.metadata.title = labelled(text, 'Meta Title');
     expect.metadata.description = labelled(text, 'Meta Description');
     expect.metadata.keywords = labelled(text, 'Meta Keywords');
@@ -320,6 +391,15 @@
         out.push({ expected: sentence, note: 'not found on the page', severity: 'break' });
       }
     });
+    (page.statConflicts || []).forEach(function (c) {
+      out.push({
+        expected: c.figure,
+        found: c.caption,
+        note: 'the figure and its caption disagree on the page',
+        severity: 'break'
+      });
+    });
+
     var seen = {};
     page.headings.forEach(function (h) {
       var k = normalise(h.text).toLowerCase();
@@ -373,6 +453,19 @@
         out.push({ expected: null, found: l.href, note: 'author or /content/ path published to the live page', severity: 'break' });
       }
     });
+
+    // Neither of these needs the brief to be right about them.
+    (page.placeholderLinks || []).forEach(function (l) {
+      out.push({
+        expected: null,
+        found: l.text || '(no label)',
+        note: l.href === '#' ? 'link still points at the placeholder href="#"' : 'link has no destination',
+        severity: 'break'
+      });
+    });
+    (page.deadCtas || []).forEach(function (label) {
+      out.push({ expected: null, found: label, note: 'call to action is bare text with no link', severity: 'break' });
+    });
     return out;
   }
 
@@ -411,6 +504,30 @@
       var page = readPage(html, cfg);
       var expect = readBrief(briefText, workTypeId);
 
+      // The bug this exists to prevent: zero expectations compared against any
+      // page yields zero deviations, and five empty categories read exactly
+      // like a pass. A comparison that never happened must never look like one
+      // that succeeded.
+      var expectationCount =
+        Object.keys(expect.metadata).filter(function (k) { return expect.metadata[k]; }).length +
+        expect.sections.length + expect.body.length + expect.images.length + expect.links.length;
+
+      if (expectationCount === 0) {
+        return {
+          generatedAt: new Date().toISOString(),
+          supported: true,
+          unreadable: true,
+          workTypeId: workTypeId,
+          mode: expect.mode,
+          note: 'Nothing could be read out of this brief, so there was nothing to compare the page against — ' +
+                'this is not a pass. A localization brief needs either tab-separated columns or the localized ' +
+                'copy as text; a new-page brief needs its Meta Title, Meta Description and URL Path lines.',
+          breaks: 0,
+          checks: 0,
+          categories: []
+        };
+      }
+
       // Real defects first, things to glance at second — a reviewer should
       // never have to read past a low-priority check to find a break.
       function ordered(list) {
@@ -436,7 +553,10 @@
       return {
         generatedAt: new Date().toISOString(),
         supported: true,
+        unreadable: false,
         workTypeId: workTypeId,
+        mode: expect.mode,
+        expectations: expectationCount,
         regionVia: page.regionVia,
         breaks: breaks,
         checks: checks,
