@@ -180,6 +180,37 @@
       padding: 10px 12px; margin: 12px 0 0;
     }
 
+    textarea#english {
+      width: 100%; min-height: 130px; padding: 14px;
+      border: 1px solid var(--black-20); border-radius: 8px;
+      font: inherit; font-size: 14px; resize: vertical; background: var(--white);
+    }
+    textarea#english:focus { outline: 2px solid var(--kone-blue); outline-offset: -1px; border-color: var(--kone-blue); }
+
+    .localized {
+      font-size: 15px; background: var(--green-bg); border-radius: 8px;
+      padding: 12px 14px; margin: 0 0 12px; word-break: break-word;
+    }
+    .localized a { color: var(--kone-blue); }
+    .row-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--black-60); font-weight: 600; }
+    .english-was { font-size: 13px; color: var(--black-60); margin: 10px 0 0; }
+
+    ul.worklist { list-style: none; padding: 0; margin: 0; }
+    ul.worklist > li { padding: 12px 0; border-bottom: 1px solid var(--hairline); display: flex; gap: 12px; align-items: flex-start; }
+    ul.worklist > li:last-child { border-bottom: 0; }
+    ul.worklist > li.done { opacity: 0.45; }
+    ul.worklist input[type=checkbox] { margin-top: 4px; flex: none; width: 16px; height: 16px; }
+    .work-body { flex: 1; min-width: 0; }
+    .work-en { font-size: 13px; color: var(--black-60); margin: 3px 0 0; }
+    .work-local { font-size: 14px; margin: 3px 0 0; word-break: break-word; }
+    .work-copy { flex: none; }
+    .badge-untranslated {
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+      background: var(--sand); color: var(--black-60); padding: 2px 7px; border-radius: 4px; margin-left: 8px;
+    }
+    .progress { font-size: 13px; color: var(--black-60); margin: 0 0 16px; }
+    .progress b { color: var(--black); }
+
     .toast {
       position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
       background: var(--black); color: var(--white); padding: 10px 18px; border-radius: 8px;
@@ -208,6 +239,7 @@
     <div class="tabs" role="tablist">
       <button class="tab" id="tab-analyse" role="tab" aria-selected="true" type="button">Analyse</button>
       <button class="tab" id="tab-compare" role="tab" aria-selected="false" type="button">Compare</button>
+      <button class="tab" id="tab-fill" role="tab" aria-selected="false" type="button">Fill</button>
     </div>
   </header>
 
@@ -219,6 +251,7 @@
       <div class="input-actions">
         <button id="analyse-btn" class="btn-primary" type="button" disabled>Analyse</button>
         <button id="compare-btn" class="btn-primary" type="button" hidden disabled>Compare</button>
+        <button id="fill-btn" class="btn-primary" type="button" hidden disabled>Find localized text</button>
         <button id="brief-upload-btn" class="btn-ghost" type="button">Upload brief</button>
         <button id="sample-btn" class="btn-ghost" type="button">Load sample</button>
         <input type="file" id="brief-file" accept=".docx,.xlsx,.csv,.txt,.md,.html,.htm" hidden>
@@ -244,6 +277,12 @@
         <p class="hint">Nothing leaves the browser. The tool cannot fetch the page itself, so paste or upload it.</p>
       </div>
 
+      <div id="fill-input" hidden>
+        <p class="field-label">English master from the component</p>
+        <textarea id="english" placeholder="Paste the English text sitting in the Tridion component field. Markup is fine — paste the source if the field is rich text."></textarea>
+        <p class="hint">The tool cannot read or write Tridion fields. It finds the row and hands you the localized text; you paste it.</p>
+      </div>
+
       <div class="override">
         <label for="cms-select">CMS platform</label>
         <select id="cms-select">
@@ -262,6 +301,7 @@
   <script src="engine.js"></script>
   <script src="compare.js"></script>
   <script src="readers.js"></script>
+  <script src="filler.js"></script>
   <script src="app.js"></script>
 </body>
 

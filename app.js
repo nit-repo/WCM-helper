@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var state = { engine: null, comparer: null, analysis: null, mode: 'analyse' };
+  var state = { engine: null, comparer: null, filler: null, analysis: null, mode: 'analyse' };
 
   var el = {
     brief: document.getElementById('brief'),
@@ -27,7 +27,11 @@
     htmlClear: document.getElementById('html-clear-btn'),
     htmlFile: document.getElementById('html-file'),
     briefUpload: document.getElementById('brief-upload-btn'),
-    briefFile: document.getElementById('brief-file')
+    briefFile: document.getElementById('brief-file'),
+    tabFill: document.getElementById('tab-fill'),
+    fillInput: document.getElementById('fill-input'),
+    fillBtn: document.getElementById('fill-btn'),
+    english: document.getElementById('english')
   };
 
   var SAMPLE = [
@@ -46,6 +50,7 @@
     .then(function (workTypes) {
       state.engine = window.BriefEngine.create({ 'work-types': workTypes });
       state.comparer = window.BriefCompare.create({ 'work-types': workTypes });
+      state.filler = window.BriefFiller.create();
       state.engine.workTypes.forEach(function (t) {
         var o = document.createElement('option');
         o.value = t.id;
@@ -54,6 +59,7 @@
       });
       el.analyse.disabled = false;
       el.compareBtn.disabled = false;
+      el.fillBtn.disabled = false;
     })
     .catch(function (e) {
       el.output.innerHTML = '<div class="empty-state"><p><strong>Could not load the playbooks.</strong></p>' +
@@ -100,6 +106,8 @@
 
   el.tabAnalyse.addEventListener('click', function () { setMode('analyse'); });
   el.tabCompare.addEventListener('click', function () { setMode('compare'); });
+  el.tabFill.addEventListener('click', function () { setMode('fill'); });
+  el.fillBtn.addEventListener('click', runFill);
   el.compareBtn.addEventListener('click', runCompare);
   el.htmlUpload.addEventListener('click', function () { el.htmlFile.click(); });
   el.htmlClear.addEventListener('click', function () { el.html.value = ''; });
@@ -117,15 +125,21 @@
   // already loaded on the other.
   function setMode(mode) {
     state.mode = mode;
-    var comparing = mode === 'compare';
-    el.tabAnalyse.setAttribute('aria-selected', String(!comparing));
-    el.tabCompare.setAttribute('aria-selected', String(comparing));
-    el.analyse.hidden = comparing;
-    el.compareBtn.hidden = !comparing;
-    el.compareInput.hidden = !comparing;
-    el.copy.hidden = comparing;
+    el.tabAnalyse.setAttribute('aria-selected', String(mode === 'analyse'));
+    el.tabCompare.setAttribute('aria-selected', String(mode === 'compare'));
+    el.tabFill.setAttribute('aria-selected', String(mode === 'fill'));
+
+    el.analyse.hidden = mode !== 'analyse';
+    el.compareBtn.hidden = mode !== 'compare';
+    el.fillBtn.hidden = mode !== 'fill';
+    el.compareInput.hidden = mode !== 'compare';
+    el.fillInput.hidden = mode !== 'fill';
+    el.copy.hidden = mode !== 'analyse';
+
     el.output.innerHTML = '';
-    if (comparing) renderCompareEmpty(); else renderEmpty();
+    if (mode === 'compare') renderCompareEmpty();
+    else if (mode === 'fill') runFill(true);
+    else renderEmpty();
   }
 
   function run() {
@@ -296,6 +310,178 @@
       '<li>Structure — section order, omissions, duplicates</li></ol>' +
       '<p>A category with nothing wrong says <strong>No deviations</strong>. The tool cannot fetch the page ' +
       'itself, so it cannot tell you an image is broken — only that the brief named one the page does not carry.</p></div>';
+  }
+
+  // ─── FILL ────────────────────────────────────────────────────────────────
+
+  function runFill(worklistOnly) {
+    var brief = el.brief.value.trim();
+    if (!brief) { if (worklistOnly !== true) toast('Load the brief first.'); renderFillEmpty(); return; }
+
+    var rows = state.filler.rows(brief);
+    if (!rows.length) {
+      el.output.innerHTML = section('Fill',
+        '<p class="note warn">No table rows found in this brief. The filler reads tab-separated rows — ' +
+        'upload the .docx or .xlsx rather than pasting, so the columns survive.</p>');
+      return;
+    }
+
+    var english = el.english.value.trim();
+    var head = '';
+
+    if (english) {
+      var result = state.filler.fill(brief, english);
+      head = renderFillResult(result);
+    }
+
+    el.output.innerHTML = head + renderWorklist(rows, brief);
+    wireWorklist(brief);
+  }
+
+  function renderFillResult(r) {
+    if (!r.match) {
+      var why = r.how === 'no-english-column'
+        ? 'This brief has no English column, so there is nothing to match against. Work down the list below instead.'
+        : 'No row in the brief carries that English text. Check you copied the whole field, or find it in the list below.';
+      return section('No match', '<p class="note warn">' + esc(why) + '</p>');
+    }
+
+    var c = r.carried;
+    var confidence = '';
+    if (r.how === 'closest') {
+      confidence = '<p class="note warn">Closest match only (' + Math.round(r.confidence * 100) +
+        '% overlap) — check this is the right row before pasting.</p>';
+    } else if (r.how === 'contained') {
+      confidence = '<p class="note">Matched on part of the field rather than the whole of it.</p>';
+    }
+
+    var unplaced = '';
+    if (c.unplaced.length) {
+      unplaced = '<p class="note warn">Could not place ' + c.unplaced.length +
+        (c.unplaced.length === 1 ? ' piece of formatting' : ' pieces of formatting') +
+        ' — the text it wrapped was translated, so re-apply by hand:</p><ul class="questions">' +
+        c.unplaced.map(function (m) {
+          return '<li>' + (m.tag === 'a'
+            ? 'link to <code>' + esc(m.href || '') + '</code> was on “' + esc(m.text) + '”'
+            : '&lt;' + esc(m.tag) + '&gt; was on “' + esc(m.text) + '”') + '</li>';
+        }).join('') + '</ul>';
+    }
+
+    var restored = c.restored.length
+      ? '<p class="note">Carried ' + c.restored.length + ' formatting ' +
+        (c.restored.length === 1 ? 'run' : 'runs') + ' across automatically.</p>'
+      : '';
+
+    return section('Paste this',
+      '<p class="row-label">' + esc(r.match.label) + '</p>' +
+      '<p class="localized">' + c.html + '</p>' +
+      '<button class="btn-primary" type="button" data-copy-html="1">Copy</button>' +
+      confidence + restored + unplaced +
+      '<p class="english-was"><b>English was:</b> ' + esc(r.match.english || '') + '</p>');
+  }
+
+  function renderWorklist(rows, brief) {
+    var done = loadProgress(brief);
+    var doneCount = rows.filter(function (row) { return done[row.index]; }).length;
+
+    var items = rows.map(function (row) {
+      var isDone = !!done[row.index];
+      return '<li class="' + (isDone ? 'done' : '') + '" data-index="' + row.index + '">' +
+        '<input type="checkbox" ' + (isDone ? 'checked' : '') + ' aria-label="Done">' +
+        '<div class="work-body">' +
+        '<span class="row-label">' + esc(row.label) + '</span>' +
+        (row.untranslated ? '<span class="badge-untranslated">same both sides</span>' : '') +
+        (row.english ? '<p class="work-en">' + esc(row.english) + '</p>' : '') +
+        '<p class="work-local">' + esc(row.localized) + '</p>' +
+        '</div>' +
+        '<button class="btn-ghost work-copy" type="button" data-copy-row="' + row.index + '">Copy</button>' +
+        '</li>';
+    }).join('');
+
+    return '<section class="card"><h3>Worklist — ' + rows.length + ' rows</h3>' +
+      '<p class="progress"><b>' + doneCount + '</b> of <b>' + rows.length + '</b> done.</p>' +
+      '<ul class="worklist">' + items + '</ul></section>';
+  }
+
+  function wireWorklist(brief) {
+    var rows = state.filler.rows(brief);
+    var byIndex = {};
+    rows.forEach(function (r) { byIndex[r.index] = r; });
+
+    var htmlBtn = el.output.querySelector('[data-copy-html]');
+    if (htmlBtn) {
+      htmlBtn.addEventListener('click', function () {
+        var node = el.output.querySelector('.localized');
+        copyRich(node.innerHTML, node.textContent);
+      });
+    }
+
+    Array.prototype.forEach.call(el.output.querySelectorAll('[data-copy-row]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var row = byIndex[btn.getAttribute('data-copy-row')];
+        if (row) copyRich(null, row.localized);
+      });
+    });
+
+    Array.prototype.forEach.call(el.output.querySelectorAll('.worklist input[type=checkbox]'), function (box) {
+      box.addEventListener('change', function () {
+        var li = box.closest('li');
+        var done = loadProgress(brief);
+        if (box.checked) done[li.getAttribute('data-index')] = 1;
+        else delete done[li.getAttribute('data-index')];
+        saveProgress(brief, done);
+        li.classList.toggle('done', box.checked);
+        var total = rows.length;
+        var count = Object.keys(done).length;
+        var p = el.output.querySelector('.progress');
+        if (p) p.innerHTML = '<b>' + count + '</b> of <b>' + total + '</b> done.';
+      });
+    });
+  }
+
+  // Writing text/html as well as plain text is what lets a link survive the
+  // paste into a Tridion rich-text field instead of flattening to words.
+  function copyRich(html, text) {
+    if (html && window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+      navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([text], { type: 'text/plain' })
+      })]).then(function () { toast('Copied with formatting.'); },
+               function () { copyPlain(text); });
+      return;
+    }
+    copyPlain(text);
+  }
+
+  function copyPlain(text) {
+    navigator.clipboard.writeText(text)
+      .then(function () { toast('Copied.'); })
+      .catch(function () { toast('Could not copy — select and copy by hand.'); });
+  }
+
+  // Progress is per brief, so switching between two pages does not mix them up.
+  function progressKey(brief) {
+    var hash = 0;
+    for (var i = 0; i < brief.length; i++) { hash = ((hash << 5) - hash + brief.charCodeAt(i)) | 0; }
+    return 'wcm-fill-' + hash;
+  }
+  function loadProgress(brief) {
+    try { return JSON.parse(localStorage.getItem(progressKey(brief)) || '{}'); }
+    catch (e) { return {}; }
+  }
+  function saveProgress(brief, done) {
+    try { localStorage.setItem(progressKey(brief), JSON.stringify(done)); } catch (e) { /* private window */ }
+  }
+
+  function renderFillEmpty() {
+    el.output.innerHTML =
+      '<div class="empty-state"><p>Load a localization brief, then paste the English master sitting in the ' +
+      'Tridion component field. You get back:</p>' +
+      '<ol><li>The localized text for that row, on a Copy button</li>' +
+      '<li>Any links or formatting carried across automatically</li>' +
+      '<li>Anything that could not be placed, listed so it is not lost</li></ol>' +
+      '<p>Below that, the whole brief as a worklist you can tick down. The tool cannot read or write ' +
+      'Tridion fields — it finds the text, you paste it.</p></div>';
   }
 
   // ─── HELPERS ─────────────────────────────────────────────────────────────

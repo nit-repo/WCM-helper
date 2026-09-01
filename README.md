@@ -1,9 +1,10 @@
 # WCM Helper
 
-Two tools behind one page.
+Three tools behind one page.
 
 **Analyse** — paste a work brief, find out what it is and how to do it.
 **Compare** — paste the brief and the HTML of the page that got built, find out where they differ.
+**Fill** — paste the English master from a Tridion component, get the localized text to replace it with.
 
 ## Analyse
 
@@ -35,6 +36,16 @@ Two limits worth stating plainly:
 
 Where the comparer reads the page content from is shown above the results. If it says "body minus nav, header and footer" and the Body Text group fills with menu labels, add the template's content wrapper class to `compare.contentSelectors` in `config/work-types.json`.
 
+## Fill
+
+Localizing in Tridion means opening each component, reading the English master in the field, and finding that row in a brief that may run to a hundred rows. The finding is the slow part. Paste the English you are looking at and the Fill tab returns the localized text on a Copy button, plus the whole brief as a worklist you can tick down — progress is remembered per brief.
+
+**It cannot read or write Tridion fields.** This is a static page on a different origin from the CME, so the author still does the paste. Auto-fill would need a browser extension running inside the CME, which is deferred rather than forgotten.
+
+**Formatting is carried across where it can be placed with certainty.** If the English master held `Learn more about <a href="/maintenance/">KONE Predictive Maintenance</a>` and that product name appears verbatim in the localized text — as brand and product names usually do — the link is reapplied around it, and Copy writes `text/html` so it survives the paste into a rich-text field. Where the anchor text *was* translated, the link cannot be placed deterministically, so it is listed explicitly — *"`<strong>` was on 'design freedom'"* — rather than dropped or guessed into the wrong position. A silently dropped link is a defect the Comparer would only catch two steps later.
+
+Matching runs exact → contained → closest, and a closest match shows its overlap score rather than presenting itself as certain. A brief with no English column says so and falls back to the worklist.
+
 ## Briefs as files
 
 **Upload brief** accepts `.docx`, `.xlsx`, `.csv`, `.txt` and `.md`. Word and Excel files are ZIP containers and are read with the browser's native `DecompressionStream` — no library, so the project still has zero dependencies.
@@ -47,7 +58,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 64 verification cases across the three modules
+npm test      # 80 verification cases across the four modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -76,14 +87,16 @@ Assets now live in Adobe DAM whichever CMS serves the page, so a `adobecqms.net`
 ## Structure
 
 ```
-index.html              UI, two tabs
-app.js                  renders what the two modules return — no analysis of its own
+index.html              UI, three tabs
+app.js                  renders what the modules return — no analysis of its own
 engine.js               classify → detect CMS → check needs → return steps
 compare.js              read the page → read the brief → diff → group by category
+filler.js               find the row from its English master → carry the markup across
 readers.js              .docx / .xlsx / .csv → text, with no dependencies
 config/work-types.json  the six playbooks, plus the compare settings
 test/engine.test.js     32 cases, fixtures are real briefs
 test/compare.test.js    23 cases, deviations planted one per category
 test/readers.test.js    9 cases, run against real ZIP bytes
+test/filler.test.js     16 cases, including markup that must never be guessed
 serve.js                local static server
 ```
