@@ -166,6 +166,20 @@
     section.card.dirty { border-left: 4px solid var(--amber); }
     .region-note { font-size: 12px; color: var(--black-60); margin: 0 0 16px; }
 
+    .sev-tag {
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 2px 7px; border-radius: 4px; margin-right: 8px;
+    }
+    .sev-tag.break { background: var(--amber-bg); color: var(--amber); }
+    .sev-tag.check { background: var(--sand); color: var(--black-60); }
+    ul.devs > li.check .dev-note { color: var(--black-60); font-weight: 400; }
+    .tally { font-size: 13px; color: var(--black-60); margin: 0 0 16px; }
+    .tally b { color: var(--black); }
+    .brief-warning {
+      font-size: 13px; background: var(--sand); border-radius: 8px;
+      padding: 10px 12px; margin: 12px 0 0;
+    }
+
     .toast {
       position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
       background: var(--black); color: var(--white); padding: 10px 18px; border-radius: 8px;
@@ -205,7 +219,9 @@
       <div class="input-actions">
         <button id="analyse-btn" class="btn-primary" type="button" disabled>Analyse</button>
         <button id="compare-btn" class="btn-primary" type="button" hidden disabled>Compare</button>
+        <button id="brief-upload-btn" class="btn-ghost" type="button">Upload brief</button>
         <button id="sample-btn" class="btn-ghost" type="button">Load sample</button>
+        <input type="file" id="brief-file" accept=".docx,.xlsx,.csv,.txt,.md,.html,.htm" hidden>
         <button id="clear-btn" class="btn-ghost" type="button">Clear</button>
         <button id="copy-btn" class="btn-ghost" type="button" disabled>Copy questions</button>
       </div>
@@ -245,6 +261,7 @@
 
   <script src="engine.js"></script>
   <script src="compare.js"></script>
+  <script src="readers.js"></script>
   <script src="app.js"></script>
 </body>
 

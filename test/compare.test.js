@@ -218,6 +218,110 @@ test('13. localization — the local column is what must appear, not the English
     'the Slovenian body copy is missing from the page: ' + textOf(cat(r, 'body')));
 });
 
+// ─── URL identity ────────────────────────────────────────────────────────
+// The same page has a different URL in every environment. Comparing raw URLs
+// makes every link a deviation, which buries the ones that matter.
+
+test('14a. an environment difference in a URL is not a deviation', function () {
+  var briefPreview = BRIEF.replace(
+    'URL Path: https://www.kone.in/blog/lift-safety-features',
+    'URL Path: https://preview.kone.in/blog/lift-safety-features.aspx'
+  );
+  var d = cat(comparer.compare(briefPreview, CLEAN, { workTypeId: 'new-page' }), 'metadata');
+
+  assert.strictEqual(d.length, 0,
+    'preview/.aspx vs www/extensionless is the same page: ' + textOf(d));
+});
+
+test('14b. a genuinely different path is still a deviation', function () {
+  var briefWrong = BRIEF.replace('/blog/lift-safety-features', '/blog/escalator-safety');
+  var d = cat(comparer.compare(briefWrong, CLEAN, { workTypeId: 'new-page' }), 'metadata');
+
+  assert.ok(d.some(function (x) { return /Canonical/.test(x.field); }),
+    'a different path must still be caught: ' + textOf(d));
+});
+
+test('14c. pathOf strips scheme, host, extension and trailing slash — not the query', function () {
+  assert.strictEqual(comparer.pathOf('https://preview.kone.in/services.aspx'), '/services');
+  assert.strictEqual(comparer.pathOf('https://www.kone.in/services/'), '/services');
+  assert.strictEqual(comparer.pathOf('/services'), '/services');
+  assert.strictEqual(comparer.pathOf('https://www.kone.in/search?q=lift'), '/search?q=lift');
+  // A directory page: index.aspx on Tridion, extensionless on AEM.
+  assert.strictEqual(comparer.pathOf('https://preview.kone.si/services/index.aspx'), '/services');
+  assert.notStrictEqual(comparer.pathOf('/services'), comparer.pathOf('/products'));
+});
+
+test('14d. a CTA pointing somewhere else is caught, across environments', function () {
+  var brief = [
+    'Meta title\tKONE\tKONE',
+    'Headline\tConnectivity\tPovezljivost',
+    'CTA\tLearn more\tVeč o tem',
+    'CTA Link\t/digital-services/\t/digitalne-storitve/'
+  ].join('\n');
+
+  var right = '<html><head><title>KONE</title></head><body><main><h1>Povezljivost</h1>' +
+    '<a href="https://preview.kone.si/digitalne-storitve/index.aspx">Več o tem</a></main></body></html>';
+  var wrong = '<html><head><title>KONE</title></head><body><main><h1>Povezljivost</h1>' +
+    '<a href="https://www.kone.si/kontakt/">Več o tem</a></main></body></html>';
+
+  assert.strictEqual(cat(comparer.compare(brief, right, { workTypeId: 'localization' }), 'links').length, 0,
+    'same destination in a different environment is not a deviation');
+  assert.ok(cat(comparer.compare(brief, wrong, { workTypeId: 'localization' }), 'links')
+    .some(function (x) { return /points somewhere else/.test(x.note); }),
+    'a CTA pointing at the wrong page must be caught');
+});
+
+// ─── Asset identity and severity ─────────────────────────────────────────
+// A DAM or Scene7 embed URL often carries none of the brief's asset name, so
+// an unmatched asset fires on correct pages. It is a prompt to look, not a
+// defect, and it must never outrank a real break.
+
+test('14e. a cropped or renamed variant resolves to the same source asset', function () {
+  var brief = BRIEF.replace('AEM Assets - KONE_Feat_Handrail_B_Landscape-004',
+                            'AEM Assets - shutterstock2335854375');
+  var main = CLEAN_MAIN.replace(
+    '/content/dam/marketing/KONE_Feat_Handrail_B_Landscape-004.jpg',
+    'https://kone.scene7.com/is/image/kone/shutterstock2335854375-1?$hero-desktop$'
+  );
+  var d = cat(comparer.compare(brief, page({ main: main }), { workTypeId: 'new-page' }), 'images');
+
+  assert.strictEqual(d.length, 0, 'the -1 crop and the preset should not hide the asset: ' + textOf(d));
+});
+
+test('14f. an unmatched asset is a check, never a break', function () {
+  var noImage = CLEAN_MAIN.replace(/<img[^>]*>/, '<img src="/content/dam/something-else.jpg" alt="Other">');
+  var r = comparer.compare(BRIEF, page({ main: noImage }), { workTypeId: 'new-page' });
+  var d = cat(r, 'images');
+
+  var unmatched = d.filter(function (x) { return /resolves to this asset/.test(x.note); });
+  assert.strictEqual(unmatched.length, 1, 'expected one unmatched asset: ' + textOf(d));
+  assert.strictEqual(unmatched[0].severity, 'check', 'must not be a break');
+  assert.ok(/check by eye/.test(unmatched[0].note), 'and should say why it may be a false alarm');
+});
+
+test('14g. every deviation carries a severity, and breaks sort above checks', function () {
+  var main = CLEAN_MAIN
+    .replace(/<img[^>]*>/, '<img src="/content/dam/something-else.jpg">')  // check + break (no alt)
+    .replace('Modern lifts use advanced door sensors that detect people or objects in the doorway before the doors close.',
+             'Rewritten.');
+  var r = comparer.compare(BRIEF, page({ main: main }), { workTypeId: 'new-page' });
+
+  r.categories.forEach(function (c) {
+    c.deviations.forEach(function (d) {
+      assert.ok(d.severity === 'break' || d.severity === 'check',
+        c.label + ' deviation has no severity: ' + JSON.stringify(d));
+    });
+    var severities = c.deviations.map(function (d) { return d.severity; });
+    var firstCheck = severities.indexOf('check');
+    if (firstCheck !== -1) {
+      assert.strictEqual(severities.indexOf('break', firstCheck), -1,
+        c.label + ' puts a break after a check: ' + severities.join(', '));
+    }
+  });
+
+  assert.ok(r.breaks > 0 && r.checks > 0, 'expected both kinds: ' + r.breaks + ' breaks, ' + r.checks + ' checks');
+});
+
 // ─── Out of scope ────────────────────────────────────────────────────────
 
 test('14. a redirect brief has no page to read, and the comparer says so', function () {

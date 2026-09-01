@@ -20,6 +20,8 @@ Nothing else. A two-line redirect request gets two questions at most — not a c
 
 Paste the same brief plus the built page's source (or upload the `.html`), and the comparer reports **only the differences**, in five groups: Metadata, Body Text, Images, Hyperlinks/CTAs, Structure. A group with nothing wrong says "No deviations."
 
+Every finding is either a **break** — a real defect — or a **check**, something expected to fire on correct pages that a human should glance at. Breaks sort first, and the tally at the top reads "*2 to fix, 1 to check by eye*". The distinction exists because a comparer that cries wolf gets ignored.
+
 It works on the four jobs that produce a page to read — new page, localization, content update, keyword update. Redirect and removal are checked by following the URL, so the Compare tab says so rather than inventing findings.
 
 Two limits worth stating plainly:
@@ -27,13 +29,25 @@ Two limits worth stating plainly:
 - **The tool cannot fetch the page.** A static browser app is blocked by CORS from reading a live KONE URL, which is why the HTML is pasted or uploaded. It follows that it cannot tell you an image is *broken* — only that the brief named an asset the page does not carry.
 - **Body text is compared verbatim after normalising.** Whitespace, `&nbsp;` and curly quotes are folded, then the match must be exact. A reworded sentence is reported; whether the rewording was deliberate is a judgement left to you.
 
+**URLs are compared as paths.** `preview.kone.in/services/index.aspx` and `www.kone.in/services/` are the same page, so the scheme, host, `.aspx`/`.html` extension, directory `index`, and trailing slash are all dropped before comparing — the query string is kept, because it can be meaningful. An environment difference is never reported; a genuinely different path still is.
+
+**Images are matched on asset identity, not filename.** A DAM or Scene7 embed URL is often a crop of the briefed asset with a variant suffix and preset parameters, so `shutterstock2335854375` in the brief resolves to `shutterstock2335854375-1?$hero-desktop$` on the page. When no image resolves, that is a **check** rather than a break — embed URLs frequently carry none of the brief's asset name, so it is a prompt to look, not a defect.
+
 Where the comparer reads the page content from is shown above the results. If it says "body minus nav, header and footer" and the Body Text group fills with menu labels, add the template's content wrapper class to `compare.contentSelectors` in `config/work-types.json`.
+
+## Briefs as files
+
+**Upload brief** accepts `.docx`, `.xlsx`, `.csv`, `.txt` and `.md`. Word and Excel files are ZIP containers and are read with the browser's native `DecompressionStream` — no library, so the project still has zero dependencies.
+
+Word tables and spreadsheets come out **tab-separated**, which is the shape the localization and keyword playbooks already parse, so a spreadsheet brief feeds them unchanged. Old binary `.doc`/`.xls` cannot be read and say so; re-save as `.docx`/`.xlsx`.
+
+Pasted-from-Word briefs are checked for paste damage — bullets that arrived as literal `●` characters, leftover `mso-list` markup, mixed smart and straight quotes. These are reported as **brief quality** notes above the results, because the brief is what is malformed, not the page.
 
 ## Running it
 
 ```
 npm start     # http://localhost:3600
-npm test      # 48 verification cases across both tools
+npm test      # 64 verification cases across the three modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -66,8 +80,10 @@ index.html              UI, two tabs
 app.js                  renders what the two modules return — no analysis of its own
 engine.js               classify → detect CMS → check needs → return steps
 compare.js              read the page → read the brief → diff → group by category
+readers.js              .docx / .xlsx / .csv → text, with no dependencies
 config/work-types.json  the six playbooks, plus the compare settings
 test/engine.test.js     32 cases, fixtures are real briefs
-test/compare.test.js    16 cases, deviations planted one per category
+test/compare.test.js    23 cases, deviations planted one per category
+test/readers.test.js    9 cases, run against real ZIP bytes
 serve.js                local static server
 ```

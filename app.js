@@ -25,7 +25,9 @@
     html: document.getElementById('html'),
     htmlUpload: document.getElementById('html-upload-btn'),
     htmlClear: document.getElementById('html-clear-btn'),
-    htmlFile: document.getElementById('html-file')
+    htmlFile: document.getElementById('html-file'),
+    briefUpload: document.getElementById('brief-upload-btn'),
+    briefFile: document.getElementById('brief-file')
   };
 
   var SAMPLE = [
@@ -74,6 +76,27 @@
     renderEmpty();
   });
   el.copy.addEventListener('click', copyQuestions);
+
+  el.briefUpload.addEventListener('click', function () { el.briefFile.click(); });
+  el.briefFile.addEventListener('change', function (e) {
+    var file = e.target.files && e.target.files[0];
+    el.briefFile.value = '';
+    if (!file) return;
+
+    var binary = /\.(docx|xlsx)$/i.test(file.name);
+    var reader = new FileReader();
+    reader.onerror = function () { toast('Could not read that file.'); };
+    reader.onload = function () {
+      window.BriefReaders.readFile(file.name, binary ? reader.result : null, binary ? null : reader.result)
+        .then(function (text) {
+          el.brief.value = text;
+          toast(file.name + ' loaded.');
+          if (state.mode === 'analyse') run(); else renderCompareEmpty();
+        })
+        .catch(function (err) { toast(err.message); });
+    };
+    if (binary) reader.readAsArrayBuffer(file); else reader.readAsText(file);
+  });
 
   el.tabAnalyse.addEventListener('click', function () { setMode('analyse'); });
   el.tabCompare.addEventListener('click', function () { setMode('compare'); });
@@ -230,7 +253,16 @@
       ? '<p class="region-note">Read the page content from: ' + esc(result.regionVia) + '</p>'
       : '';
 
-    el.output.innerHTML = head + region + result.categories.map(renderCategory).join('');
+    var tally = '<p class="tally"><b>' + result.breaks + '</b> to fix, <b>' + result.checks +
+      '</b> to check by eye.</p>';
+
+    // Word does not survive a paste. If the brief itself is damaged, say so
+    // here rather than letting it surface as deviations against the page.
+    var warnings = window.BriefReaders.briefWarnings(el.brief.value).map(function (w) {
+      return '<p class="brief-warning">' + esc(w) + '</p>';
+    }).join('');
+
+    el.output.innerHTML = head + warnings + tally + region + result.categories.map(renderCategory).join('');
   }
 
   function renderCategory(c) {
@@ -239,15 +271,18 @@
     }
 
     var rows = c.deviations.map(function (d) {
-      var lines = '<p class="dev-note">' + esc(d.note) + '</p>';
-      if (d.field) lines = '<p class="dev-note">' + esc(d.field) + ' — ' + esc(d.note) + '</p>';
+      var check = d.severity === 'check';
+      var tag = '<span class="sev-tag ' + (check ? 'check">check' : 'break">break') + '</span>';
+      var head = (d.field ? esc(d.field) + ' — ' : '') + esc(d.note);
+      var lines = '<p class="dev-note">' + tag + head + '</p>';
       if (d.expected) lines += '<p class="dev-line"><b>Brief</b><span>' + esc(d.expected) + '</span></p>';
       if (d.found) lines += '<p class="dev-line"><b>Page</b><span>' + esc(d.found) + '</span></p>';
-      return '<li>' + lines + '</li>';
+      return '<li class="' + (check ? 'check' : 'break') + '">' + lines + '</li>';
     }).join('');
 
-    return '<section class="card dirty"><h3>' + esc(c.label) + ' — ' + c.deviations.length +
-      '</h3><ul class="devs">' + rows + '</ul></section>';
+    var breaks = c.deviations.filter(function (d) { return d.severity !== 'check'; }).length;
+    return '<section class="card' + (breaks ? ' dirty' : '') + '"><h3>' + esc(c.label) + ' — ' +
+      c.deviations.length + '</h3><ul class="devs">' + rows + '</ul></section>';
   }
 
   function renderCompareEmpty() {

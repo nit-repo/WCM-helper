@@ -54,6 +54,45 @@
 
   function same(a, b) { return normalise(a) === normalise(b); }
 
+  // ─── URL IDENTITY ────────────────────────────────────────────────────────
+  // The same page has different URLs in every environment: preview vs www,
+  // .aspx on Tridion vs extensionless on AEM. Comparing those raw makes every
+  // link a false deviation, which buries the ones that matter. Reduce both
+  // sides to a path and compare that; a difference that lives only in the
+  // host or the extension is an environment difference, not a defect.
+
+  function pathOf(url) {
+    var s = String(url == null ? '' : url).trim();
+    s = s.replace(/#.*$/, '');
+    s = s.replace(/^https?:\/\//i, '');
+    var slash = s.indexOf('/');
+    var head = slash === -1 ? s : s.slice(0, slash);
+    if (/^[^/]*\./.test(head)) s = slash === -1 ? '/' : s.slice(slash);
+    s = s.replace(/\.(aspx|html?|jsp)(?=$|\?)/i, '');
+    // Tridion serves a directory page as index.aspx where AEM serves it
+    // extensionless — the same page, either side of the migration.
+    s = s.replace(/\/(index|default)(?=$|\?)/i, '');
+    s = s.replace(/\/+$/, '');
+    return (s || '/').toLowerCase();
+  }
+
+  function samePath(a, b) { return pathOf(a) === pathOf(b); }
+
+  // ─── ASSET IDENTITY ──────────────────────────────────────────────────────
+  // A brief names an asset ("KONE_Feat_Handrail_B_Landscape-004"); the page
+  // carries a DAM or Scene7 embed URL that may be cropped, renamed with a
+  // variant suffix, or hung with preset parameters. Match on the identity
+  // underneath rather than the string.
+
+  function assetIdentity(value, variantPattern) {
+    var v = String(value == null ? '' : value).trim();
+    v = v.replace(/[?#].*$/, '');
+    v = v.split('/').pop();
+    v = v.replace(/\.(jpe?g|png|webp|gif|svg|avif)$/i, '');
+    v = v.replace(new RegExp(variantPattern || '[-_](\\d{1,2}|crop|thumb|small|large|mobile|desktop)$', 'i'), '');
+    return v.toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
   // ─── HTML EXTRACTION ─────────────────────────────────────────────────────
 
   var CHROME_RE = /<(nav|header|footer|script|style|noscript|svg)\b[^>]*>[\s\S]*?<\/\1>/gi;
@@ -186,8 +225,28 @@
           }
         });
       });
-      var lm, lre = /^CTA\b[^\t]*\t[^\t]*\t(.+)$/gim;
-      while ((lm = lre.exec(text)) !== null) expect.links.push({ text: lm[1].trim(), href: null });
+      // A localization brief carries the CTA label and the CTA destination on
+      // separate rows ("CTA / Learn more" then "CTA Link / /digital-services/").
+      // Pairing them in order is what lets the comparer check where a button
+      // actually points, not just what it says.
+      var labels = [], hrefs = [];
+      text.split(/\r?\n/).forEach(function (line) {
+        var cells = line.split('\t');
+        if (cells.length < 3) return;
+        var key = normalise(cells[0]);
+        if (!/^cta\b/i.test(key)) return;
+        var value = cells[cells.length - 1].trim();
+        if (!value) return;
+        if (/link/i.test(key)) hrefs.push(value);
+        else labels.push(value);
+      });
+      labels.forEach(function (label, i) {
+        var href = hrefs[i];
+        // Only treat it as a destination if it looks like one — these rows
+        // sometimes hold prose ("Anchor link to the tech specs table").
+        var looksLikeUrl = href && /^(https?:\/\/|\/)/.test(href);
+        expect.links.push({ text: label, href: looksLikeUrl ? href : null });
+      });
       return expect;
     }
 
@@ -231,20 +290,24 @@
   function metadataDeviations(expect, page) {
     var out = [];
     [
-      ['Meta title', expect.metadata.title, page.title],
-      ['Meta description', expect.metadata.description, page.description],
-      ['Meta keywords', expect.metadata.keywords, page.keywords],
-      ['Canonical / URL path', expect.metadata.canonical, page.canonical]
+      ['Meta title', expect.metadata.title, page.title, same],
+      ['Meta description', expect.metadata.description, page.description, same],
+      ['Meta keywords', expect.metadata.keywords, page.keywords, same],
+      // The canonical is a URL, so an environment difference is not a defect.
+      ['Canonical / URL path', expect.metadata.canonical, page.canonical, samePath]
     ].forEach(function (row) {
-      var label = row[0], want = row[1], got = row[2];
+      var label = row[0], want = row[1], got = row[2], matches = row[3];
       if (want == null) return;
-      if (got == null || got === '') out.push({ field: label, expected: want, found: null, note: 'missing from the page' });
-      else if (!same(want, got)) out.push({ field: label, expected: want, found: got, note: 'differs' });
+      if (got == null || got === '') {
+        out.push({ field: label, expected: want, found: null, note: 'missing from the page', severity: 'break' });
+      } else if (!matches(want, got)) {
+        out.push({ field: label, expected: want, found: got, note: 'differs', severity: 'break' });
+      }
     });
 
-    if (page.h1.length === 0) out.push({ field: 'H1', expected: null, found: null, note: 'the page has no H1' });
+    if (page.h1.length === 0) out.push({ field: 'H1', expected: null, found: null, note: 'the page has no H1', severity: 'break' });
     else if (page.h1.length > 1) {
-      out.push({ field: 'H1', expected: 'one H1', found: page.h1.join(' / '), note: page.h1.length + ' H1 tags on the page' });
+      out.push({ field: 'H1', expected: 'one H1', found: page.h1.join(' / '), note: page.h1.length + ' H1 tags on the page', severity: 'break' });
     }
     return out;
   }
@@ -254,29 +317,44 @@
     var pageText = normalise(page.text);
     expect.body.forEach(function (sentence) {
       if (pageText.indexOf(normalise(sentence)) === -1) {
-        out.push({ expected: sentence, note: 'not found on the page' });
+        out.push({ expected: sentence, note: 'not found on the page', severity: 'break' });
       }
     });
     var seen = {};
     page.headings.forEach(function (h) {
       var k = normalise(h.text).toLowerCase();
       if (!k) return;
-      if (seen[k]) { if (seen[k] === 1) out.push({ expected: h.text, note: 'section appears more than once on the page' }); seen[k]++; }
+      if (seen[k]) { if (seen[k] === 1) out.push({ expected: h.text, note: 'section appears more than once on the page', severity: 'break' }); seen[k]++; }
       else seen[k] = 1;
     });
     return out;
   }
 
-  function imageDeviations(expect, page) {
+  function imageDeviations(expect, page, variantPattern) {
     var out = [];
-    var srcs = page.images.map(function (img) { return normalise(img.src).toLowerCase(); }).join(' | ');
+    var onPage = page.images.map(function (img) { return assetIdentity(img.src, variantPattern); })
+      .filter(function (id) { return id.length > 0; });
+
     expect.images.forEach(function (name) {
-      var needle = normalise(name).toLowerCase().replace(/\.(jpg|jpeg|png|webp|gif)$/, '');
-      if (srcs.indexOf(needle) === -1) out.push({ expected: name, note: 'no image on the page references this asset' });
+      var wanted = assetIdentity(name, variantPattern);
+      if (!wanted) return;
+      var found = onPage.some(function (id) {
+        return id === wanted || id.indexOf(wanted) !== -1 || wanted.indexOf(id) !== -1;
+      });
+      if (found) return;
+      // Deliberately not a failure. A DAM or Scene7 embed URL frequently
+      // carries none of the brief's asset name, so this fires on correct
+      // pages — treat it as something to glance at, not something broken.
+      out.push({
+        expected: name,
+        note: 'no image on the page resolves to this asset — DAM embed URLs often do not carry the brief\'s asset name, so check by eye',
+        severity: 'check'
+      });
     });
+
     page.images.forEach(function (img) {
-      if (!img.src) out.push({ expected: null, found: img.alt || '(no alt)', note: 'image tag with no src' });
-      else if (!img.alt) out.push({ expected: null, found: img.src, note: 'image has no alt text' });
+      if (!img.src) out.push({ expected: null, found: img.alt || '(no alt)', note: 'image tag with no src', severity: 'break' });
+      else if (!img.alt) out.push({ expected: null, found: img.src, note: 'image has no alt text', severity: 'break' });
     });
     return out;
   }
@@ -285,14 +363,14 @@
     var out = [];
     expect.links.forEach(function (want) {
       var byText = page.links.filter(function (l) { return same(l.text, want.text); })[0];
-      if (!byText) { out.push({ expected: want.text, found: null, note: 'link not found on the page' }); return; }
-      if (want.href && !same(byText.href, want.href)) {
-        out.push({ expected: want.text + ' → ' + want.href, found: byText.href, note: 'points somewhere else' });
+      if (!byText) { out.push({ expected: want.text, found: null, note: 'link not found on the page', severity: 'break' }); return; }
+      if (want.href && !samePath(byText.href, want.href)) {
+        out.push({ expected: want.text + ' → ' + want.href, found: byText.href, note: 'points somewhere else', severity: 'break' });
       }
     });
     page.links.forEach(function (l) {
       if (/^https?:\/\/[^/]*author|\/content\//i.test(l.href)) {
-        out.push({ expected: null, found: l.href, note: 'author or /content/ path published to the live page' });
+        out.push({ expected: null, found: l.href, note: 'author or /content/ path published to the live page', severity: 'break' });
       }
     });
     return out;
@@ -305,8 +383,8 @@
     var cursor = -1;
     expect.sections.forEach(function (section) {
       var at = pageHeadings.indexOf(normalise(section).toLowerCase());
-      if (at === -1) { out.push({ expected: section, note: 'section heading missing from the page' }); return; }
-      if (at < cursor) out.push({ expected: section, note: 'section appears out of the brief\'s order' });
+      if (at === -1) { out.push({ expected: section, note: 'section heading missing from the page', severity: 'break' }); return; }
+      if (at < cursor) out.push({ expected: section, note: 'section appears out of the brief\'s order', severity: 'break' });
       cursor = Math.max(cursor, at);
     });
     return out;
@@ -333,22 +411,47 @@
       var page = readPage(html, cfg);
       var expect = readBrief(briefText, workTypeId);
 
+      // Real defects first, things to glance at second — a reviewer should
+      // never have to read past a low-priority check to find a break.
+      function ordered(list) {
+        return list.slice().sort(function (a, b) {
+          var rank = { 'break': 0, 'check': 1 };
+          return (rank[a.severity] || 0) - (rank[b.severity] || 0);
+        });
+      }
+
+      var categories = [
+        { id: 'metadata', label: 'Metadata', deviations: ordered(metadataDeviations(expect, page)) },
+        { id: 'body', label: 'Body Text', deviations: ordered(bodyDeviations(expect, page)) },
+        { id: 'images', label: 'Images', deviations: ordered(imageDeviations(expect, page, cfg.assetVariantPattern)) },
+        { id: 'links', label: 'Hyperlinks / CTAs', deviations: ordered(linkDeviations(expect, page)) },
+        { id: 'structure', label: 'Structure', deviations: ordered(structureDeviations(expect, page)) }
+      ];
+
+      var breaks = 0, checks = 0;
+      categories.forEach(function (c) {
+        c.deviations.forEach(function (d) { if (d.severity === 'check') checks++; else breaks++; });
+      });
+
       return {
         generatedAt: new Date().toISOString(),
         supported: true,
         workTypeId: workTypeId,
         regionVia: page.regionVia,
-        categories: [
-          { id: 'metadata', label: 'Metadata', deviations: metadataDeviations(expect, page) },
-          { id: 'body', label: 'Body Text', deviations: bodyDeviations(expect, page) },
-          { id: 'images', label: 'Images', deviations: imageDeviations(expect, page) },
-          { id: 'links', label: 'Hyperlinks / CTAs', deviations: linkDeviations(expect, page) },
-          { id: 'structure', label: 'Structure', deviations: structureDeviations(expect, page) }
-        ]
+        breaks: breaks,
+        checks: checks,
+        categories: categories
       };
     }
 
-    return { compare: compare, readPage: function (h) { return readPage(h, cfg); }, readBrief: readBrief, normalise: normalise };
+    return {
+      compare: compare,
+      readPage: function (h) { return readPage(h, cfg); },
+      readBrief: readBrief,
+      normalise: normalise,
+      pathOf: pathOf,
+      assetIdentity: function (v) { return assetIdentity(v, cfg.assetVariantPattern); }
+    };
   }
 
   return { create: create };

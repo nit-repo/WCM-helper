@@ -14,7 +14,8 @@
   "compare": {
     "workTypes": ["new-page", "localization", "content-update", "keyword-update"],
     "contentSelectors": ["main", "[role=main]", ".content-wrapper", ".page-content"],
-    "note": "Which element wraps the main content decides whether the body report is signal or nav labels. These are the standard fallbacks; if a KONE template uses its own wrapper, add its class here (leading dot) ahead of the fallbacks. Redirect and removal are absent on purpose: they are verified by following the URL, not by reading markup."
+    "assetVariantPattern": "[-_](\\d{1,2}|crop|thumb|small|large|mobile|desktop)$",
+    "note": "Which element wraps the main content decides whether the body report is signal or nav labels. These are the standard fallbacks; if a KONE template uses its own wrapper, add its class here (leading dot) ahead of the fallbacks. Redirect and removal are absent on purpose: they are verified by following the URL, not by reading markup. assetVariantPattern strips crop and size suffixes so a DAM variant still resolves to the source asset; widen it if a template uses other suffixes."
   },
 
   "workTypes": [
