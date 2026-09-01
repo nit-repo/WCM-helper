@@ -275,6 +275,20 @@
       ' · brief read as <b>' + esc(result.mode || 'labelled') + '</b>, ' + result.expectations +
       ' things to check</p>';
 
+    // A page that fails nearly every check was compared against a misread
+    // brief. Showing that as a defect list buries the few findings that are
+    // real, so the brief-derived ones are withheld and the parse is blamed.
+    if (result.parseFailed) {
+      el.output.innerHTML = head +
+        section('The brief did not parse',
+          '<p class="note warn">' + esc(result.note) + '</p>') +
+        region +
+        '<p class="tally"><b>' + result.breaks + '</b> to fix, <b>' + result.checks +
+        '</b> to check by eye — from the page alone, needing no brief.</p>' +
+        result.categories.map(renderCategory).join('');
+      return;
+    }
+
     var tally = '<p class="tally"><b>' + result.breaks + '</b> to fix, <b>' + result.checks +
       '</b> to check by eye.</p>';
 
@@ -289,7 +303,11 @@
 
   function renderCategory(c) {
     if (!c.deviations.length) {
-      return '<section class="card"><h3>' + esc(c.label) + '</h3><p class="clean">No deviations.</p></section>';
+      // "Nothing was checked" and "everything matched" must never look alike.
+      var body = c.note
+        ? '<p class="note warn">' + esc(c.note) + '</p>'
+        : '<p class="clean">No deviations.</p>';
+      return '<section class="card"><h3>' + esc(c.label) + '</h3>' + body + '</section>';
     }
 
     var rows = c.deviations.map(function (d) {

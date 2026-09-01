@@ -54,6 +54,41 @@
 
   function same(a, b) { return normalise(a) === normalise(b); }
 
+  // ─── ROWS AND CELLS ──────────────────────────────────────────────────────
+  // Briefs arrive as Excel and CSV exports, and a cell holding more than one
+  // paragraph is wrapped in quotes and keeps its newlines. Splitting the text
+  // on \n before honouring those quotes tears one row into several: the row
+  // stops looking tabular, so the whole brief falls to the prose fallback, and
+  // the fragments arrive carrying an orphan quote that no page will match.
+  // That one mistake produced 74 phantom findings on a real Portugal brief.
+
+  function splitRows(text) {
+    var rows = [], cells = [], cell = '', quoted = false;
+    var s = String(text == null ? '' : text).replace(/\r\n?/g, '\n');
+
+    for (var i = 0; i < s.length; i++) {
+      var ch = s.charAt(i);
+      if (quoted) {
+        // "" inside a quoted cell is an escaped quote, not the end of it.
+        if (ch !== '"') { cell += ch; continue; }
+        if (s.charAt(i + 1) === '"') { cell += '"'; i++; continue; }
+        quoted = false;
+        continue;
+      }
+      // A quote only opens a cell at its start; mid-cell it is punctuation.
+      if (ch === '"' && cell === '') { quoted = true; continue; }
+      if (ch === '\t') { cells.push(cell); cell = ''; continue; }
+      if (ch === '\n') { cells.push(cell); rows.push(cells); cells = []; cell = ''; continue; }
+      cell += ch;
+    }
+    cells.push(cell);
+    rows.push(cells);
+
+    return rows.filter(function (r) {
+      return r.some(function (c) { return c.trim() !== ''; });
+    });
+  }
+
   // ─── URL IDENTITY ────────────────────────────────────────────────────────
   // The same page has different URLs in every environment: preview vs www,
   // .aspx on Tridion vs extensionless on AEM. Comparing those raw makes every
@@ -116,6 +151,15 @@
     if (!src) return lazy;
     if (lazy && PLACEHOLDER_RE.test(src)) return lazy;
     return src;
+  }
+
+  function safeAnchor(attrs, label, cfg) {
+    if (/\b(?:aria-expanded|aria-controls|data-toggle|data-bs-toggle|role\s*=\s*["']?(?:button|tab))/i.test(attrs)) return true;
+    var patterns = (cfg && cfg.safeAnchorLabels) ||
+      ['back to top', 'top of page', 'skip to', 'voltar ao topo', 'scroll to top'];
+    var text = normalise(label).toLowerCase();
+    if (!text) return false;
+    return patterns.some(function (p) { return text.indexOf(String(p).toLowerCase()) !== -1; });
   }
 
   function stripTags(html) {
@@ -182,7 +226,14 @@
       var label = stripTags(lm[2]);
       // href="#" and an empty href are placeholders someone meant to fill in.
       // An in-page anchor (#item-123) is a real destination and is not.
-      if (!href || href === '#') { placeholders.push({ href: href, text: label }); continue; }
+      // Some anchors are legitimately "#" — back-to-top, skip links, and the
+      // toggles that drive accordions and tabs — so they are excluded by
+      // label and by the ARIA attributes that give them away. "Back to top"
+      // was reported as a defect on a page where it was working correctly.
+      if (!href || href === '#') {
+        if (!safeAnchor(lm[1], label, cfg)) placeholders.push({ href: href, text: label });
+        continue;
+      }
       if (href.charAt(0) === '#') continue;
       links.push({ href: href, text: label });
     }
@@ -206,7 +257,13 @@
     var sre = /<(span|div|strong|p)\b[^>]*>\s*((?:\d[\d.,]*)\s*%)\s*<\/\1>/gi;
     while ((sm = sre.exec(region.html)) !== null) {
       var figure = normalise(sm[2]).replace(/\s+/g, '');
-      var after = stripTags(region.html.slice(sm.index + sm[0].length, sm.index + sm[0].length + 500));
+      // Measure the gap in text, not markup. A stat card on a real template
+      // puts several wrapper divs with long class lists between the figure and
+      // its caption, and a window counted in raw characters falls short of a
+      // caption sitting directly underneath it on screen. This is why the
+      // 70%/74% contradiction on the KONE Portugal page went unreported.
+      var from = sm.index + sm[0].length;
+      var after = stripTags(region.html.slice(from, from + 6000)).slice(0, 200);
       var caption = /((?:\d[\d.,]*)\s*%)/.exec(after);
       if (!caption) continue;
       var captionFigure = caption[1].replace(/\s+/g, '');
@@ -247,10 +304,9 @@
     return m ? m[1].trim() : null;
   }
 
-  function localisedRow(text, label) {
-    var lines = text.split(/\r?\n/);
-    for (var i = 0; i < lines.length; i++) {
-      var cells = lines[i].split('\t');
+  function localisedRow(rows, label) {
+    for (var i = 0; i < rows.length; i++) {
+      var cells = rows[i];
       if (cells.length >= 3 && normalise(cells[0]).toLowerCase() === label.toLowerCase()) {
         var last = cells[cells.length - 1].trim();
         if (last) return last;
@@ -268,24 +324,26 @@
       // Localization briefs arrive both ways: a table with an English master
       // column, or the localized copy as prose. Columns are exact, so use them
       // when they are there and fall back to prose when they are not.
-      var tabular = text.split(/\r?\n/).filter(function (l) { return l.split('\t').length >= 3; }).length;
+      var rows = splitRows(text);
+      var tabular = rows.filter(function (r) { return r.length >= 3; }).length;
       if (tabular < 2) {
         expect.mode = 'prose';
-        text.split(/\r?\n/).forEach(function (line) {
-          var v = line.trim();
-          if (!v) return;
-          if (v.length <= 80) expect.sections.push(v);
-          else expect.body.push(v);
+        // Prose asserts nothing about structure. A short line in a prose brief
+        // is as likely to be a stat, a CTA label or a market name as a
+        // heading, and calling every line under 80 characters a section put 39
+        // findings in the structure category on a page that had none of them.
+        rows.forEach(function (r) {
+          var v = r.join(' ').trim();
+          if (v.length >= 40) expect.body.push(v);
         });
         return expect;
       }
       expect.mode = 'columns';
-      expect.metadata.title = localisedRow(text, 'Meta title');
-      expect.metadata.description = localisedRow(text, 'Meta description');
+      expect.metadata.title = localisedRow(rows, 'Meta title');
+      expect.metadata.description = localisedRow(rows, 'Meta description');
+      expect.metadata.keywords = localisedRow(rows, 'Meta keywords');
       ['Headline', 'Subheading', 'Title', 'Body'].forEach(function (label) {
-        var lines = text.split(/\r?\n/);
-        lines.forEach(function (line) {
-          var cells = line.split('\t');
+        rows.forEach(function (cells) {
           if (cells.length >= 3 && normalise(cells[0]).toLowerCase() === label.toLowerCase()) {
             var v = cells[cells.length - 1].trim();
             if (!v) return;
@@ -299,8 +357,7 @@
       // Pairing them in order is what lets the comparer check where a button
       // actually points, not just what it says.
       var labels = [], hrefs = [];
-      text.split(/\r?\n/).forEach(function (line) {
-        var cells = line.split('\t');
+      rows.forEach(function (cells) {
         if (cells.length < 3) return;
         var key = normalise(cells[0]);
         if (!/^cta\b/i.test(key)) return;
@@ -321,9 +378,9 @@
 
     if (workTypeId === 'keyword-update') {
       expect.mode = 'columns';
-      var rows = text.split(/\r?\n/);
-      for (i = 0; i < rows.length; i++) {
-        var cells = rows[i].split('\t');
+      var kwRows = splitRows(text);
+      for (i = 0; i < kwRows.length; i++) {
+        var cells = kwRows[i];
         if (cells.length >= 2 && /^https?:\/\//i.test(cells[0].trim())) {
           expect.metadata.keywords = cells[cells.length - 1].trim();
           break;
@@ -339,7 +396,7 @@
     expect.metadata.keywords = labelled(text, 'Meta Keywords');
     expect.metadata.canonical = labelled(text, 'URL Path');
 
-    var lines = text.split(/\r?\n/);
+    var lines = splitRows(text).map(function (r) { return r.join('\t'); });
     for (i = 0; i < lines.length; i++) {
       var line = lines[i].trim();
       if (!line) continue;
@@ -356,23 +413,65 @@
     return expect;
   }
 
+  // A cell that arrived from a broken CSV split carries half a quote pair.
+  // The pair is punctuation the page never renders, so it must not decide a
+  // match — 35 paragraphs were reported missing over a single leading quote.
+
+  function unwrapQuotes(s) {
+    var v = String(s == null ? '' : s).trim();
+    if ((v.match(/"/g) || []).length % 2 === 1) {
+      if (v.charAt(0) === '"') v = v.slice(1);
+      else if (v.charAt(v.length - 1) === '"') v = v.slice(0, -1);
+    }
+    return v.trim();
+  }
+
+  // A brief cell often holds two or three sentences that the page renders in
+  // separate elements, so the paragraph never appears as one continuous
+  // string however well it is normalised. Only descend to sentences when the
+  // whole paragraph fails, so a fragment can never match by accident.
+
+  function sentencesOf(text) {
+    var out = [], m, re = /[^.!?]+[.!?]*/g;
+    while ((m = re.exec(text)) !== null) {
+      var s = m[0].trim();
+      if (s.length >= 25) out.push(s);
+    }
+    return out;
+  }
+
   // ─── COMPARING ───────────────────────────────────────────────────────────
+
+  // Metadata is compared word for word — normalise() folds only the punctuation
+  // a CMS rewrites on its way to the page, and never case. What matters as much
+  // as the comparison is saying when there was nothing to compare: a brief that
+  // defines no metadata used to render identically to one that matched, which
+  // is how an English <title> shipped on a Portuguese page unreported.
+
+  function metadataFields(expect) {
+    return [
+      ['Meta title', expect.metadata.title, 'title', same],
+      ['Meta description', expect.metadata.description, 'description', same],
+      ['Meta keywords', expect.metadata.keywords, 'keywords', same],
+      // The canonical is a URL, so an environment difference is not a defect.
+      ['Canonical / URL path', expect.metadata.canonical, 'canonical', samePath]
+    ];
+  }
+
+  function metadataDefined(expect) {
+    return metadataFields(expect).filter(function (r) { return r[1] != null && r[1] !== ''; })
+      .map(function (r) { return r[0]; });
+  }
 
   function metadataDeviations(expect, page) {
     var out = [];
-    [
-      ['Meta title', expect.metadata.title, page.title, same],
-      ['Meta description', expect.metadata.description, page.description, same],
-      ['Meta keywords', expect.metadata.keywords, page.keywords, same],
-      // The canonical is a URL, so an environment difference is not a defect.
-      ['Canonical / URL path', expect.metadata.canonical, page.canonical, samePath]
-    ].forEach(function (row) {
-      var label = row[0], want = row[1], got = row[2], matches = row[3];
-      if (want == null) return;
+    metadataFields(expect).forEach(function (row) {
+      var label = row[0], want = row[1], got = page[row[2]], matches = row[3];
+      if (want == null || want === '') return;
       if (got == null || got === '') {
-        out.push({ field: label, expected: want, found: null, note: 'missing from the page', severity: 'break' });
+        out.push({ field: label, expected: want, found: null, note: 'missing from the page', severity: 'break', fromBrief: true });
       } else if (!matches(want, got)) {
-        out.push({ field: label, expected: want, found: got, note: 'differs', severity: 'break' });
+        out.push({ field: label, expected: want, found: got, note: 'differs', severity: 'break', fromBrief: true });
       }
     });
 
@@ -386,10 +485,23 @@
   function bodyDeviations(expect, page) {
     var out = [];
     var pageText = normalise(page.text);
-    expect.body.forEach(function (sentence) {
-      if (pageText.indexOf(normalise(sentence)) === -1) {
-        out.push({ expected: sentence, note: 'not found on the page', severity: 'break' });
+    expect.body.forEach(function (paragraph) {
+      var want = unwrapQuotes(paragraph);
+      if (!want) return;
+      if (pageText.indexOf(normalise(want)) !== -1) return;
+      // The whole paragraph is not there in one piece. That is usually the
+      // page splitting it across elements rather than copy going missing, so
+      // report only the sentences that are genuinely absent.
+      var parts = sentencesOf(want);
+      if (!parts.length) {
+        out.push({ expected: paragraph, note: 'not found on the page', severity: 'break', fromBrief: true });
+        return;
       }
+      parts.forEach(function (part) {
+        if (pageText.indexOf(normalise(part)) === -1) {
+          out.push({ expected: part, note: 'not found on the page', severity: 'break', fromBrief: true });
+        }
+      });
     });
     (page.statConflicts || []).forEach(function (c) {
       out.push({
@@ -428,7 +540,8 @@
       out.push({
         expected: name,
         note: 'no image on the page resolves to this asset — DAM embed URLs often do not carry the brief\'s asset name, so check by eye',
-        severity: 'check'
+        severity: 'check',
+        fromBrief: true
       });
     });
 
@@ -443,9 +556,18 @@
     var out = [];
     expect.links.forEach(function (want) {
       var byText = page.links.filter(function (l) { return same(l.text, want.text); })[0];
-      if (!byText) { out.push({ expected: want.text, found: null, note: 'link not found on the page', severity: 'break' }); return; }
+      if (!byText) {
+        // The anchor may be on the page but held back as a placeholder. That
+        // is one defect, and it is already reported below — saying the link is
+        // also missing would report the same anchor twice.
+        var asPlaceholder = (page.placeholderLinks || []).filter(function (l) { return same(l.text, want.text); })[0];
+        if (!asPlaceholder) {
+          out.push({ expected: want.text, found: null, note: 'link not found on the page', severity: 'break', fromBrief: true });
+        }
+        return;
+      }
       if (want.href && !samePath(byText.href, want.href)) {
-        out.push({ expected: want.text + ' → ' + want.href, found: byText.href, note: 'points somewhere else', severity: 'break' });
+        out.push({ expected: want.text + ' → ' + want.href, found: byText.href, note: 'points somewhere else', severity: 'break', fromBrief: true });
       }
     });
     page.links.forEach(function (l) {
@@ -476,8 +598,8 @@
     var cursor = -1;
     expect.sections.forEach(function (section) {
       var at = pageHeadings.indexOf(normalise(section).toLowerCase());
-      if (at === -1) { out.push({ expected: section, note: 'section heading missing from the page', severity: 'break' }); return; }
-      if (at < cursor) out.push({ expected: section, note: 'section appears out of the brief\'s order', severity: 'break' });
+      if (at === -1) { out.push({ expected: section, note: 'section heading missing from the page', severity: 'break', fromBrief: true }); return; }
+      if (at < cursor) out.push({ expected: section, note: 'section appears out of the brief\'s order', severity: 'break', fromBrief: true });
       cursor = Math.max(cursor, at);
     });
     return out;
@@ -545,6 +667,58 @@
         { id: 'structure', label: 'Structure', deviations: ordered(structureDeviations(expect, page)) }
       ];
 
+      // The sibling of the unreadable-brief guard above. A brief can parse into
+      // plenty of expectations and still have been read wrongly — a shifted
+      // column, a torn row — and then almost every one of them fails. A real
+      // page fails some checks; it does not fail all of them. So a near-total
+      // miss is evidence about the parse, not about the page, and rendering it
+      // as a defect list is as useless as rendering silence as a pass. One real
+      // brief produced 74 findings this way, of which none were real.
+      var briefFailures = 0;
+      categories.forEach(function (c) {
+        c.deviations.forEach(function (d) { if (d.fromBrief) briefFailures++; });
+      });
+      var missRate = expectationCount > 0 ? briefFailures / expectationCount : 0;
+
+      if (expectationCount >= 8 && missRate >= 0.9) {
+        // Keep what needs no brief to be right — those findings still stand.
+        categories.forEach(function (c) {
+          c.deviations = c.deviations.filter(function (d) { return !d.fromBrief; });
+        });
+        var pageBreaks = 0, pageChecks = 0;
+        categories.forEach(function (c) {
+          c.deviations.forEach(function (d) { if (d.severity === 'check') pageChecks++; else pageBreaks++; });
+        });
+        return {
+          generatedAt: new Date().toISOString(),
+          supported: true,
+          unreadable: false,
+          parseFailed: true,
+          workTypeId: workTypeId,
+          mode: expect.mode,
+          expectations: expectationCount,
+          missed: briefFailures,
+          regionVia: page.regionVia,
+          note: briefFailures + ' of ' + expectationCount + ' things read out of the brief were missing from the page. ' +
+                'A page that fails nearly every check has almost certainly been compared against a misread brief, not ' +
+                'built wrongly — so those findings are withheld rather than shown as defects. The brief was read as ' +
+                (expect.mode === 'columns' ? 'a table, so check the column order and that no row has been torn in half.'
+                                           : 'prose, so check that its table columns survived the paste — an Excel or ' +
+                                             'Word brief should be uploaded rather than pasted.'),
+          breaks: pageBreaks,
+          checks: pageChecks,
+          categories: categories
+        };
+      }
+
+      // Nothing to compare against is not the same as everything matching.
+      var defined = metadataDefined(expect);
+      if (!defined.length) {
+        categories[0].note = 'The brief defines no metadata, so none was checked — this is not a pass. ' +
+          'A localization brief carries it on its Meta title and Meta description rows; a new-page brief ' +
+          'on its Meta Title, Meta Description and URL Path lines.';
+      }
+
       var breaks = 0, checks = 0;
       categories.forEach(function (c) {
         c.deviations.forEach(function (d) { if (d.severity === 'check') checks++; else breaks++; });
@@ -554,9 +728,11 @@
         generatedAt: new Date().toISOString(),
         supported: true,
         unreadable: false,
+        parseFailed: false,
         workTypeId: workTypeId,
         mode: expect.mode,
         expectations: expectationCount,
+        metadataChecked: defined,
         regionVia: page.regionVia,
         breaks: breaks,
         checks: checks,
@@ -568,6 +744,7 @@
       compare: compare,
       readPage: function (h) { return readPage(h, cfg); },
       readBrief: readBrief,
+      splitRows: splitRows,
       normalise: normalise,
       pathOf: pathOf,
       assetIdentity: function (v) { return assetIdentity(v, cfg.assetVariantPattern); }

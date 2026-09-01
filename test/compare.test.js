@@ -441,5 +441,240 @@ test('16. all five categories are always reported, in the brief\'s order', funct
   );
 });
 
+// ─── PHASE 6 ─────────────────────────────────────────────────────────────
+// The PORTUGAL brief and the real KONE Portugal page produced 78 findings, of
+// which roughly three were real, and missed every defect that mattered. The
+// cause was one decision: an Excel export quotes a cell that holds more than
+// one paragraph, and splitting on newlines before honouring those quotes tore
+// every such row in half.
+
+var QUOTED_BRIEF = [
+  'Meta title\tElevator Upgrades for Any Brand\tAtualize o seu elevador | KONE Portugal',
+  'Meta description\tUpgrade your elevator\tModernize o seu elevador com a KONE.',
+  'Headline\tModernise your elevator now\tModernize o seu elevador agora',
+  'Body\t"Upgrade in time and save.',
+  'Our modular packages install fast."\t"Atualizar o seu elevador atempadamente permite-lhe poupar tempo.',
+  'Os nossos pacotes modulares são instalados rapidamente."',
+  'CTA\tLearn more\tSaiba mais',
+  'CTA Link\t/upgrades/\t/atualizacoes/'
+].join('\n');
+
+test('17. a quoted cell containing a newline stays one row', function () {
+  var rows = comparer.splitRows('a\tb\nc\t"d\ne"\tf\n');
+
+  assert.strictEqual(rows.length, 2, 'the quoted newline must not end the row');
+  assert.deepStrictEqual(rows[0], ['a', 'b']);
+  assert.strictEqual(rows[1][1], 'd\ne', 'and the value keeps its newline without the wrapping quotes');
+});
+
+test('18. "" inside a quoted cell is an escaped quote, not the end of it', function () {
+  var rows = comparer.splitRows('label\t"he said ""hi"" today"\n');
+
+  assert.strictEqual(rows[0][1], 'he said "hi" today');
+});
+
+test('19. a quote inside a cell is punctuation and does not open a quoted cell', function () {
+  var rows = comparer.splitRows('label\tsize is 6" wide\tvalue\n');
+
+  assert.strictEqual(rows.length, 1, 'the row must not swallow the rest of the brief');
+  assert.strictEqual(rows[0][1], 'size is 6" wide');
+});
+
+test('20. a brief with quoted multi-line cells parses as columns, not prose', function () {
+  var r = comparer.compare(QUOTED_BRIEF, CLEAN, { workTypeId: 'localization' });
+
+  assert.strictEqual(r.mode, 'columns',
+    'this fell to prose before, which is what generated every phantom finding');
+
+  var expect = comparer.readBrief(QUOTED_BRIEF, 'localization');
+  assert.strictEqual(expect.body.length, 1, 'the two-paragraph cell is one expectation, not two fragments');
+  assert.ok(/poupar tempo[\s\S]*instalados rapidamente/.test(expect.body[0]),
+    'and it carries both paragraphs: ' + JSON.stringify(expect.body));
+  assert.ok(expect.body[0].indexOf('"') === -1, 'with no wrapping quote left on it');
+});
+
+test('20b. an anchor held back as a placeholder is not also reported as missing', function () {
+  var brief = 'CTA\tLearn more\tSaiba mais\nCTA Link\t/a/\t/b/';
+  var page = '<html><body><main><p>Copy.</p><a href="#">Saiba mais</a></main></body></html>';
+
+  var devs = cat(comparer.compare(brief, page, { workTypeId: 'localization' }), 'links');
+  var missing = devs.filter(function (d) { return /not found/.test(d.note); });
+
+  assert.strictEqual(missing.length, 0, 'one broken anchor is one finding: ' + textOf(devs));
+  assert.ok(/placeholder/.test(textOf(devs)), 'and it is still reported: ' + textOf(devs));
+});
+
+test('21. metadata is read from a localization brief and compared word for word', function () {
+  var r = comparer.compare(QUOTED_BRIEF, CLEAN, { workTypeId: 'localization' });
+  var devs = cat(r, 'metadata');
+
+  assert.ok(/Atualize o seu elevador/.test(textOf(devs)),
+    'the brief\'s Portuguese meta title must be checked against the page: ' + textOf(devs));
+});
+
+test('22. a brief that defines no metadata says so, and never "No deviations"', function () {
+  var prose = [
+    'Impulsione a sustentabilidade e reduza o consumo energético do seu edifício hoje.',
+    'A KONE Modernization oferece um plano de ciclo de vida com melhorias inteligentes.'
+  ].join('\n');
+
+  var r = comparer.compare(prose, CLEAN, { workTypeId: 'localization' });
+  var metadata = r.categories.filter(function (c) { return c.id === 'metadata'; })[0];
+
+  assert.strictEqual(metadata.deviations.length, 0);
+  assert.ok(metadata.note, 'an unchecked category must carry a note, not read as clean');
+  assert.ok(/not a pass/i.test(metadata.note), metadata.note);
+  assert.deepStrictEqual(r.metadataChecked, [], 'and nothing was checked');
+});
+
+test('23. metadata the brief does define is reported as checked', function () {
+  var r = comparer.compare(BRIEF, CLEAN, { workTypeId: 'new-page' });
+  var metadata = r.categories.filter(function (c) { return c.id === 'metadata'; })[0];
+
+  assert.ok(r.metadataChecked.length > 0, 'fields were compared: ' + r.metadataChecked);
+  assert.ok(!metadata.note, 'so there must be no "nothing checked" note');
+});
+
+test('24. prose mode asserts nothing about structure', function () {
+  var prose = [
+    'PORTUGAL',
+    '80%',
+    'Saiba mais',
+    'Atualizar o seu elevador atempadamente permite-lhe poupar tempo e evitar complicações.'
+  ].join('\n');
+
+  var expect = comparer.readBrief(prose, 'localization');
+
+  assert.strictEqual(expect.mode, 'prose');
+  assert.deepStrictEqual(expect.sections, [],
+    'PORTUGAL, 80% and Saiba mais are not section headings and must not be demanded as any');
+});
+
+test('25. a paragraph the page splits across elements resolves sentence by sentence', function () {
+  var page = '<html><body><main>' +
+    '<p>Atualizar o seu elevador atempadamente permite-lhe poupar tempo.</p>' +
+    '<p>Os nossos pacotes modulares são instalados rapidamente.</p>' +
+    '</main></body></html>';
+  var brief = 'Atualizar o seu elevador atempadamente permite-lhe poupar tempo. ' +
+    'Os nossos pacotes modulares são instalados rapidamente.';
+
+  var r = comparer.compare(brief, page, { workTypeId: 'localization' });
+
+  assert.deepStrictEqual(cat(r, 'body'), [],
+    'both sentences are on the page, so nothing is missing: ' + textOf(cat(r, 'body')));
+});
+
+test('26. an orphan quote from a torn cell does not fail a paragraph that is present', function () {
+  var page = '<html><body><main><p>Os nossos pacotes modulares são instalados rapidamente.</p></main></body></html>';
+  var brief = 'Os nossos pacotes modulares são instalados rapidamente."';
+
+  assert.deepStrictEqual(cat(comparer.compare(brief, page, { workTypeId: 'localization' }), 'body'), []);
+});
+
+test('27. copy genuinely absent from the page is still a break', function () {
+  var page = '<html><body><main><p>Something else entirely on the page.</p></main></body></html>';
+  var brief = 'Os nossos pacotes modulares são instalados rapidamente e sem incómodos.';
+
+  var devs = cat(comparer.compare(brief, page, { workTypeId: 'localization' }), 'body');
+
+  assert.strictEqual(devs.length, 1, textOf(devs));
+  assert.strictEqual(devs[0].severity, 'break');
+});
+
+test('28. failing nearly every expectation is reported as a parse failure, not defects', function () {
+  var rows = [];
+  for (var i = 0; i < 10; i++) {
+    rows.push('Body\tEnglish master ' + i + '\tTexto localizado que nunca aparece na página ' + i + '.');
+  }
+  var r = comparer.compare(rows.join('\n'), CLEAN, { workTypeId: 'localization' });
+
+  assert.strictEqual(r.parseFailed, true, 'a near-total miss is evidence about the parse');
+  assert.ok(/misread brief/i.test(r.note), r.note);
+  cat(r, 'body').forEach(function (d) {
+    assert.ok(!d.fromBrief, 'brief-derived findings must be withheld: ' + JSON.stringify(d));
+  });
+});
+
+test('29. page-only findings still report through a parse failure', function () {
+  var rows = [];
+  for (var i = 0; i < 10; i++) {
+    rows.push('Body\tEnglish master ' + i + '\tTexto localizado que nunca aparece na página ' + i + '.');
+  }
+  var page = '<html><body><main><p>Unrelated.</p><a href="#">Saiba mais</a></main></body></html>';
+
+  var r = comparer.compare(rows.join('\n'), page, { workTypeId: 'localization' });
+
+  assert.strictEqual(r.parseFailed, true);
+  assert.ok(/placeholder/i.test(textOf(cat(r, 'links'))),
+    'the href="#" needs no brief to be wrong: ' + textOf(cat(r, 'links')));
+});
+
+test('30. a page failing only some of its expectations is a normal report', function () {
+  // Half the rows are on the page and half are not — an ordinary result, and
+  // the guard must not swallow it. The threshold exists for a misread brief,
+  // not for a page with real defects on it.
+  var rows = [
+    'Headline\tMaster\tEmergency Braking Systems',
+    'Headline\tMaster\tDoor Safety Sensors',
+    'Body\tMaster\tThese systems automatically activate if the elevator exceeds its designated speed or detects an abnormal condition.',
+    'Body\tMaster\tModern lifts use advanced door sensors that detect people or objects in the doorway before the doors close.',
+    'Body\tMaster\tIn a high-rise building, elevators are among the most heavily used systems and residents depend on them every day.'
+  ];
+  for (var i = 0; i < 5; i++) rows.push('Body\tMaster\tEsta frase localizada nunca aparece na página, número ' + i + '.');
+
+  var r = comparer.compare(rows.join('\n'), CLEAN, { workTypeId: 'localization' });
+
+  assert.ok(r.expectations >= 8, 'expectations: ' + r.expectations);
+  assert.ok(!r.parseFailed, 'half missing is well under the threshold, so the findings stand');
+  assert.ok(r.breaks > 0, 'and the real misses are still reported');
+});
+
+test('31. "Back to top" is not reported as a placeholder link', function () {
+  var page = '<html><body><main><p>Copy.</p><a href="#">Back to top</a></main></body></html>';
+
+  var devs = cat(comparer.compare(BRIEF, page, { workTypeId: 'new-page' }), 'links');
+
+  assert.ok(!/Back to top/.test(textOf(devs)), 'that anchor is correct as written: ' + textOf(devs));
+});
+
+test('32. an accordion toggle on href="#" is not reported either', function () {
+  var page = '<html><body><main><a href="#" aria-expanded="false">Perguntas frequentes</a></main></body></html>';
+
+  var devs = cat(comparer.compare(BRIEF, page, { workTypeId: 'new-page' }), 'links');
+
+  assert.ok(!/Perguntas frequentes/.test(textOf(devs)), textOf(devs));
+});
+
+test('33. a real placeholder CTA is still reported', function () {
+  var page = '<html><body><main><a href="#">Saiba mais</a></main></body></html>';
+
+  var devs = cat(comparer.compare(BRIEF, page, { workTypeId: 'new-page' }), 'links');
+
+  assert.ok(/Saiba mais/.test(textOf(devs)), 'this one was never wired up: ' + textOf(devs));
+});
+
+test('34. a stat and its caption are matched across real template markup', function () {
+  // The window used to be counted in raw characters, so the wrapper divs on a
+  // real card pushed the caption out of range and the contradiction went
+  // unreported on the very page it was built for.
+  var wrappers = '<div class="col-md-4 proof-point-card text-center" data-component="proof-point">' +
+    '<div class="proof-point-card-inner-wrapper">'.repeat(12);
+  var page = '<html><body><main><span>70%</span>' + wrappers +
+    '<h6>Até 74% de poupança energética.</h6></main></body></html>';
+
+  var conflicts = comparer.readPage(page).statConflicts;
+
+  assert.strictEqual(conflicts.length, 1, 'markup between them is not distance: ' + JSON.stringify(conflicts));
+  assert.strictEqual(conflicts[0].figure, '70%');
+});
+
+test('35. a percentage far away in reading order is not treated as a caption', function () {
+  var page = '<html><body><main><span>70%</span><p>' +
+    new Array(70).join('palavra ') + '</p><h6>Até 74% de poupança.</h6></main></body></html>';
+
+  assert.deepStrictEqual(comparer.readPage(page).statConflicts, [],
+    'unrelated figures elsewhere on the page must not pair up');
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

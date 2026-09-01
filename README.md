@@ -23,7 +23,13 @@ Paste the same brief plus the built page's source (or upload the `.html`), and t
 
 **A brief it cannot read is never reported as clean.** If the parse yields no expectations, the tool says so instead of showing five green ticks — a comparison that never ran must not look like one that passed. This was a real failure: a Portuguese brief and its live page came back "No deviations" while the page carried eight defects.
 
-Localization briefs arrive as a tab-separated table or as prose, and both work — the result names which shape it read and how many things it is checking.
+**Nor is a brief it read wrongly reported as a broken page.** The same brief later came back with 78 findings, of which about three were real. A brief can parse into plenty of expectations and still have been misread — a torn row, a shifted column — and then nearly all of them fail. A real page fails some checks; it does not fail all of them. So when 90% or more of at least eight expectations come back missing, the tool withholds them and says the brief did not parse, naming the shape it read. Findings that need no brief to be right — placeholder links, dead CTAs, contradictory stats — still report.
+
+**Metadata says when it checked nothing.** A brief that defines no meta title used to render exactly like one whose title matched, which is how an English `<title>` shipped on a Portuguese page unreported. Each field is now matches / differs / not defined in the brief, and the category says which. Comparison itself is word for word — only the punctuation a CMS rewrites is folded, never case.
+
+**Briefs are split into rows honouring quotes.** Excel and CSV wrap a cell holding more than one paragraph in quotes and keep its newlines inside. Splitting on newlines first tears that row in half, which is what made the tool read a perfectly good table as prose and invent 74 findings from it. Rows are now parsed with the quoting rules the exports actually use.
+
+Localization briefs arrive as a tab-separated table or as prose, and both work — the result names which shape it read and how many things it is checking. **Prose asserts nothing about structure**: a short line in a prose brief is as likely to be a stat, a CTA label or a market name as a heading, and treating every one of them as a section heading is where 39 of those 78 phantom findings came from.
 
 Every finding is either a **break** — a real defect — or a **check**, something expected to fire on correct pages that a human should glance at. Breaks sort first, and the tally at the top reads "*2 to fix, 1 to check by eye*". The distinction exists because a comparer that cries wolf gets ignored.
 
@@ -39,6 +45,10 @@ Two limits worth stating plainly:
 **Images are matched on asset identity, not filename.** A DAM or Scene7 embed URL is often a crop of the briefed asset with a variant suffix and preset parameters, so `shutterstock2335854375` in the brief resolves to `shutterstock2335854375-1?$hero-desktop$` on the page. When no image resolves, that is a **check** rather than a break — embed URLs frequently carry none of the brief's asset name, so it is a prompt to look, not a defect.
 
 **Some defects need no brief at all.** A link still pointing at `href="#"`, a call to action that is bare text with no link, and a stat card whose figure contradicts its own caption — `70%` above "Até 74% de poupança energética" — are all reported from the page alone. All three were found on a real KONE page.
+
+Anchors that are legitimately `href="#"` are left alone: back-to-top and skip links by label, accordion and tab toggles by their ARIA attributes. Add market-language labels to `compare.safeAnchorLabels` in the config. A stat and its caption are paired by distance **in text, not markup** — a real card puts a dozen wrapper divs between them, and a window counted in raw characters missed the contradiction on the page it was built for.
+
+**Body text is matched paragraph first, then sentence by sentence.** A brief cell holding two sentences is often rendered by the page in two separate elements, so the paragraph never appears as one continuous string. Only when the whole paragraph fails does the tool descend to sentences, which keeps a fragment from matching by accident while letting correctly-built pages pass.
 
 Lazy-loaded images resolve to the asset rather than the loading placeholder, whichever order `src` and `data-src` appear in.
 
@@ -66,7 +76,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 88 verification cases across the four modules
+npm test      # 107 verification cases across the four modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -103,7 +113,7 @@ filler.js               find the row from its English master → carry the marku
 readers.js              .docx / .xlsx / .csv → text, with no dependencies
 config/work-types.json  the six playbooks, plus the compare settings
 test/engine.test.js     32 cases, fixtures are real briefs
-test/compare.test.js    31 cases, deviations planted one per category
+test/compare.test.js    50 cases, deviations planted one per category
 test/readers.test.js    9 cases, run against real ZIP bytes
 test/filler.test.js     16 cases, including markup that must never be guessed
 serve.js                local static server
