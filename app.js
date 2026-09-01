@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var state = { engine: null, analysis: null };
+  var state = { engine: null, comparer: null, analysis: null, mode: 'analyse' };
 
   var el = {
     brief: document.getElementById('brief'),
@@ -17,7 +17,15 @@
     cms: document.getElementById('cms-select'),
     type: document.getElementById('type-select'),
     output: document.getElementById('output'),
-    toast: document.getElementById('toast')
+    toast: document.getElementById('toast'),
+    tabAnalyse: document.getElementById('tab-analyse'),
+    tabCompare: document.getElementById('tab-compare'),
+    compareInput: document.getElementById('compare-input'),
+    compareBtn: document.getElementById('compare-btn'),
+    html: document.getElementById('html'),
+    htmlUpload: document.getElementById('html-upload-btn'),
+    htmlClear: document.getElementById('html-clear-btn'),
+    htmlFile: document.getElementById('html-file')
   };
 
   var SAMPLE = [
@@ -35,6 +43,7 @@
     })
     .then(function (workTypes) {
       state.engine = window.BriefEngine.create({ 'work-types': workTypes });
+      state.comparer = window.BriefCompare.create({ 'work-types': workTypes });
       state.engine.workTypes.forEach(function (t) {
         var o = document.createElement('option');
         o.value = t.id;
@@ -42,6 +51,7 @@
         el.type.appendChild(o);
       });
       el.analyse.disabled = false;
+      el.compareBtn.disabled = false;
     })
     .catch(function (e) {
       el.output.innerHTML = '<div class="empty-state"><p><strong>Could not load the playbooks.</strong></p>' +
@@ -64,6 +74,36 @@
     renderEmpty();
   });
   el.copy.addEventListener('click', copyQuestions);
+
+  el.tabAnalyse.addEventListener('click', function () { setMode('analyse'); });
+  el.tabCompare.addEventListener('click', function () { setMode('compare'); });
+  el.compareBtn.addEventListener('click', runCompare);
+  el.htmlUpload.addEventListener('click', function () { el.htmlFile.click(); });
+  el.htmlClear.addEventListener('click', function () { el.html.value = ''; });
+  el.htmlFile.addEventListener('change', function (e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () { el.html.value = reader.result; toast(file.name + ' loaded.'); };
+    reader.onerror = function () { toast('Could not read that file.'); };
+    reader.readAsText(file);
+    el.htmlFile.value = '';
+  });
+
+  // The brief is shared between the tabs, so a brief analysed on one is
+  // already loaded on the other.
+  function setMode(mode) {
+    state.mode = mode;
+    var comparing = mode === 'compare';
+    el.tabAnalyse.setAttribute('aria-selected', String(!comparing));
+    el.tabCompare.setAttribute('aria-selected', String(comparing));
+    el.analyse.hidden = comparing;
+    el.compareBtn.hidden = !comparing;
+    el.compareInput.hidden = !comparing;
+    el.copy.hidden = comparing;
+    el.output.innerHTML = '';
+    if (comparing) renderCompareEmpty(); else renderEmpty();
+  }
 
   function run() {
     var text = el.brief.value.trim();
@@ -153,6 +193,74 @@
       '<li>The steps to do it in that CMS</li>' +
       '<li>What is still missing, as questions to send back</li></ol>' +
       '<p>Every call shows the signals behind it, so you can check its working rather than trust it.</p></div>';
+  }
+
+  // ─── COMPARE ─────────────────────────────────────────────────────────────
+
+  function runCompare() {
+    var brief = el.brief.value.trim();
+    var html = el.html.value.trim();
+    if (!brief) { toast('Paste the brief first.'); return; }
+    if (!html) { toast('Paste or upload the page HTML.'); return; }
+
+    // The comparer needs to know which kind of job it is reading, so the
+    // analyser classifies first unless the work type has been set by hand.
+    var analysis = state.engine.analyse(brief, {
+      cmsOverride: el.cms.value || null,
+      workTypeOverride: el.type.value || null
+    });
+
+    renderCompare(state.comparer.compare(brief, html, { workTypeId: analysis.workType.id }), analysis);
+  }
+
+  function renderCompare(result, analysis) {
+    var head = section('Comparing against',
+      '<p class="headline">' + esc(analysis.workType.label) + '</p>' +
+      '<p class="sub">' + esc(analysis.workType.summary) + '</p>' +
+      (analysis.workType.confident || analysis.workType.overridden ? '' :
+        '<p class="note warn">The brief\'s type was not a confident call, so these expectations may be ' +
+        'read from the wrong playbook. Set the work type by hand on the left.</p>'));
+
+    if (!result.supported) {
+      el.output.innerHTML = head + section('Nothing to compare', '<p class="note">' + esc(result.note) + '</p>');
+      return;
+    }
+
+    var region = result.regionVia
+      ? '<p class="region-note">Read the page content from: ' + esc(result.regionVia) + '</p>'
+      : '';
+
+    el.output.innerHTML = head + region + result.categories.map(renderCategory).join('');
+  }
+
+  function renderCategory(c) {
+    if (!c.deviations.length) {
+      return '<section class="card"><h3>' + esc(c.label) + '</h3><p class="clean">No deviations.</p></section>';
+    }
+
+    var rows = c.deviations.map(function (d) {
+      var lines = '<p class="dev-note">' + esc(d.note) + '</p>';
+      if (d.field) lines = '<p class="dev-note">' + esc(d.field) + ' — ' + esc(d.note) + '</p>';
+      if (d.expected) lines += '<p class="dev-line"><b>Brief</b><span>' + esc(d.expected) + '</span></p>';
+      if (d.found) lines += '<p class="dev-line"><b>Page</b><span>' + esc(d.found) + '</span></p>';
+      return '<li>' + lines + '</li>';
+    }).join('');
+
+    return '<section class="card dirty"><h3>' + esc(c.label) + ' — ' + c.deviations.length +
+      '</h3><ul class="devs">' + rows + '</ul></section>';
+  }
+
+  function renderCompareEmpty() {
+    el.output.innerHTML =
+      '<div class="empty-state"><p>Paste the brief and the built page\'s HTML, then hit <strong>Compare</strong>. ' +
+      'You get back only the differences, grouped as:</p>' +
+      '<ol><li>Metadata — title, description, keywords, canonical, H1</li>' +
+      '<li>Body text — wording that differs, missing or duplicated sections</li>' +
+      '<li>Images — assets named in the brief, and alt text</li>' +
+      '<li>Hyperlinks / CTAs — anchor text and destinations</li>' +
+      '<li>Structure — section order, omissions, duplicates</li></ol>' +
+      '<p>A category with nothing wrong says <strong>No deviations</strong>. The tool cannot fetch the page ' +
+      'itself, so it cannot tell you an image is broken — only that the brief named one the page does not carry.</p></div>';
   }
 
   // ─── HELPERS ─────────────────────────────────────────────────────────────

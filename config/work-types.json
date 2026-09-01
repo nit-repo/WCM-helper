@@ -11,6 +11,12 @@
     "note": "The estate is mid-migration and most of it is still Tridion, so AEM is the exception: only the markets listed in aemMarkets have moved. Add a market here when it migrates. A .aspx page is Tridion whatever market it sits on. All assets live in Adobe DAM now whichever CMS serves the site, so DAM links never decide the platform — only the target site URL does."
   },
 
+  "compare": {
+    "workTypes": ["new-page", "localization", "content-update", "keyword-update"],
+    "contentSelectors": ["main", "[role=main]", ".content-wrapper", ".page-content"],
+    "note": "Which element wraps the main content decides whether the body report is signal or nav labels. These are the standard fallbacks; if a KONE template uses its own wrapper, add its class here (leading dot) ahead of the fallbacks. Redirect and removal are absent on purpose: they are verified by following the URL, not by reading markup."
+  },
+
   "workTypes": [
     {
       "id": "redirect",

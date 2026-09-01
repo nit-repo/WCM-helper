@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WCM Brief Analyser</title>
+  <title>WCM Helper</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><g fill='%231450F5'><rect x='1' y='6' width='6' height='20'/><rect x='9' y='6' width='6' height='20'/><rect x='17' y='6' width='6' height='20'/><rect x='25' y='6' width='6' height='20'/></g></svg>">
 
   <!-- Zero external requests: no CDN, no webfont, no analytics. -->
@@ -133,6 +133,39 @@
 
     .ready { font-size: 14px; color: var(--green); background: var(--green-bg); padding: 10px 12px; border-radius: 8px; margin: 0; }
 
+
+    /* ---- Tabs ---- */
+    .tabs { display: flex; gap: 4px; margin-left: auto; }
+    .tab {
+      font: inherit; font-size: 14px; padding: 8px 18px; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.35); border-radius: 8px;
+      background: transparent; color: var(--white);
+    }
+    .tab:hover { background: rgba(255,255,255,0.12); }
+    .tab[aria-selected="true"] { background: var(--white); color: var(--kone-blue); border-color: var(--white); font-weight: 600; }
+
+    textarea#html {
+      width: 100%; min-height: 200px; padding: 14px;
+      border: 1px solid var(--black-20); border-radius: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px; resize: vertical; background: var(--white);
+    }
+    textarea#html:focus { outline: 2px solid var(--kone-blue); outline-offset: -1px; border-color: var(--kone-blue); }
+
+    .field-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--black-60); margin: 20px 0 8px; font-weight: 600; }
+    .hint { font-size: 12px; color: var(--black-60); margin-top: 8px; }
+
+    .clean { font-size: 14px; color: var(--green); margin: 0; }
+    ul.devs { list-style: none; padding: 0; margin: 0; font-size: 14px; }
+    ul.devs > li { padding: 10px 0; border-bottom: 1px solid var(--hairline); }
+    ul.devs > li:last-child { border-bottom: 0; }
+    .dev-note { font-size: 13px; color: var(--amber); font-weight: 600; }
+    .dev-line { margin-top: 4px; font-size: 13px; }
+    .dev-line b { color: var(--black-60); font-weight: 600; display: inline-block; min-width: 62px; }
+    .dev-line span { color: var(--black); }
+    section.card.dirty { border-left: 4px solid var(--amber); }
+    .region-note { font-size: 12px; color: var(--black-60); margin: 0 0 16px; }
+
     .toast {
       position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
       background: var(--black); color: var(--white); padding: 10px 18px; border-radius: 8px;
@@ -155,8 +188,12 @@
       <path d="M1133.44 175.62 1036 175.62 1036 209.03 1117.47 209.03 1117.45 251.34 1036 251.34 1036 284.85 1133.44 284.85 1133.44 329.71 983.93 329.71 983.93 132.05 1133.44 132.05 1133.44 175.62Z" fill="#1450F5"></path>
     </svg>
     <div>
-      <h1>WCM Brief Analyser</h1>
-      <p>What kind of job is this, what does it need, and how is it done</p>
+      <h1>WCM Helper</h1>
+      <p>Analyse a brief, or compare it against the page that got built</p>
+    </div>
+    <div class="tabs" role="tablist">
+      <button class="tab" id="tab-analyse" role="tab" aria-selected="true" type="button">Analyse</button>
+      <button class="tab" id="tab-compare" role="tab" aria-selected="false" type="button">Compare</button>
     </div>
   </header>
 
@@ -167,6 +204,7 @@
 
       <div class="input-actions">
         <button id="analyse-btn" class="btn-primary" type="button" disabled>Analyse</button>
+        <button id="compare-btn" class="btn-primary" type="button" hidden disabled>Compare</button>
         <button id="sample-btn" class="btn-ghost" type="button">Load sample</button>
         <button id="clear-btn" class="btn-ghost" type="button">Clear</button>
         <button id="copy-btn" class="btn-ghost" type="button" disabled>Copy questions</button>
@@ -177,6 +215,17 @@
         <select id="type-select">
           <option value="">Let the analyser decide</option>
         </select>
+      </div>
+
+      <div id="compare-input" hidden>
+        <p class="field-label">Page HTML</p>
+        <textarea id="html" placeholder="Paste the built page's source here — View Source, select all, paste."></textarea>
+        <div class="input-actions">
+          <button id="html-upload-btn" class="btn-ghost" type="button">Upload .html</button>
+          <button id="html-clear-btn" class="btn-ghost" type="button">Clear HTML</button>
+          <input type="file" id="html-file" accept=".html,.htm,.txt" hidden>
+        </div>
+        <p class="hint">Nothing leaves the browser. The tool cannot fetch the page itself, so paste or upload it.</p>
       </div>
 
       <div class="override">
@@ -195,6 +244,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="engine.js"></script>
+  <script src="compare.js"></script>
   <script src="app.js"></script>
 </body>
 

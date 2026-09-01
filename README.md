@@ -1,4 +1,11 @@
-# WCM Brief Analyser
+# WCM Helper
+
+Two tools behind one page.
+
+**Analyse** — paste a work brief, find out what it is and how to do it.
+**Compare** — paste the brief and the HTML of the page that got built, find out where they differ.
+
+## Analyse
 
 Paste a work brief. Get back four things:
 
@@ -9,11 +16,24 @@ Paste a work brief. Get back four things:
 
 Nothing else. A two-line redirect request gets two questions at most — not a checklist about components, assets, markets and approvers that belong to a different kind of job.
 
+## Compare
+
+Paste the same brief plus the built page's source (or upload the `.html`), and the comparer reports **only the differences**, in five groups: Metadata, Body Text, Images, Hyperlinks/CTAs, Structure. A group with nothing wrong says "No deviations."
+
+It works on the four jobs that produce a page to read — new page, localization, content update, keyword update. Redirect and removal are checked by following the URL, so the Compare tab says so rather than inventing findings.
+
+Two limits worth stating plainly:
+
+- **The tool cannot fetch the page.** A static browser app is blocked by CORS from reading a live KONE URL, which is why the HTML is pasted or uploaded. It follows that it cannot tell you an image is *broken* — only that the brief named an asset the page does not carry.
+- **Body text is compared verbatim after normalising.** Whitespace, `&nbsp;` and curly quotes are folded, then the match must be exact. A reworded sentence is reported; whether the rewording was deliberate is a judgement left to you.
+
+Where the comparer reads the page content from is shown above the results. If it says "body minus nav, header and footer" and the Body Text group fills with menu labels, add the template's content wrapper class to `compare.contentSelectors` in `config/work-types.json`.
+
 ## Running it
 
 ```
 npm start     # http://localhost:3600
-npm test      # 20 verification cases
+npm test      # 48 verification cases across both tools
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -42,10 +62,12 @@ Assets now live in Adobe DAM whichever CMS serves the page, so a `adobecqms.net`
 ## Structure
 
 ```
-index.html            UI
-app.js                renders the engine's result — no analysis of its own
-engine.js             classify → detect CMS → check needs → return steps
-config/work-types.json  the six playbooks
-test/engine.test.js   32 cases, fixtures are real briefs
-serve.js              local static server
+index.html              UI, two tabs
+app.js                  renders what the two modules return — no analysis of its own
+engine.js               classify → detect CMS → check needs → return steps
+compare.js              read the page → read the brief → diff → group by category
+config/work-types.json  the six playbooks, plus the compare settings
+test/engine.test.js     32 cases, fixtures are real briefs
+test/compare.test.js    16 cases, deviations planted one per category
+serve.js                local static server
 ```

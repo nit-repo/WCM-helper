@@ -1,12 +1,14 @@
 {
-  "name": "wcm-brief-analyser",
+  "name": "wcm-helper",
   "version": "1.0.0",
   "private": true,
-  "description": "Deterministic, auditable analysis of AEM and Tridion web content management briefs",
+  "description": "Analyse AEM and Tridion work briefs, and compare a brief against the page that got built",
   "license": "MIT",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node serve.js",
-    "test": "node test/engine.test.js"
+    "test": "node test/engine.test.js && node test/compare.test.js"
   }
 }
