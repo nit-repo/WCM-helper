@@ -19,13 +19,27 @@ Nothing else. A two-line redirect request gets two questions at most — not a c
 
 ## Compare
 
-Paste the same brief plus the built page's source (or upload the `.html`), and the comparer reports **only the differences**, in five groups: Metadata, Body Text, Images, Hyperlinks/CTAs, Structure. A group with nothing wrong says "No deviations."
+Paste the same brief plus the built page's source (or upload the `.html`), and the comparer answers one question first — **is everything the brief asked for actually on the page?**
+
+That is the headline. *"All 74 items from the brief are on the page"*, or *"61 of 74 — 13 missing"*. Underneath it sit the differences, in five groups: Metadata, Body Text, Images, Hyperlinks/CTAs, Structure. A group with nothing wrong says "No deviations."
+
+Counting coverage is what makes the tool's two worst failures legible without a special rule for each. `0 of 0` is a brief that did not parse; `2 of 74` is a brief that parsed wrongly. Both used to need a bespoke guard to interpret, because a report that shows only failures cannot tell "nothing was wrong" from "nothing was checked".
 
 **A brief it cannot read is never reported as clean.** If the parse yields no expectations, the tool says so instead of showing five green ticks — a comparison that never ran must not look like one that passed. This was a real failure: a Portuguese brief and its live page came back "No deviations" while the page carried eight defects.
 
-**Nor is a brief it read wrongly reported as a broken page.** The same brief later came back with 78 findings, of which about three were real. A brief can parse into plenty of expectations and still have been misread — a torn row, a shifted column — and then nearly all of them fail. A real page fails some checks; it does not fail all of them. So when 90% or more of at least eight expectations come back missing, the tool withholds them and says the brief did not parse, naming the shape it read. Findings that need no brief to be right — placeholder links, dead CTAs, contradictory stats — still report.
+**Nor is a brief it read wrongly reported as a broken page.** The same brief later came back with 78 findings, of which about three were real. A brief can parse into plenty of expectations and still have been misread — a torn row, a shifted column — and then nearly all of them fail. A real page fails some checks; it does not fail all of them. So when 90% or more of at least eight expectations come back missing, the tool says the brief was probably read wrongly and names the shape it read. It shows the findings rather than hiding them: with the coverage count on screen, the number is what explains them.
 
-**Metadata says when it checked nothing.** A brief that defines no meta title used to render exactly like one whose title matched, which is how an English `<title>` shipped on a Portuguese page unreported. Each field is now matches / differs / not defined in the brief, and the category says which. Comparison itself is word for word — only the punctuation a CMS rewrites is folded, never case.
+**Metadata always shows what the page carries**, brief or no brief. Each field reads as matches / differs / not on the page / not defined in the brief, so a blank brief still tells you what the page is serving. Comparison itself is word for word — only the punctuation a CMS rewrites is folded, never case.
+
+**Three fields that are not the same field.** These were conflated, and the brief's meta title was being compared against the wrong one:
+
+| | Read from |
+|---|---|
+| **Meta title** | `og:title` |
+| **Page name** | the `<title>` tag |
+| **Page path** | the last segment of the URL |
+
+`og:title` was never extracted at all — the meta reader matched `name="…"`, and Open Graph uses `property="…"`. Where a template ships no Open Graph, the meta title falls back to the window title and says so as a **check**, rather than reporting every such page as missing a title. The page path is shown as its segment but compared as a whole path, so a preview host or an `.aspx` extension never registers as a difference.
 
 **Briefs are split into rows honouring quotes.** Excel and CSV wrap a cell holding more than one paragraph in quotes and keep its newlines inside. Splitting on newlines first tears that row in half, which is what made the tool read a perfectly good table as prose and invent 74 findings from it. Rows are now parsed with the quoting rules the exports actually use.
 
@@ -80,7 +94,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 115 verification cases across the four modules
+npm test      # 123 verification cases across the four modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -117,7 +131,7 @@ filler.js               find the row from its English master → carry the marku
 readers.js              .docx / .xlsx / .csv → text, with no dependencies
 config/work-types.json  the six playbooks, plus the compare settings
 test/engine.test.js     32 cases, fixtures are real briefs
-test/compare.test.js    58 cases, deviations planted one per category
+test/compare.test.js    66 cases, deviations planted one per category
 test/readers.test.js    9 cases, run against real ZIP bytes
 test/filler.test.js     16 cases, including markup that must never be guessed
 serve.js                local static server

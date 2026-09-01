@@ -280,19 +280,19 @@
       ' · brief read as <b>' + esc(result.mode || 'labelled') + '</b>, ' + result.expectations +
       ' things to check</p>';
 
-    // A page that fails nearly every check was compared against a misread
-    // brief. Showing that as a defect list buries the few findings that are
-    // real, so the brief-derived ones are withheld and the parse is blamed.
-    if (result.parseFailed) {
-      el.output.innerHTML = head +
-        section('The brief did not parse',
-          '<p class="note warn">' + esc(result.note) + '</p>') +
-        region +
-        '<p class="tally"><b>' + result.breaks + '</b> to fix, <b>' + result.checks +
-        '</b> to check by eye — from the page alone, needing no brief.</p>' +
-        result.categories.map(renderCategory).join('');
-      return;
-    }
+    // Coverage is the headline. "Is everything from the brief on the page" is
+    // the question the tool exists to answer; the five deviation groups are
+    // the detail underneath it.
+    var cov = result.coverage || { total: 0, found: 0, missing: 0, complete: false };
+    var coverage = cov.complete
+      ? '<p class="coverage ok">All ' + cov.total + ' item' + (cov.total === 1 ? '' : 's') +
+        ' from the brief are on the page.</p>'
+      : '<p class="coverage short">' + cov.found + ' of ' + cov.total +
+        ' items from the brief are on the page — <b>' + cov.missing + '</b> missing.</p>';
+
+    var suspect = result.suspectParse
+      ? '<p class="note warn">' + esc(result.parseNote) + '</p>'
+      : '';
 
     var tally = '<p class="tally"><b>' + result.breaks + '</b> to fix, <b>' + result.checks +
       '</b> to check by eye.</p>';
@@ -303,19 +303,42 @@
       return '<p class="brief-warning">' + esc(w) + '</p>';
     }).join('');
 
-    el.output.innerHTML = head + warnings + tally + region + result.categories.map(renderCategory).join('');
+    el.output.innerHTML = head + warnings + coverage + suspect + tally + region +
+      result.categories.map(renderCategory).join('');
+  }
+
+  // What the page actually carries, listed whether or not the brief mentions
+  // it. An author asked to see the meta title, page name and path on every
+  // run — a blank Metadata block tells them nothing about the page.
+  function renderRows(rows) {
+    if (!rows || !rows.length) return '';
+    var STATE = {
+      'matches': ['ok', 'matches the brief'],
+      'differs': ['bad', 'differs from the brief'],
+      'missing': ['bad', 'not on the page'],
+      'not-in-brief': ['idle', 'not defined in the brief']
+    };
+    return '<table class="meta-rows">' + rows.map(function (r) {
+      var s = STATE[r.state] || ['idle', r.state];
+      return '<tr class="' + s[0] + '"><th>' + esc(r.field) +
+        (r.source ? '<span class="src">' + esc(r.source) + '</span>' : '') + '</th>' +
+        '<td>' + (r.found ? esc(r.found) : '<i>nothing on the page</i>') + '</td>' +
+        '<td class="state">' + esc(s[1]) + '</td></tr>';
+    }).join('') + '</table>';
   }
 
   function renderCategory(c) {
+    var rows = renderRows(c.rows);
+
     if (!c.deviations.length) {
       // "Nothing was checked" and "everything matched" must never look alike.
       var body = c.note
         ? '<p class="note warn">' + esc(c.note) + '</p>'
         : '<p class="clean">No deviations.</p>';
-      return '<section class="card"><h3>' + esc(c.label) + '</h3>' + body + '</section>';
+      return '<section class="card"><h3>' + esc(c.label) + '</h3>' + body + rows + '</section>';
     }
 
-    var rows = c.deviations.map(function (d) {
+    var items = c.deviations.map(function (d) {
       var check = d.severity === 'check';
       var tag = '<span class="sev-tag ' + (check ? 'check">check' : 'break">break') + '</span>';
       var head = (d.field ? esc(d.field) + ' — ' : '') + esc(d.note);
@@ -327,7 +350,7 @@
 
     var breaks = c.deviations.filter(function (d) { return d.severity !== 'check'; }).length;
     return '<section class="card' + (breaks ? ' dirty' : '') + '"><h3>' + esc(c.label) + ' — ' +
-      c.deviations.length + '</h3><ul class="devs">' + rows + '</ul></section>';
+      c.deviations.length + '</h3><ul class="devs">' + items + '</ul>' + rows + '</section>';
   }
 
   function renderCompareEmpty() {

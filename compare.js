@@ -221,8 +221,26 @@
       return tag ? attr(tag[0], 'content') : null;
     }
 
+    // Open Graph uses property=, not name=, so meta() above cannot see it. That
+    // is why og:title was never read: the brief's meta title was being compared
+    // against the window title instead, which is a different field entirely.
+    function og(name) {
+      var re = new RegExp('<meta\\b[^>]*property\\s*=\\s*["\']og:' + name + '["\'][^>]*>', 'i');
+      var tag = re.exec(headHtml);
+      if (!tag) {
+        re = new RegExp('<meta\\b[^>]*content\\s*=\\s*["\'][^"\']*["\'][^>]*property\\s*=\\s*["\']og:' + name + '["\'][^>]*>', 'i');
+        tag = re.exec(headHtml);
+      }
+      return tag ? attr(tag[0], 'content') : null;
+    }
+
     var title = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(headHtml);
     var canonicalTag = /<link\b[^>]*rel\s*=\s*["']canonical["'][^>]*>/i.exec(headHtml);
+    var canonicalHref = canonicalTag ? attr(canonicalTag[0], 'href') : null;
+
+    // The page path is the last segment of the URL — the page's name in the
+    // CMS tree, which is a different thing from either title.
+    var segments = pathOf(canonicalHref || '').split('/').filter(function (s) { return s !== ''; });
 
     var headings = [], hm, hre = /<(h[1-3])\b[^>]*>([\s\S]*?)<\/\1>/gi;
     while ((hm = hre.exec(region.html)) !== null) {
@@ -317,10 +335,15 @@
     }
 
     return {
-      title: title ? stripTags(title[1]) : null,
-      description: meta('description'),
+      // Three distinct fields that were previously conflated: og:title is the
+      // meta title, the window title is the page name, and the last URL
+      // segment is the page path.
+      metaTitle: og('title'),
+      pageName: title ? stripTags(title[1]) : null,
+      pagePath: segments.length ? segments[segments.length - 1] : null,
+      description: meta('description') || og('description'),
       keywords: meta('keywords'),
-      canonical: canonicalTag ? attr(canonicalTag[0], 'href') : null,
+      canonical: canonicalHref,
       h1: headings.filter(function (h) { return h.level === 'h1'; }).map(function (h) { return h.text; }),
       headings: headings,
       images: images,
@@ -380,6 +403,7 @@
       }
       expect.mode = 'columns';
       expect.metadata.title = localisedRow(rows, 'Meta title');
+      expect.metadata.pageName = localisedRow(rows, 'Page name');
       expect.metadata.description = localisedRow(rows, 'Meta description');
       expect.metadata.keywords = localisedRow(rows, 'Meta keywords');
       ['Headline', 'Subheading', 'Title', 'Body'].forEach(function (label) {
@@ -432,6 +456,7 @@
     // new-page, and content-update briefs that carry replacement copy
     expect.mode = 'labelled';
     expect.metadata.title = labelled(text, 'Meta Title');
+    expect.metadata.pageName = labelled(text, 'Page Name');
     expect.metadata.description = labelled(text, 'Meta Description');
     expect.metadata.keywords = labelled(text, 'Meta Keywords');
     expect.metadata.canonical = labelled(text, 'URL Path');
@@ -488,31 +513,82 @@
   // defines no metadata used to render identically to one that matched, which
   // is how an English <title> shipped on a Portuguese page unreported.
 
-  function metadataFields(expect) {
+  // These are three different fields and were being treated as one. og:title is
+  // the meta title, the window title is the page name, and the last URL segment
+  // is the page path. Every row is returned whether or not the brief mentions
+  // it, so an author can always see what the page is actually carrying — the
+  // Metadata block used to be blank unless the brief defined something.
+
+  function metadataRows(expect, page) {
+    // Not every template ships Open Graph. Rather than call the meta title
+    // missing on every such page, fall back to the window title for the
+    // comparison and say that is what happened — the absence is worth a
+    // glance, but it is not the same defect as a wrong title.
+    var ogMissing = page.metaTitle == null || page.metaTitle === '';
+    var metaTitleValue = ogMissing ? page.pageName : page.metaTitle;
+
     return [
-      ['Meta title', expect.metadata.title, 'title', same],
-      ['Meta description', expect.metadata.description, 'description', same],
-      ['Meta keywords', expect.metadata.keywords, 'keywords', same],
-      // The canonical is a URL, so an environment difference is not a defect.
-      ['Canonical / URL path', expect.metadata.canonical, 'canonical', samePath]
-    ];
+      { field: 'Meta title', source: ogMissing ? 'window title (page carries no og:title)' : 'og:title',
+        want: expect.metadata.title, got: metaTitleValue, matches: same, soft: ogMissing },
+      { field: 'Page name', source: 'window title',
+        want: expect.metadata.pageName, got: page.pageName, matches: same },
+      // Displayed as the last segment, compared as a whole path so that a
+      // preview host or an .aspx extension never registers as a difference.
+      { field: 'Page path', source: 'last URL segment',
+        want: expect.metadata.canonical, got: page.pagePath, compareAgainst: page.canonical, matches: samePath },
+      { field: 'Meta description', source: null,
+        want: expect.metadata.description, got: page.description, matches: same },
+      { field: 'Meta keywords', source: null,
+        want: expect.metadata.keywords, got: page.keywords, matches: same }
+    ].map(function (row) {
+      var want = row.want, got = row.got, state;
+      var against = row.compareAgainst !== undefined ? row.compareAgainst : got;
+
+      if (want == null || want === '') state = 'not-in-brief';
+      else if (against == null || against === '') state = 'missing';
+      else state = row.matches(want, against) ? 'matches' : 'differs';
+
+      return {
+        field: row.field,
+        source: row.source,
+        expected: want || null,
+        found: got || null,
+        state: state,
+        soft: !!row.soft
+      };
+    });
   }
 
-  function metadataDefined(expect) {
-    return metadataFields(expect).filter(function (r) { return r[1] != null && r[1] !== ''; })
-      .map(function (r) { return r[0]; });
+  function metadataDefined(expect, page) {
+    return metadataRows(expect, page).filter(function (r) { return r.state !== 'not-in-brief'; })
+      .map(function (r) { return r.field; });
   }
 
   function metadataDeviations(expect, page) {
     var out = [];
-    metadataFields(expect).forEach(function (row) {
-      var label = row[0], want = row[1], got = page[row[2]], matches = row[3];
-      if (want == null || want === '') return;
-      if (got == null || got === '') {
-        out.push({ field: label, expected: want, found: null, note: 'missing from the page', severity: 'break', fromBrief: true });
-      } else if (!matches(want, got)) {
-        out.push({ field: label, expected: want, found: got, note: 'differs', severity: 'break', fromBrief: true });
+    metadataRows(expect, page).forEach(function (row) {
+      // A field the brief never mentioned is shown for information, not judged.
+      if (row.state === 'not-in-brief') return;
+      if (row.state === 'matches') {
+        // Matched, but against the fallback rather than the field the brief
+        // means. Worth a look, not a defect.
+        if (row.soft) {
+          out.push({
+            field: row.field, expected: row.expected, found: row.found,
+            note: 'the page carries no og:title, so this was compared against the window title',
+            severity: 'check', fromBrief: true
+          });
+        }
+        return;
       }
+      out.push({
+        field: row.field,
+        expected: row.expected,
+        found: row.found,
+        note: row.state === 'missing' ? 'missing from the page' : 'differs',
+        severity: 'break',
+        fromBrief: true
+      });
     });
 
     if (page.h1.length === 0) out.push({ field: 'H1', expected: null, found: null, note: 'the page has no H1', severity: 'break' });
@@ -748,50 +824,35 @@
         { id: 'structure', label: 'Structure', deviations: ordered(structureDeviations(expect, page)) }
       ];
 
-      // The sibling of the unreadable-brief guard above. A brief can parse into
-      // plenty of expectations and still have been read wrongly — a shifted
-      // column, a torn row — and then almost every one of them fails. A real
-      // page fails some checks; it does not fail all of them. So a near-total
-      // miss is evidence about the parse, not about the page, and rendering it
-      // as a defect list is as useless as rendering silence as a pass. One real
-      // brief produced 74 findings this way, of which none were real.
+      // The question the tool exists to answer is not "what is different" but
+      // "is everything the brief asked for actually on the page". Counting that
+      // is what makes the two failure modes legible without a heuristic: zero
+      // of zero is a brief that did not parse, and two of seventy-four is a
+      // brief that parsed wrongly. Both used to need a special guard to read.
       var briefFailures = 0;
       categories.forEach(function (c) {
         c.deviations.forEach(function (d) { if (d.fromBrief) briefFailures++; });
       });
+      var coverage = {
+        total: expectationCount,
+        found: Math.max(0, expectationCount - briefFailures),
+        missing: briefFailures,
+        complete: briefFailures === 0
+      };
       var missRate = expectationCount > 0 ? briefFailures / expectationCount : 0;
 
-      if (expectationCount >= 8 && missRate >= 0.9) {
-        // Keep what needs no brief to be right — those findings still stand.
-        var pageView = pageOnlyCategories(page, cfg);
-        return {
-          generatedAt: new Date().toISOString(),
-          supported: true,
-          unreadable: false,
-          parseFailed: true,
-          workTypeId: workTypeId,
-          mode: expect.mode,
-          expectations: expectationCount,
-          missed: briefFailures,
-          regionVia: page.regionVia,
-          note: briefFailures + ' of ' + expectationCount + ' things read out of the brief were missing from the page. ' +
-                'A page that fails nearly every check has almost certainly been compared against a misread brief, not ' +
-                'built wrongly — so those findings are withheld rather than shown as defects. The brief was read as ' +
-                (expect.mode === 'columns' ? 'a table, so check the column order and that no row has been torn in half.'
-                                           : 'prose, so check that its table columns survived the paste — an Excel or ' +
-                                             'Word brief should be uploaded rather than pasted.'),
-          breaks: pageView.breaks,
-          checks: pageView.checks,
-          categories: pageView.categories
-        };
-      }
+      // A near-total miss still says the brief was probably misread rather than
+      // the page badly built — but with the count on screen, suppressing the
+      // findings would hide the very thing that explains it. Warn, and show.
+      var suspectParse = expectationCount >= 8 && missRate >= 0.9;
 
-      // Nothing to compare against is not the same as everything matching.
-      var defined = metadataDefined(expect);
+      // Metadata is always shown, brief or no brief, so the author can see what
+      // the page carries. The rows carry their own state.
+      var defined = metadataDefined(expect, page);
+      categories[0].rows = metadataRows(expect, page);
       if (!defined.length) {
-        categories[0].note = 'The brief defines no metadata, so none was checked — this is not a pass. ' +
-          'A localization brief carries it on its Meta title and Meta description rows; a new-page brief ' +
-          'on its Meta Title, Meta Description and URL Path lines.';
+        categories[0].note = 'The brief defines no metadata, so none of it was checked — this is not a pass. ' +
+          'What the page carries is listed below for reference.';
       }
 
       var breaks = 0, checks = 0;
@@ -803,10 +864,18 @@
         generatedAt: new Date().toISOString(),
         supported: true,
         unreadable: false,
-        parseFailed: false,
         workTypeId: workTypeId,
         mode: expect.mode,
         expectations: expectationCount,
+        coverage: coverage,
+        suspectParse: suspectParse,
+        parseNote: suspectParse
+          ? coverage.found + ' of ' + coverage.total + ' items from the brief were found on the page. ' +
+            'Failing nearly everything usually means the brief was read wrongly rather than the page built ' +
+            'wrongly — the brief was read as ' + (expect.mode === 'columns' ? 'a table, so check the column ' +
+            'order and that no row has been torn in half.' : 'prose, so check that its table columns survived ' +
+            'the paste — upload an Excel or Word brief rather than pasting it.')
+          : null,
         metadataChecked: defined,
         regionVia: page.regionVia,
         breaks: breaks,

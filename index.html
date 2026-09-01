@@ -175,6 +175,33 @@
     ul.devs > li.check .dev-note { color: var(--black-60); font-weight: 400; }
     .tally { font-size: 13px; color: var(--black-60); margin: 0 0 16px; }
     .tally b { color: var(--black); }
+
+    /* Coverage is the headline: is everything the brief asked for on the page. */
+    .coverage {
+      font-size: 15px; font-weight: 600; margin: 16px 0 4px;
+      padding: 12px 14px; border-radius: 8px;
+    }
+    .coverage.ok { color: var(--green); background: var(--sand); }
+    .coverage.short { color: var(--amber); background: var(--amber-bg); }
+    .coverage b { font-weight: 700; }
+
+    /* What the page carries, shown whether or not the brief mentions it. */
+    table.meta-rows { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+    table.meta-rows th, table.meta-rows td {
+      text-align: left; vertical-align: top; padding: 8px 10px 8px 0;
+      border-bottom: 1px solid var(--hairline);
+    }
+    table.meta-rows tr:last-child th, table.meta-rows tr:last-child td { border-bottom: 0; }
+    table.meta-rows th { font-weight: 600; color: var(--black); white-space: nowrap; width: 1%; }
+    table.meta-rows th .src {
+      display: block; font-weight: 400; font-size: 11px; color: var(--black-60);
+      text-transform: none; letter-spacing: 0;
+    }
+    table.meta-rows td { color: var(--black); word-break: break-word; }
+    table.meta-rows td i { color: var(--black-60); }
+    table.meta-rows td.state { white-space: nowrap; width: 1%; font-size: 12px; color: var(--black-60); }
+    table.meta-rows tr.ok td.state { color: var(--green); }
+    table.meta-rows tr.bad td.state { color: var(--amber); font-weight: 600; }
     .brief-warning {
       font-size: 13px; background: var(--sand); border-radius: 8px;
       padding: 10px 12px; margin: 12px 0 0;

@@ -63,6 +63,10 @@ var FOOTER = '<footer><a href="/privacy/">Privacy notice</a><p>Copyright KONE Co
 function page(parts) {
   return '<!DOCTYPE html><html><head>' +
     '<title>' + (parts.title || 'Lift Safety Features | KONE India') + '</title>' +
+    // og:title is the meta title; the <title> above is the page name. A
+    // well-built page carries both, so the fixture does too.
+    (parts.ogTitle === null ? '' :
+      '<meta property="og:title" content="' + (parts.ogTitle || 'Lift Safety Features | KONE India') + '">') +
     '<meta name="description" content="' + (parts.description || 'Learn about the key safety features of modern high-rise elevators.') + '">' +
     '<meta name="keywords" content="elevator safety, high rise lifts">' +
     '<link rel="canonical" href="https://www.kone.in/blog/lift-safety-features">' +
@@ -247,7 +251,7 @@ test('14b. a genuinely different path is still a deviation', function () {
   var briefWrong = BRIEF.replace('/blog/lift-safety-features', '/blog/escalator-safety');
   var d = cat(comparer.compare(briefWrong, CLEAN, { workTypeId: 'new-page' }), 'metadata');
 
-  assert.ok(d.some(function (x) { return /Canonical/.test(x.field); }),
+  assert.ok(d.some(function (x) { return /Page path/.test(x.field); }),
     'a different path must still be caught: ' + textOf(d));
 });
 
@@ -594,24 +598,21 @@ test('27. copy genuinely absent from the page is still a break', function () {
   assert.strictEqual(devs[0].severity, 'break');
 });
 
-test('28. failing nearly every expectation is reported as a parse failure, not defects', function () {
+test('28. failing nearly every expectation warns about the brief, and still shows it', function () {
   var rows = [];
   for (var i = 0; i < 10; i++) {
     rows.push('Body\tEnglish master ' + i + '\tTexto localizado que nunca aparece na página ' + i + '.');
   }
   var r = comparer.compare(rows.join('\n'), CLEAN, { workTypeId: 'localization' });
 
-  assert.strictEqual(r.parseFailed, true, 'a near-total miss is evidence about the parse');
-  assert.ok(/misread brief/i.test(r.note), r.note);
-  r.categories.forEach(function (c) {
-    assert.ok(c.deviations.length > 0, 'an empty category would read as a pass: ' + c.label);
-    c.deviations.forEach(function (d) {
-      assert.ok(!d.fromBrief, 'brief-derived findings must be withheld: ' + JSON.stringify(d));
-    });
-  });
+  assert.strictEqual(r.suspectParse, true, 'a near-total miss still points at the brief');
+  assert.ok(/read wrongly/i.test(r.parseNote), r.parseNote);
+  assert.ok(cat(r, 'body').length > 0,
+    'but the findings are shown, because the count is what explains them');
+  assert.strictEqual(r.coverage.missing, r.coverage.total, 'nothing was found: ' + JSON.stringify(r.coverage));
 });
 
-test('29. page-only findings still report through a parse failure', function () {
+test('29. page-only findings report alongside a suspect parse', function () {
   var rows = [];
   for (var i = 0; i < 10; i++) {
     rows.push('Body\tEnglish master ' + i + '\tTexto localizado que nunca aparece na página ' + i + '.');
@@ -620,9 +621,35 @@ test('29. page-only findings still report through a parse failure', function () 
 
   var r = comparer.compare(rows.join('\n'), page, { workTypeId: 'localization' });
 
-  assert.strictEqual(r.parseFailed, true);
+  assert.strictEqual(r.suspectParse, true);
   assert.ok(/placeholder/i.test(textOf(cat(r, 'links'))),
     'the href="#" needs no brief to be wrong: ' + textOf(cat(r, 'links')));
+});
+
+test('29b. coverage counts what the brief asked for and what landed', function () {
+  var rows = [
+    'Headline\tMaster\tEmergency Braking Systems',
+    'Body\tMaster\tModern lifts use advanced door sensors that detect people or objects in the doorway before the doors close.',
+    'Body\tMaster\tEsta frase nunca aparece na página de forma alguma.'
+  ];
+  var r = comparer.compare(rows.join('\n'), CLEAN, { workTypeId: 'localization' });
+
+  assert.strictEqual(r.coverage.total, r.coverage.found + r.coverage.missing, JSON.stringify(r.coverage));
+  assert.strictEqual(r.coverage.missing, 1, 'one line is genuinely absent: ' + JSON.stringify(r.coverage));
+  assert.strictEqual(r.coverage.complete, false);
+});
+
+test('29c. a brief entirely present on the page reports complete coverage', function () {
+  var rows = [
+    'Headline\tMaster\tEmergency Braking Systems',
+    'Headline\tMaster\tDoor Safety Sensors',
+    'Body\tMaster\tModern lifts use advanced door sensors that detect people or objects in the doorway before the doors close.'
+  ];
+  var r = comparer.compare(rows.join('\n'), CLEAN, { workTypeId: 'localization' });
+
+  assert.strictEqual(r.coverage.complete, true, 'everything the brief asked for is there');
+  assert.strictEqual(r.coverage.missing, 0);
+  assert.strictEqual(r.coverage.found, r.coverage.total);
 });
 
 test('30. a page failing only some of its expectations is a normal report', function () {
@@ -761,6 +788,74 @@ test('42. an unreadable brief still reports what the page says about itself', fu
   assert.ok(/more than once/.test(all), all);
   assert.ok(/placeholder/.test(all), all);
   assert.ok(/disagree/.test(all), all);
+});
+
+// og:title, the window title and the URL's last segment are three different
+// fields. They were treated as one, so the brief's meta title was compared
+// against the window title and og:title was never read at all.
+
+test('43. og:title is the meta title and the window title is the page name', function () {
+  var p = comparer.readPage(
+    '<html><head><title>Elevator Upgrades - KONE Portugal</title>' +
+    '<meta property="og:title" content="Atualize o seu elevador">' +
+    '<link rel="canonical" href="https://preview.kone.pt/predios-existentes/elevator-upgrades/">' +
+    '</head><body><main><p>x</p></main></body></html>');
+
+  assert.strictEqual(p.metaTitle, 'Atualize o seu elevador');
+  assert.strictEqual(p.pageName, 'Elevator Upgrades - KONE Portugal');
+  assert.strictEqual(p.pagePath, 'elevator-upgrades');
+});
+
+test('44. a page with no og:title does not borrow the window title for it', function () {
+  var p = comparer.readPage('<html><head><title>Only a window title</title></head><body><main><p>x</p></main></body></html>');
+
+  assert.strictEqual(p.metaTitle, null, 'absent means absent');
+  assert.strictEqual(p.pageName, 'Only a window title');
+});
+
+test('45. the brief meta title is compared against og:title, not the window title', function () {
+  // The two differ, and only og:title matches the brief. Comparing against the
+  // window title — as it used to — would report a defect that is not there.
+  var html = page({ main: CLEAN_MAIN, title: 'Something else entirely' });
+  var d = cat(comparer.compare(BRIEF, html, { workTypeId: 'new-page' }), 'metadata');
+
+  assert.ok(!d.some(function (x) { return x.field === 'Meta title' && x.severity === 'break'; }),
+    'og:title matches the brief, so this is not a defect: ' + textOf(d));
+});
+
+test('46. a page missing og:title is a check, not a break', function () {
+  var html = page({ main: CLEAN_MAIN, ogTitle: null });
+  var d = cat(comparer.compare(BRIEF, html, { workTypeId: 'new-page' }), 'metadata');
+  var found = d.filter(function (x) { return x.field === 'Meta title'; })[0];
+
+  assert.ok(found, 'the absence is worth reporting: ' + textOf(d));
+  assert.strictEqual(found.severity, 'check', 'but plenty of templates ship no Open Graph');
+  assert.ok(/window title/.test(found.note), found.note);
+});
+
+test('47. metadata is listed even when the brief defines none of it', function () {
+  var prose = 'Impulsione a sustentabilidade e reduza o consumo energético do seu edifício.';
+  var r = comparer.compare(prose, CLEAN, { workTypeId: 'localization' });
+  var metadata = r.categories.filter(function (c) { return c.id === 'metadata'; })[0];
+
+  assert.ok(metadata.rows && metadata.rows.length, 'the author must be able to see what the page carries');
+
+  var byField = {};
+  metadata.rows.forEach(function (row) { byField[row.field] = row; });
+
+  ['Meta title', 'Page name', 'Page path'].forEach(function (field) {
+    assert.ok(byField[field], field + ' must always be listed');
+    assert.strictEqual(byField[field].state, 'not-in-brief', field + ' is not in this brief');
+    assert.ok(byField[field].found, field + ' must still show what is on the page: ' + JSON.stringify(byField[field]));
+  });
+});
+
+test('48. page path is shown as a segment but compared as a whole path', function () {
+  var r = comparer.compare(BRIEF, CLEAN, { workTypeId: 'new-page' });
+  var row = r.categories[0].rows.filter(function (x) { return x.field === 'Page path'; })[0];
+
+  assert.strictEqual(row.found, 'lift-safety-features', 'displayed as the segment');
+  assert.strictEqual(row.state, 'matches', 'and matched against the full canonical');
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
