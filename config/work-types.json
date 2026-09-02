@@ -11,6 +11,26 @@
     "note": "The estate is mid-migration and most of it is still Tridion, so AEM is the exception: only the markets listed in aemMarkets have moved. Add a market here when it migrates. A .aspx page is Tridion whatever market it sits on. All assets live in Adobe DAM now whichever CMS serves the site, so DAM links never decide the platform — only the target site URL does."
   },
 
+  "markets": {
+    "note": "Column headers a multi-market localization brief uses for its locale columns, and the domain each resolves to for CMS detection when the brief carries no full site URL. Add a market here when a brief uses one that is not listed — matching is case-insensitive against the header row.",
+    "list": [
+      { "name": "SPAIN", "domain": "kone.es" },
+      { "name": "ITALY", "domain": "kone.it" },
+      { "name": "PORTUGAL", "domain": "kone.pt" },
+      { "name": "DENMARK", "domain": "kone.dk" },
+      { "name": "CYPRUS", "domain": "kone.com.cy" },
+      { "name": "SLOVENIA", "domain": "kone.si" },
+      { "name": "LITHUANIA", "domain": "kone.lt" },
+      { "name": "LATVIA", "domain": "kone.lv" },
+      { "name": "ESTONIA", "domain": "kone.ee" },
+      { "name": "ICELAND", "domain": "kone.is" },
+      { "name": "UK", "domain": "kone.co.uk" },
+      { "name": "IRELAND", "domain": "kone.ie" },
+      { "name": "INDIA", "domain": "kone.in" },
+      { "name": "AUSTRALIA", "domain": "kone.com.au" }
+    ]
+  },
+
   "compare": {
     "workTypes": ["new-page", "localization", "content-update", "keyword-update"],
     "contentSelectors": ["main", "[role=main]", ".content-wrapper", ".page-content"],
@@ -55,7 +75,7 @@
           "label": "Destination URL(s)",
           "question": "Where should each source URL land? Give the full destination URL.",
           "detect": [
-            { "signal": "hasTwoSiteUrls" },
+            { "signal": "redirectRowsComplete" },
             { "regex": "redirect(s|ed)? to|destination|target url|point(s|ing)? to|goes to" }
           ]
         }
@@ -338,7 +358,10 @@
           "id": "target_market",
           "label": "Target market site",
           "question": "Which market site is this for — which country domain should it be published to?",
-          "detect": [{ "regex": "kone\\.[a-z]{2,3}\\b|for (the )?[a-z]+ (market|site)|market:|country:" }]
+          "detect": [
+            { "signal": "targetMarketDeclared" },
+            { "regex": "kone\\.[a-z]{2,3}\\b|for (the )?[a-z]+ (market|site)|market:|country:" }
+          ]
         },
         {
           "id": "target_page",

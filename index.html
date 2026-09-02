@@ -310,6 +310,12 @@
         <p class="hint">The tool cannot read or write Tridion fields. It finds the row and hands you the localized text; you paste it.</p>
       </div>
 
+      <div class="override" id="market-override" hidden>
+        <label for="market-select">Target market — this brief names more than one</label>
+        <select id="market-select">
+        </select>
+      </div>
+
       <div class="override">
         <label for="cms-select">CMS platform</label>
         <select id="cms-select">
@@ -325,6 +331,7 @@
 
   <div class="toast" id="toast"></div>
 
+  <script src="brief.js"></script>
   <script src="engine.js"></script>
   <script src="compare.js"></script>
   <script src="readers.js"></script>

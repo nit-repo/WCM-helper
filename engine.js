@@ -16,9 +16,9 @@
  * Runs in the browser (window.BriefEngine) and in Node (module.exports).
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.BriefEngine = factory();
-}(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./brief.js'));
+  else root.BriefEngine = factory(root.BriefShared);
+}(typeof self !== 'undefined' ? self : this, function (Brief) {
   'use strict';
 
   // ─── TEXT MATCHING ───────────────────────────────────────────────────────
@@ -26,6 +26,14 @@
   // "/content/dam/"), so everything is escaped. Word boundaries are applied
   // only on the sides where the term actually starts or ends with a word
   // character — "\b/content/\b" would never match anything.
+
+  // A brief's cells can hold a quoted multi-line paragraph, and splitting on
+  // raw newlines before honouring that quoting tears one row into several —
+  // the exact mistake that shattered a real brief in compare.js before rows
+  // moved to brief.js. Every line-based signal here reads from this instead.
+  function linesOf(text) {
+    return Brief.splitRows(text).map(function (cells) { return cells.join('\t'); });
+  }
 
   var reCache = {};
 
@@ -71,7 +79,7 @@
   // redirect list — those briefs are often nothing but source/destination rows
   // and never say the word "redirect".
   function countUrlPairRows(text, cmsConfig) {
-    return text.split(/\r?\n/).filter(function (line) {
+    return linesOf(text).filter(function (line) {
       return splitUrls(line, cmsConfig).site.length >= 2;
     }).length;
   }
@@ -87,7 +95,7 @@
 
   function readSignals(text, cmsConfig) {
     var urls = splitUrls(text, cmsConfig);
-    var lines = text.split(/\r?\n/);
+    var lines = linesOf(text);
     var accented = (text.match(/[À-ɏ]/g) || []).length;
     var sectionMarkers = (text.match(/\[\d+\.\d+\]/g) || []).length;
     var paragraphs = lines.filter(function (l) { return l.trim().length >= 200; }).length;
@@ -107,9 +115,19 @@
       return /(^|\t)\s*x\s*(\t|$)/i.test(l) && splitUrls(l, cmsConfig).site.length >= 1;
     }).length;
 
+    // A brief with 10 source rows and 3 destinations used to report this need
+    // as met, because hasTwoSiteUrls only asks "do two site URLs exist
+    // anywhere" — true the moment any one row is complete. This instead
+    // requires every line naming a source URL to also carry a destination on
+    // that same line, which is the shape a real redirect sheet has: one row
+    // per URL being retired, source and destination side by side.
+    var urlLines = lines.filter(function (l) { return splitUrls(l, cmsConfig).site.length >= 1; });
+    var pairLines = urlLines.filter(function (l) { return splitUrls(l, cmsConfig).site.length >= 2; });
+
     return {
       hasSiteUrl: urls.site.length >= 1,
       hasTwoSiteUrls: urls.site.length >= 2,
+      redirectRowsComplete: urlLines.length > 0 && urlLines.length === pairLines.length,
       hasContentPath: /\/content\/[a-z0-9\-/]+/i.test(text) || /^\s*\/[a-z0-9][a-z0-9\-/]*\/\s*$/im.test(text),
       hasDamAsset: urls.dam.length >= 1 || /aem assets\s*[-–]/i.test(text),
       urlPairRows: countUrlPairRows(text, cmsConfig) >= 1,
@@ -133,35 +151,97 @@
   // the default: a market is on AEM only once it appears in aemMarkets. A page
   // ending .aspx is Tridion whatever market it sits on, which is what an
   // un-migrated page on an otherwise-migrated site looks like.
-  function detectCms(text, cmsConfig, signals, override) {
-    if (override) return { value: override, reason: 'Set by hand.' };
+  //
+  // One URL decides the platform for a single-market brief. A brief naming
+  // several markets — a localization sheet is the common case — can straddle
+  // the AEM/Tridion boundary, and resolving CMS from hostOf(urls[0]) alone
+  // used to judge every market after the first by whichever happened to be
+  // listed first. Each distinct host is resolved on its own; only once they
+  // agree does the brief get a single answer.
 
-    var urls = signals._urls.site;
-    if (!urls.length) {
-      return { value: 'Unknown', reason: 'No target site URL in the brief, so the platform cannot be read off it.' };
-    }
-
+  // Exactly the original single-URL phrasing, per URL — a genuinely
+  // single-market brief must read precisely as it always has.
+  function cmsForUrl(url, cmsConfig) {
     var markers = cmsConfig.tridionMarkers || [];
-    var aspx = null;
-    urls.forEach(function (url) {
-      if (aspx) return;
-      markers.forEach(function (mk) {
-        if (!aspx && url.toLowerCase().indexOf(mk.toLowerCase()) !== -1) aspx = { url: url, marker: mk };
-      });
-    });
-    if (aspx) return { value: 'Tridion', reason: 'The page URL carries ' + aspx.marker + ' — ' + aspx.url };
+    var hit = markers.filter(function (mk) { return url.toLowerCase().indexOf(mk.toLowerCase()) !== -1; })[0];
+    if (hit) return { value: 'Tridion', reason: 'The page URL carries ' + hit + ' — ' + url };
 
-    var host = hostOf(urls[0]);
+    var host = hostOf(url);
     var market = (cmsConfig.aemMarkets || []).filter(function (suffix) {
       return host.slice(-suffix.length) === suffix.toLowerCase();
     })[0];
-
     if (market) return { value: 'AEM', reason: host + ' is a migrated market (' + market + ').' };
 
     return {
       value: cmsConfig['default'] || 'Tridion',
       reason: host + ' is not one of the migrated markets (' +
         (cmsConfig.aemMarkets || []).join(', ') + '), so it is still on Tridion.'
+    };
+  }
+
+  function detectCms(text, cmsConfig, signals, override, briefModel, marketOverride) {
+    if (override) return { value: override, reason: 'Set by hand.' };
+
+    var urls = signals._urls.site;
+
+    // A localization brief commonly names its markets as column headers —
+    // SPAIN, ITALY, PORTUGAL — and carries no literal site URL at all, since
+    // the English master and its translations are what is on the page, not
+    // a link to it. The market a brief targets still has a domain, so the
+    // platform can be read off that instead of reporting Unknown.
+    if (!urls.length) {
+      var markets = (briefModel && briefModel.markets) || [];
+      if (!markets.length) {
+        return { value: 'Unknown', reason: 'No target site URL in the brief, so the platform cannot be read off it.' };
+      }
+
+      var targetName = marketOverride || (briefModel && briefModel.targetMarket);
+      var target = targetName && markets.filter(function (m) { return m.name === targetName; })[0];
+      if (target) {
+        var targetCms = cmsForUrl('https://' + target.domain, cmsConfig);
+        var trimmedReason = targetCms.reason.replace(/\.$/, '');
+        return {
+          value: targetCms.value,
+          reason: trimmedReason + ', read from the ' + target.name + ' market column — the brief carries no site URL.'
+        };
+      }
+
+      return {
+        value: 'Unknown',
+        reason: 'The brief names ' + markets.length + ' markets (' +
+          markets.map(function (m) { return m.name; }).join(', ') + ') and no site URL, so the platform ' +
+          'depends on which one is the target. Choose the target market to resolve it.'
+      };
+    }
+
+    var hosts = [], seen = {};
+    urls.forEach(function (url) {
+      var h = hostOf(url);
+      if (seen[h]) return;
+      seen[h] = true;
+      hosts.push({ host: h, url: url, cms: cmsForUrl(url, cmsConfig) });
+    });
+
+    var values = {};
+    hosts.forEach(function (h) { values[h.cms.value] = true; });
+
+    if (Object.keys(values).length === 1) {
+      // A single market reads exactly as it always has. Several markets
+      // agreeing get one clean sentence rather than one market's URL-specific
+      // reason standing in for markets it was never about.
+      if (hosts.length === 1) return { value: hosts[0].cms.value, reason: hosts[0].cms.reason };
+      return {
+        value: hosts[0].cms.value,
+        reason: 'Every market in the brief resolves to ' + hosts[0].cms.value + ' (' +
+          hosts.map(function (h) { return h.host; }).join(', ') + ').'
+      };
+    }
+
+    return {
+      value: 'Mixed',
+      reason: 'The brief names markets on different platforms — ' +
+        hosts.map(function (h) { return h.host + ' is ' + h.cms.value; }).join(', ') +
+        ' — so no single set of steps applies. Set the CMS by hand for the market you are actioning.'
     };
   }
 
@@ -223,8 +303,14 @@
       options = options || {};
       var text = String(rawText == null ? '' : rawText);
 
+      var briefModel = Brief.parse(text, cfg);
       var signals = readSignals(text, cmsConfig);
-      var cms = detectCms(text, cmsConfig, signals, options.cmsOverride);
+      // A brief that names its target market up front — "Level 2 / SPAIN" —
+      // has answered the target_market need without ever using the word
+      // "market". Reading it here means the question is not asked twice.
+      signals.targetMarketDeclared = !!(briefModel.targetMarket || options.marketOverride);
+
+      var cms = detectCms(text, cmsConfig, signals, options.cmsOverride, briefModel, options.marketOverride);
       var result = classify(text, signals, types, options.workTypeOverride);
       var type = result.winner;
       var needs = checkNeeds(text, signals, type.definition);
@@ -250,7 +336,10 @@
         steps: steps.map(function (text, i) { return { n: i + 1, text: text }; }),
         questions: needs.missing.map(function (n) { return n.question; }),
         urls: { site: signals._urls.site, dam: signals._urls.dam },
-        ready: needs.missing.length === 0 && cms.value !== 'Unknown'
+        // Mixed is not actionable any more than Unknown is — there is no
+        // single set of steps to hand back until a human picks which
+        // market's platform this pass is actioning.
+        ready: needs.missing.length === 0 && cms.value !== 'Unknown' && cms.value !== 'Mixed'
       };
     }
 

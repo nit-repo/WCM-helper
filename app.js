@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  var state = { engine: null, comparer: null, filler: null, analysis: null, mode: 'analyse' };
+  var state = { engine: null, comparer: null, filler: null, analysis: null, mode: 'analyse', market: null };
 
   var el = {
     brief: document.getElementById('brief'),
@@ -31,7 +31,9 @@
     tabFill: document.getElementById('tab-fill'),
     fillInput: document.getElementById('fill-input'),
     fillBtn: document.getElementById('fill-btn'),
-    english: document.getElementById('english')
+    english: document.getElementById('english'),
+    marketOverride: document.getElementById('market-override'),
+    marketSelect: document.getElementById('market-select')
   };
 
   var SAMPLE = [
@@ -50,7 +52,9 @@
     .then(function (workTypes) {
       state.engine = window.BriefEngine.create({ 'work-types': workTypes });
       state.comparer = window.BriefCompare.create({ 'work-types': workTypes });
-      state.filler = window.BriefFiller.create();
+      // Unwrapped, unlike engine/compare above — Filler.create passes this
+      // straight to Brief.parse, which reads config.markets.list directly.
+      state.filler = window.BriefFiller.create(workTypes);
       state.engine.workTypes.forEach(function (t) {
         var o = document.createElement('option');
         o.value = t.id;
@@ -78,6 +82,8 @@
     el.cms.value = '';
     el.type.value = '';
     state.analysis = null;
+    state.market = null;
+    el.marketOverride.hidden = true;
     el.copy.disabled = true;
     renderEmpty();
   });
@@ -108,6 +114,12 @@
   el.tabCompare.addEventListener('click', function () { setMode('compare'); });
   el.tabFill.addEventListener('click', function () { setMode('fill'); });
   el.fillBtn.addEventListener('click', runFill);
+  el.marketSelect.addEventListener('change', function () {
+    state.market = el.marketSelect.value;
+    if (state.mode === 'analyse' && state.analysis) run();
+    else if (state.mode === 'compare') runCompare();
+    else if (state.mode === 'fill') runFill();
+  });
   el.compareBtn.addEventListener('click', runCompare);
   el.htmlUpload.addEventListener('click', function () { el.htmlFile.click(); });
   el.htmlClear.addEventListener('click', function () { el.html.value = ''; });
@@ -146,9 +158,12 @@
     var text = el.brief.value.trim();
     if (!text) { toast('Paste a brief first.'); return; }
 
+    updateMarketOptions(text);
+
     state.analysis = state.engine.analyse(text, {
       cmsOverride: el.cms.value || null,
-      workTypeOverride: el.type.value || null
+      workTypeOverride: el.type.value || null,
+      marketOverride: state.market
     });
     el.copy.disabled = state.analysis.questions.length === 0;
     render(state.analysis);
@@ -240,11 +255,14 @@
     if (!brief) { toast('Paste the brief first.'); return; }
     if (!html) { toast('Paste or upload the page HTML.'); return; }
 
+    updateMarketOptions(brief);
+
     // The comparer needs to know which kind of job it is reading, so the
     // analyser classifies first unless the work type has been set by hand.
     var analysis = state.engine.analyse(brief, {
       cmsOverride: el.cms.value || null,
-      workTypeOverride: el.type.value || null
+      workTypeOverride: el.type.value || null,
+      marketOverride: state.market
     });
 
     renderCompare(state.comparer.compare(brief, html, { workTypeId: analysis.workType.id }), analysis);
@@ -372,7 +390,9 @@
     var brief = el.brief.value.trim();
     if (!brief) { if (worklistOnly !== true) toast('Load the brief first.'); renderFillEmpty(); return; }
 
-    var rows = state.filler.rows(brief);
+    updateMarketOptions(brief);
+
+    var rows = state.filler.rows(brief, { market: state.market });
     if (!rows.length) {
       el.output.innerHTML = section('Fill',
         '<p class="note warn">No table rows found in this brief. The filler reads tab-separated rows — ' +
@@ -384,7 +404,7 @@
     var head = '';
 
     if (english) {
-      var result = state.filler.fill(brief, english);
+      var result = state.filler.fill(brief, english, { market: state.market });
       head = renderFillResult(result);
     }
 
@@ -392,7 +412,48 @@
     wireWorklist(brief);
   }
 
+  // A brief naming several markets has no "last column", only a target —
+  // taking the last one anyway is a confirmed defect (Fill handing back
+  // Portuguese for a Spain job). This is what lets the author see every
+  // market the brief declares and switch between them with no re-paste.
+  function updateMarketOptions(brief) {
+    var found = state.filler.marketsIn(brief);
+
+    if (!found.markets.length) {
+      el.marketOverride.hidden = true;
+      state.market = null;
+      return;
+    }
+
+    el.marketOverride.hidden = false;
+    var current = el.marketSelect.value;
+    el.marketSelect.innerHTML = found.markets.map(function (m) {
+      return '<option value="' + esc(m.name) + '">' + esc(m.name) + '</option>';
+    }).join('');
+
+    var stillValid = current && found.markets.some(function (m) { return m.name === current; });
+    var pick = stillValid ? current : (found.targetMarket || found.markets[0].name);
+    el.marketSelect.value = pick;
+    state.market = pick;
+  }
+
   function renderFillResult(r) {
+    // Several rows can carry identical English master text — the same CTA
+    // label reused across components. Picking one silently used to hand back
+    // false certainty; every candidate is listed instead, by section and row,
+    // so the choice is the author's rather than a coin flip.
+    if (r.how === 'ambiguous') {
+      var options = r.candidates.map(function (c) {
+        var where = c.row.section ? esc(c.row.section) + ', ' : '';
+        return '<li><p class="dev-note">' + where + 'row ' + (c.row.index + 1) + '</p>' +
+          '<p class="work-local">' + esc(c.row.localized) + '</p>' +
+          '<button class="btn-ghost work-copy" type="button" data-copy-row="' + c.row.index + '">Copy</button></li>';
+      }).join('');
+      return section('More than one row matches',
+        '<p class="note warn">' + r.candidates.length + ' rows carry this exact English text — pick the one ' +
+        'for the component you are actually in:</p><ul class="devs">' + options + '</ul>');
+    }
+
     if (!r.match) {
       var why = r.how === 'no-english-column'
         ? 'This brief has no English column, so there is nothing to match against. Work down the list below instead.'
@@ -458,7 +519,7 @@
   }
 
   function wireWorklist(brief) {
-    var rows = state.filler.rows(brief);
+    var rows = state.filler.rows(brief, { market: state.market });
     var byIndex = {};
     rows.forEach(function (r) { byIndex[r.index] = r; });
 

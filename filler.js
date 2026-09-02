@@ -17,9 +17,9 @@
  * Runs in the browser (window.BriefFiller) and in Node (module.exports).
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.BriefFiller = factory();
-}(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./brief.js'));
+  else root.BriefFiller = factory(root.BriefShared);
+}(typeof self !== 'undefined' ? self : this, function (Brief) {
   'use strict';
 
   // Deliberately a copy of the one in compare.js rather than a shared import:
@@ -57,17 +57,70 @@
   // Three or more cells: label, English master, localized. Exactly two: some
   // briefs arrive local-only, so there is no English to match against and the
   // row is still worth listing.
+  //
+  // A brief naming several markets — English, Spain, Italy, Portugal — has no
+  // "last column", only a target. Taking the last one anyway is how this used
+  // to hand back Portuguese for a Spain job: confidently wrong, every time.
+  // brief.js finds the market columns; marketsIn() below is what a caller
+  // uses to ask what markets exist before choosing one, so a target is always
+  // named rather than guessed silently.
 
-  function rows(briefText) {
+  function marketsIn(briefText, config) {
+    if (!config) return { markets: [], targetMarket: null };
+    var model = Brief.parse(briefText, config);
+    return { markets: model.markets, targetMarket: model.targetMarket };
+  }
+
+  function rowsFromMarket(briefText, config, chosenMarket) {
+    var model = Brief.parse(briefText, config);
+    var market = chosenMarket || model.targetMarket || (model.markets[0] && model.markets[0].name);
+    var col = Brief.marketColumn(model, market);
     var out = [];
-    String(briefText == null ? '' : briefText).split(/\r?\n/).forEach(function (line, i) {
-      if (line.indexOf('\t') === -1) return;
-      var cells = line.split('\t').map(function (c) { return c.trim(); });
-      var label = cells[0];
-      var localized = cells[cells.length - 1];
+
+    model.rows.forEach(function (r) {
+      // The header row names the columns — it is metadata about the table,
+      // not a translatable row, and showing it in the worklist is noise.
+      if (model.headerRow === r.row) return;
+      var cells = r.cells;
+      var label = (cells[0] || '').trim();
+      var localized = col !== -1 ? (cells[col] || '').trim() : '';
       if (!label || !localized) return;
 
-      var english = cells.length >= 3 ? cells[cells.length - 2] : null;
+      var english = model.masterColumn !== -1 ? (cells[model.masterColumn] || '').trim() || null : null;
+      out.push({
+        index: r.row - 1,
+        label: label,
+        english: english,
+        localized: localized,
+        section: r.section,
+        market: market,
+        untranslated: english !== null && normalise(english) === normalise(localized)
+      });
+    });
+    return out;
+  }
+
+  function rows(briefText, options) {
+    options = options || {};
+    var config = options.config;
+
+    if (config) {
+      var markets = marketsIn(briefText, config).markets;
+      if (markets.length) return rowsFromMarket(briefText, config, options.market);
+    }
+
+    // Quote-aware even with no market structure: a brief with a quoted
+    // multi-line cell used to shred here exactly as it did in compare.js
+    // before that was fixed, silently pairing the wrong English with the
+    // wrong localized text.
+    var out = [];
+    Brief.splitRows(briefText).forEach(function (cells, i) {
+      if (cells.length < 2) return;
+      var label = (cells[0] || '').trim();
+      var localized = (cells[cells.length - 1] || '').trim();
+      if (!label || !localized) return;
+
+      var english = cells.length >= 3 ? (cells[cells.length - 2] || '').trim() : null;
       // A row whose two halves are identical carries no translation — a
       // product name repeated across both columns, typically.
       out.push({
@@ -105,8 +158,22 @@
       return { match: null, how: 'no-english-column', candidates: [] };
     }
 
-    var exact = searchable.filter(function (r) { return normalise(r.english) === needle; })[0];
-    if (exact) return { match: exact, how: 'exact', confidence: 1, candidates: [] };
+    // More than one row can carry identical English master text — the same
+    // CTA label ("Learn more") reused across several components is common.
+    // Picking [0] used to hand back confidence:1 on a coin flip; the fuzzy
+    // path below already does the right thing by surfacing every candidate,
+    // so an exact match with more than one hit now does the same instead of
+    // being the one place in this file that guesses silently.
+    var exactMatches = searchable.filter(function (r) { return normalise(r.english) === needle; });
+    if (exactMatches.length === 1) return { match: exactMatches[0], how: 'exact', confidence: 1, candidates: [] };
+    if (exactMatches.length > 1) {
+      return {
+        match: null,
+        how: 'ambiguous',
+        confidence: 1,
+        candidates: exactMatches.map(function (r) { return { row: r, score: 1 }; })
+      };
+    }
 
     // A Tridion field often holds a little more or less than the brief cell.
     var contained = searchable.filter(function (r) {
@@ -201,15 +268,33 @@
 
   // ─── PUBLIC ──────────────────────────────────────────────────────────────
 
-  function create() {
-    function fill(briefText, englishText) {
-      var rowList = rows(briefText);
+  // config is optional and, when given, is the work-types.json object (the
+  // same shape passed to BriefCompare.create) — it is what lets rows() and
+  // fill() resolve a brief's target market instead of guessing at a column.
+
+  function create(config) {
+    function boundRows(briefText, options) {
+      options = options || {};
+      var merged = { market: options.market, config: options.config !== undefined ? options.config : config };
+      return rows(briefText, merged);
+    }
+
+    // What the UI needs before it can offer a market override: every market
+    // the brief declares, and which one the front matter already names.
+    function marketsFor(briefText) {
+      return marketsIn(briefText, config);
+    }
+
+    function fill(briefText, englishText, options) {
+      options = options || {};
+      var rowList = boundRows(briefText, options);
       var result = find(rowList, englishText);
       var carried = result.match ? carryMarkup(englishText, result.match.localized) : null;
 
       return {
         generatedAt: new Date().toISOString(),
         rowCount: rowList.length,
+        market: options.market || (rowList[0] && rowList[0].market) || null,
         match: result.match,
         how: result.how,
         confidence: result.confidence || 0,
@@ -220,7 +305,8 @@
 
     return {
       fill: fill,
-      rows: rows,
+      rows: boundRows,
+      marketsIn: marketsFor,
       find: find,
       carryMarkup: carryMarkup,
       readMarkup: readMarkup,

@@ -18,9 +18,9 @@
  * Runs in the browser (window.BriefCompare) and in Node (module.exports).
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.BriefCompare = factory();
-}(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./brief.js'));
+  else root.BriefCompare = factory(root.BriefShared);
+}(typeof self !== 'undefined' ? self : this, function (Brief) {
   'use strict';
 
   // ─── NORMALISING ─────────────────────────────────────────────────────────
@@ -55,59 +55,14 @@
   function same(a, b) { return normalise(a) === normalise(b); }
 
   // ─── ROWS AND CELLS ──────────────────────────────────────────────────────
-  // Briefs arrive as Excel and CSV exports, and a cell holding more than one
-  // paragraph is wrapped in quotes and keeps its newlines. Splitting the text
-  // on \n before honouring those quotes tears one row into several: the row
-  // stops looking tabular, so the whole brief falls to the prose fallback, and
-  // the fragments arrive carrying an orphan quote that no page will match.
-  // That one mistake produced 74 phantom findings on a real Portugal brief.
+  // Quote-aware splitting, section grouping and provenance moved to brief.js
+  // once engine.js and filler.js turned out to need the exact same parse —
+  // see brief.js for why. Local aliases so the rest of this file reads the
+  // same as before the move.
 
-  function splitRows(text) {
-    var rows = [], cells = [], cell = '', quoted = false;
-    var s = String(text == null ? '' : text).replace(/\r\n?/g, '\n');
-
-    for (var i = 0; i < s.length; i++) {
-      var ch = s.charAt(i);
-      if (quoted) {
-        // "" inside a quoted cell is an escaped quote, not the end of it.
-        if (ch !== '"') { cell += ch; continue; }
-        if (s.charAt(i + 1) === '"') { cell += '"'; i++; continue; }
-        quoted = false;
-        continue;
-      }
-      // A quote only opens a cell at its start; mid-cell it is punctuation.
-      if (ch === '"' && cell === '') { quoted = true; continue; }
-      if (ch === '\t') { cells.push(cell); cell = ''; continue; }
-      if (ch === '\n') { cells.push(cell); rows.push(cells); cells = []; cell = ''; continue; }
-      cell += ch;
-    }
-    cells.push(cell);
-    rows.push(cells);
-
-    return rows.filter(function (r) {
-      return r.some(function (c) { return c.trim() !== ''; });
-    });
-  }
-
-  // Where in the brief an expectation came from. Without this a finding can
-  // say a line is short by one but not where either copy was asked for, which
-  // is the difference between "a component is missing" and "a line inside one
-  // is". The section is the nearest preceding row carrying a single cell —
-  // "Hero section", "Proof point" — and the row is the brief line to open.
-
-  function sectionsByRow(rows) {
-    var out = [], current = null;
-    rows.forEach(function (cells, i) {
-      var filled = cells.filter(function (c) { return c.trim() !== ''; });
-      if (filled.length === 1 && filled[0].trim().length <= 60) current = filled[0].trim();
-      out[i] = current;
-    });
-    return out;
-  }
-
-  function want(text, section, row) {
-    return { text: text, section: section || null, row: row || null };
-  }
+  var splitRows = Brief.splitRows;
+  var sectionsByRow = Brief.sectionsByRow;
+  var want = Brief.want;
 
   // ─── URL IDENTITY ────────────────────────────────────────────────────────
   // The same page has different URLs in every environment: preview vs www,

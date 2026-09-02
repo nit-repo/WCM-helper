@@ -7,9 +7,16 @@
 // several cases assert on what must NOT happen.
 
 var assert = require('assert');
+var fs = require('fs');
+var path = require('path');
 var Filler = require('../filler.js');
 
 var filler = Filler.create();
+
+var config = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '..', 'config', 'work-types.json'), 'utf8')
+);
+var marketFiller = Filler.create(config);
 
 var passed = 0, failed = 0;
 function test(name, fn) {
@@ -171,6 +178,105 @@ test('16. determinism — the same lookup resolves identically twice', function 
   delete first.generatedAt; delete second.generatedAt;
 
   assert.deepStrictEqual(first, second);
+});
+
+// ─── Markets ─────────────────────────────────────────────────────────────
+// A brief naming several markets has no "last column", only a target. Taking
+// the last one anyway is a confirmed defect: Fill handed back Portuguese for
+// a Spain job. brief.js finds the market columns; these are Fill's side of
+// consuming that — the fix goes here, not in brief.js's own suite.
+
+var MULTI_MARKET = [
+  'Level 2\tSPAIN',
+  'Web content starts here',
+  'H1 header\tEnglish\tSPAIN\tITALY\tPORTUGAL',
+  'Hero section',
+  'H1\tSmart modernisations\tModernizaciones inteligentes\tModernizzazioni intelligenti\tModernizações inteligentes',
+  'Proof point',
+  'Body\tUp to 70% energy savings\tHasta un 74% de ahorro energético\tFino al 74% di risparmio energetico\tAté 74% de poupança energética'
+].join('\n');
+
+test('17. Fill returns the target market\'s column, not the last one', function () {
+  var rows = marketFiller.rows(MULTI_MARKET);
+  var h1 = rows.filter(function (r) { return r.label === 'H1'; })[0];
+
+  assert.strictEqual(h1.localized, 'Modernizaciones inteligentes',
+    'the brief targets Spain — this used to come back Portuguese, the last column');
+  assert.strictEqual(h1.market, 'SPAIN');
+});
+
+test('18. the header row does not appear in the worklist', function () {
+  var rows = marketFiller.rows(MULTI_MARKET);
+
+  assert.ok(!rows.some(function (r) { return r.label === 'H1 header'; }),
+    'the column-header row is metadata about the table, not content: ' + JSON.stringify(rows));
+});
+
+test('19. switching the market needs no re-paste', function () {
+  var rows = marketFiller.rows(MULTI_MARKET, { market: 'ITALY' });
+  var h1 = rows.filter(function (r) { return r.label === 'H1'; })[0];
+
+  assert.strictEqual(h1.localized, 'Modernizzazioni intelligenti');
+  assert.strictEqual(h1.market, 'ITALY');
+});
+
+test('20. marketsIn lists every market the brief declares and its target', function () {
+  var found = marketFiller.marketsIn(MULTI_MARKET);
+
+  assert.deepStrictEqual(found.markets.map(function (m) { return m.name; }), ['SPAIN', 'ITALY', 'PORTUGAL']);
+  assert.strictEqual(found.targetMarket, 'SPAIN');
+});
+
+test('21. fill() names the market it resolved, so the answer is never silent about which one', function () {
+  var r = marketFiller.fill(MULTI_MARKET, 'Smart modernisations');
+
+  assert.strictEqual(r.market, 'SPAIN');
+  assert.strictEqual(r.match.localized, 'Modernizaciones inteligentes');
+});
+
+test('22. a classic single-locale brief is unaffected by market awareness', function () {
+  // Given config, but no market columns in this brief — must behave exactly
+  // as filler.create() with no config at all.
+  var withConfig = marketFiller.rows(SLOVENIA);
+  var withoutConfig = filler.rows(SLOVENIA);
+
+  assert.deepStrictEqual(
+    withConfig.map(function (r) { return r.localized; }),
+    withoutConfig.map(function (r) { return r.localized; })
+  );
+});
+
+test('23. a quoted multi-line cell does not corrupt row alignment even with no market columns', function () {
+  var brief = 'Body\t"English line one.\nEnglish line two."\t"Localized line one.\nLocalized line two."';
+  var rows = filler.rows(brief);
+
+  assert.strictEqual(rows.length, 1, 'the quoted newline must not have produced a second row');
+  assert.ok(/line one\.\nEnglish line two\./.test(rows[0].english), JSON.stringify(rows));
+  assert.ok(/line one\.\nLocalized line two\./.test(rows[0].localized), JSON.stringify(rows));
+});
+
+// ─── Ambiguous exact matches ─────────────────────────────────────────────
+// Several rows can carry identical English master text — the same CTA label
+// reused across components. Picking the first one used to hand back
+// confidence:1 on what was really a coin flip.
+
+test('24. two rows with identical English text are surfaced as ambiguous, not guessed', function () {
+  var brief = ['CTA\tLearn more\tVeč o tem', 'CTA\tLearn more\tPreberite več'].join('\n');
+  var r = filler.fill(brief, 'Learn more');
+
+  assert.strictEqual(r.how, 'ambiguous');
+  assert.strictEqual(r.match, null, 'must not silently pick one');
+  assert.strictEqual(r.candidates.length, 2);
+  assert.ok(r.candidates.some(function (c) { return c.row.localized === 'Več o tem'; }));
+  assert.ok(r.candidates.some(function (c) { return c.row.localized === 'Preberite več'; }));
+});
+
+test('25. a single exact match is unaffected — still certain, still immediate', function () {
+  var r = filler.fill(SLOVENIA, 'Reduce energy costs');
+
+  assert.strictEqual(r.how, 'exact');
+  assert.strictEqual(r.confidence, 1);
+  assert.strictEqual(r.match.localized, 'Zmanjšajte stroške energije');
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

@@ -84,9 +84,14 @@ Localizing in Tridion means opening each component, reading the English master i
 
 **It cannot read or write Tridion fields.** This is a static page on a different origin from the CME, so the author still does the paste. Auto-fill would need a browser extension running inside the CME, which is deferred rather than forgotten.
 
+**A brief naming several markets has a target, not a "last column".** A localization sheet carrying English, Spain, Italy and Portugal side by side used to hand back whichever column happened to be last — confidently wrong on every market but one. The target market is read from the brief's own front matter (`Level 2 / SPAIN`) and shown in a dropdown that lists every market the brief declares; switching it needs no re-paste. A brief naming markets with no declared target asks rather than guesses.
+
+**Two rows sharing the same English text are never resolved by picking one.** The same CTA label reused across several components is common, and taking the first exact match used to hand back total confidence on what was really a coin flip. Every row carrying that text is listed instead, with its section and line so the choice is the author's.
+
 **Formatting is carried across where it can be placed with certainty.** If the English master held `Learn more about <a href="/maintenance/">KONE Predictive Maintenance</a>` and that product name appears verbatim in the localized text — as brand and product names usually do — the link is reapplied around it, and Copy writes `text/html` so it survives the paste into a rich-text field. Where the anchor text *was* translated, the link cannot be placed deterministically, so it is listed explicitly — *"`<strong>` was on 'design freedom'"* — rather than dropped or guessed into the wrong position. A silently dropped link is a defect the Comparer would only catch two steps later.
 
 Matching runs exact → contained → closest, and a closest match shows its overlap score rather than presenting itself as certain. A brief with no English column says so and falls back to the worklist.
+
 
 ## Briefs as files
 
@@ -100,7 +105,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 120 verification cases across the four modules
+npm test      # 155 verification cases across the five modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -122,23 +127,33 @@ Everything lives in `config/work-types.json`: the signals that identify each job
 
 **CMS detection reads the site URL only, and AEM is the exception.** The estate is mid-migration and most of it is still Tridion, so a market is treated as AEM only once it is listed in `aemMarkets` — currently `.in`, `.ae`, `.us`, `.fr`. Everything else is Tridion. **Add a market to that list when it migrates.** A page ending `.aspx` is Tridion whatever market it sits on, which is what an un-migrated page on an otherwise-migrated site looks like.
 
+**A brief naming several markets is resolved per market, not from the first URL.** A redirect or removal sheet can legitimately cover more than one country's pages, and reading the CMS off `hostOf(urls[0])` alone used to judge every market after the first by whichever happened to be listed first. Each distinct host is now resolved on its own; markets that agree still get one answer, markets that split resolve to `Mixed` and hold the brief as not ready until a platform is chosen for the market being actioned. A localization brief that names its markets as column headers and carries no site URL at all resolves the same way, from the target market's configured domain in `config/work-types.json`'s `markets` list.
+
+**A count is not the same as a presence.** A redirect need used to be satisfied by "two site URLs exist somewhere in the brief" — true the moment any one row was complete, so a ten-row sheet with seven rows missing a destination still reported ready. Needs that are inherently per-row are checked per row now.
+
 Assets now live in Adobe DAM whichever CMS serves the page, so a `adobecqms.net` or `/content/dam/` link never counts as evidence — a Tridion brief full of AEM DAM links is still a Tridion brief.
 
 **Every call shows its working.** Each classification carries the signals that produced it and their weights, so you can check the tool rather than trust it. The same brief always analyses identically. When nothing clearly identifies a brief, it says so instead of guessing, and the work type and CMS can both be set by hand.
+
+## One shared understanding of the brief
+
+`engine.js`, `compare.js` and `filler.js` used to each parse the brief their own way, and each had found the same class of bug independently: raw-newline splitting that a quoted multi-line cell would shatter, and a target inferred from structure that never checked whether more than one candidate existed. `brief.js` now does the one thing all three need — quote-aware row splitting, which row is a section header, which columns are markets, and which market the brief actually targets — and the other three consume it rather than re-deriving it. Fixing a parsing bug once, in one file that all three load, is the point.
 
 ## Structure
 
 ```
 index.html              UI, three tabs
 app.js                  renders what the modules return — no analysis of its own
+brief.js                one parse shared by the other three: rows, sections, markets, target
 engine.js               classify → detect CMS → check needs → return steps
 compare.js              read the page → read the brief → diff → group by category
 filler.js               find the row from its English master → carry the markup across
 readers.js              .docx / .xlsx / .csv → text, with no dependencies
-config/work-types.json  the six playbooks, plus the compare settings
-test/engine.test.js     32 cases, fixtures are real briefs
+config/work-types.json  the six playbooks, the compare settings, the market list
+test/brief.test.js      15 cases, the shared parse alone
+test/engine.test.js     43 cases, fixtures are real briefs
 test/compare.test.js    63 cases, deviations planted one per category
 test/readers.test.js    9 cases, run against real ZIP bytes
-test/filler.test.js     16 cases, including markup that must never be guessed
+test/filler.test.js     25 cases, including markup that must never be guessed
 serve.js                local static server
 ```

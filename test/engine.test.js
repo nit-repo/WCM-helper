@@ -463,5 +463,144 @@ test('20. no brief is ever asked for something outside its own playbook', functi
   });
 });
 
+// ─── Phase 9: shared brief parse — the same bugs found in compare.js ──────
+// An audit of this file against compare.js's fixed bug classes found three
+// real ones here: raw-newline splitting without quote-awareness, a redirect
+// need satisfied by presence rather than count, and CMS resolved from only
+// the first URL in a brief naming several markets.
+
+test('21. a quoted multi-line cell does not corrupt signal counts', function () {
+  // Before rows moved to brief.js, this shattered into extra "lines" and
+  // could push translatedRows/removalRows/urlPairRows off by more than one.
+  var brief = [
+    'https://www.kone.dk/old-a/\thttps://www.kone.dk/new-a/',
+    '"A note that spans\ntwo lines in one cell."\tsome value',
+    'https://www.kone.dk/old-b/\thttps://www.kone.dk/new-b/'
+  ].join('\n');
+
+  var a = engine.analyse(brief);
+
+  assert.strictEqual(a.workType.id, 'redirect');
+  assert.ok(a.ready, 'both redirect rows are complete and must still read as ready');
+});
+
+test('22. a redirect brief missing most of its destinations is not ready', function () {
+  var rows = [];
+  for (var i = 0; i < 10; i++) rows.push('https://www.kone.dk/old-' + i + '/\thttps://www.kone.dk/new-' + i + '/');
+  for (var i = 0; i < 7; i++) rows[i] = 'https://www.kone.dk/old-' + i + '/';
+
+  var a = engine.analyse(rows.join('\n'));
+
+  assert.strictEqual(a.workType.id, 'redirect');
+  assert.ok(has(ids(a.needs.missing), 'destination_url'),
+    'this used to report ready with 7 of 10 destinations missing');
+  assert.ok(!a.ready);
+});
+
+test('23. a complete redirect sheet of the same shape is still ready', function () {
+  var rows = [];
+  for (var i = 0; i < 10; i++) rows.push('https://www.kone.dk/old-' + i + '/\thttps://www.kone.dk/new-' + i + '/');
+
+  var a = engine.analyse(rows.join('\n'));
+
+  assert.ok(has(ids(a.needs.have), 'destination_url'));
+  assert.ok(a.ready);
+});
+
+test('24. a single-market brief\'s CMS reason is unchanged from before markets could mix', function () {
+  var a = engine.analyse('Please redirect https://www.kone.co.uk/old/ to https://www.kone.co.uk/new/');
+
+  assert.strictEqual(a.cms.value, 'Tridion');
+  assert.ok(/not one of the migrated markets/.test(a.cms.reason), a.cms.reason);
+  assert.ok(!/^Www\./.test(a.cms.reason), 'must not capitalise into the hostname: ' + a.cms.reason);
+});
+
+test('25. several markets on the same platform still resolve to one answer', function () {
+  var brief = 'Redirect https://www.kone.co.uk/old/ to https://www.kone.co.uk/new/ and ' +
+    'https://www.kone.si/staro/ to https://www.kone.si/novo/';
+
+  var a = engine.analyse(brief);
+
+  assert.strictEqual(a.cms.value, 'Tridion');
+  assert.ok(/every market/i.test(a.cms.reason), a.cms.reason);
+  assert.ok(a.ready);
+});
+
+test('26. markets split across platforms resolve to Mixed, not the first URL\'s host', function () {
+  // kone.si is Tridion, kone.in is a migrated AEM market. Resolving from
+  // hostOf(urls[0]) alone used to call the whole brief Tridion.
+  var brief = 'Redirect https://www.kone.si/staro/ to https://www.kone.si/novo/ and ' +
+    'https://www.kone.in/old/ to https://www.kone.in/new/';
+
+  var a = engine.analyse(brief);
+
+  assert.strictEqual(a.cms.value, 'Mixed');
+  assert.ok(/kone\.si is Tridion/.test(a.cms.reason), a.cms.reason);
+  assert.ok(/kone\.in is AEM/.test(a.cms.reason), a.cms.reason);
+  assert.ok(!a.ready, 'no single set of steps applies until a market is chosen');
+});
+
+test('27. an explicit CMS override still wins over a mixed brief', function () {
+  var brief = 'Redirect https://www.kone.si/staro/ to https://www.kone.si/novo/ and ' +
+    'https://www.kone.in/old/ to https://www.kone.in/new/';
+
+  var a = engine.analyse(brief, { cmsOverride: 'Tridion' });
+
+  assert.strictEqual(a.cms.value, 'Tridion');
+  assert.strictEqual(a.cms.reason, 'Set by hand.');
+});
+
+test('28. a localization brief resolves CMS from its target market column, with no site URL at all', function () {
+  var brief = [
+    'Level 2\tSPAIN',
+    'H1 header\tEnglish\tSPAIN\tITALY\tPORTUGAL',
+    'H1\tSmart modernisations\tModernizaciones inteligentes\tModernizzazioni intelligenti\tModernizações inteligentes'
+  ].join('\n');
+
+  var a = engine.analyse(brief, { workTypeOverride: 'localization' });
+
+  assert.strictEqual(a.cms.value, 'Tridion', 'kone.es is not a migrated market: ' + a.cms.reason);
+  assert.ok(/SPAIN market column/.test(a.cms.reason), a.cms.reason);
+  assert.ok(!/\.,/.test(a.cms.reason), 'no doubled punctuation: ' + a.cms.reason);
+});
+
+test('29. the front matter\'s declared market satisfies target_market without asking', function () {
+  var brief = [
+    'Level 2\tSPAIN',
+    'H1 header\tEnglish\tSPAIN\tITALY\tPORTUGAL',
+    'H1\tSmart modernisations\tModernizaciones inteligentes\tModernizzazioni intelligenti\tModernizações inteligentes'
+  ].join('\n');
+
+  var a = engine.analyse(brief, { workTypeOverride: 'localization' });
+
+  assert.ok(!has(ids(a.needs.missing), 'target_market'),
+    'the brief already declares SPAIN in its front matter: ' + allQuestions(a));
+});
+
+test('30. several market columns with no declared target cannot resolve a CMS by guessing', function () {
+  var brief = [
+    'H1 header\tEnglish\tSPAIN\tITALY\tPORTUGAL',
+    'H1\tSmart modernisations\tModernizaciones inteligentes\tModernizzazioni intelligenti\tModernizações inteligentes'
+  ].join('\n');
+
+  var a = engine.analyse(brief, { workTypeOverride: 'localization' });
+
+  assert.strictEqual(a.cms.value, 'Unknown');
+  assert.ok(/depends on which one is the target/.test(a.cms.reason), a.cms.reason);
+  assert.ok(has(ids(a.needs.missing), 'target_market'), 'nothing declared a target, so this is still missing');
+});
+
+test('31. a market override resolves the same ambiguous brief', function () {
+  var brief = [
+    'H1 header\tEnglish\tSPAIN\tITALY\tPORTUGAL',
+    'H1\tSmart modernisations\tModernizaciones inteligentes\tModernizzazioni intelligenti\tModernizações inteligentes'
+  ].join('\n');
+
+  var a = engine.analyse(brief, { workTypeOverride: 'localization', marketOverride: 'ITALY' });
+
+  assert.strictEqual(a.cms.value, 'Tridion', 'kone.it is not a migrated market: ' + a.cms.reason);
+  assert.ok(/ITALY market column/.test(a.cms.reason), a.cms.reason);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
