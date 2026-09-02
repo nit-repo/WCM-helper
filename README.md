@@ -58,11 +58,17 @@ Two limits worth stating plainly:
 
 **Images are matched on asset identity, not filename.** A DAM or Scene7 embed URL is often a crop of the briefed asset with a variant suffix and preset parameters, so `shutterstock2335854375` in the brief resolves to `shutterstock2335854375-1?$hero-desktop$` on the page. When no image resolves, that is a **check** rather than a break — embed URLs frequently carry none of the brief's asset name, so it is a prompt to look, not a defect.
 
-**Some defects need no brief at all.** A link still pointing at `href="#"`, a call to action that is bare text with no link, and a stat card whose figure contradicts its own caption — `70%` above "Até 74% de poupança energética" — are all reported from the page alone. All three were found on a real KONE page.
+**What the brief asks for twice, the page has to carry twice.** Every check used to ask whether something appeared *at all*, so two brief rows carrying the same line both resolved against a single occurrence and a page missing a whole component reported as complete — a real brief with two `74%` rows against a page with one came back "All 53 items from the brief are on the page". Matching is now by count, in all four categories: body copy, headings, CTAs and assets.
+
+A shortfall is a **break** — the brief asked for content that is not all there — and the finding names where each copy was asked for, so you can open both places rather than guess which is short:
+
+> *the brief asks for this 2 times and the page carries it 1 — Proof point, row 34; Sustentabilidade, row 51*
+
+The reverse — the page carrying more copies than the brief asked for — is a **check**, because templates legitimately repeat copy in teasers and related-content rails.
+
+**Some defects need no brief at all.** A link still pointing at `href="#"` and a call to action that is bare text with no link are reported from the page alone. Both were found on a real KONE page.
 
 Anchors that are legitimately `href="#"` are left alone: back-to-top and skip links by label, accordion and tab toggles by their ARIA attributes. Add market-language labels to `compare.safeAnchorLabels` in the config.
-
-**The stat check reads text, not tags.** Two earlier versions of it missed the `70%` over "Até 74%" on the real page because they keyed off the element holding the figure — the tag list left out headings, nested markup hid the number, and a window counted in raw characters put the caption out of range behind a dozen wrapper divs. It now reads the page's text nodes, so no amount of template nesting hides a figure. A row of bare numbers is not mistaken for a caption: the text after a figure has to be words, not the next cell of a table.
 
 **Findings that need no brief survive a brief that could not be read.** Placeholder links, dead CTAs, contradictory stats and a heading used twice are reported under both guards. Categories that found nothing are withheld rather than shown empty, because an empty category reads as a pass and nothing in it was checked.
 
@@ -94,7 +100,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 123 verification cases across the four modules
+npm test      # 120 verification cases across the four modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -131,7 +137,7 @@ filler.js               find the row from its English master → carry the marku
 readers.js              .docx / .xlsx / .csv → text, with no dependencies
 config/work-types.json  the six playbooks, plus the compare settings
 test/engine.test.js     32 cases, fixtures are real briefs
-test/compare.test.js    66 cases, deviations planted one per category
+test/compare.test.js    63 cases, deviations planted one per category
 test/readers.test.js    9 cases, run against real ZIP bytes
 test/filler.test.js     16 cases, including markup that must never be guessed
 serve.js                local static server

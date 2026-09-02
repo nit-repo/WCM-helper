@@ -89,6 +89,26 @@
     });
   }
 
+  // Where in the brief an expectation came from. Without this a finding can
+  // say a line is short by one but not where either copy was asked for, which
+  // is the difference between "a component is missing" and "a line inside one
+  // is". The section is the nearest preceding row carrying a single cell —
+  // "Hero section", "Proof point" — and the row is the brief line to open.
+
+  function sectionsByRow(rows) {
+    var out = [], current = null;
+    rows.forEach(function (cells, i) {
+      var filled = cells.filter(function (c) { return c.trim() !== ''; });
+      if (filled.length === 1 && filled[0].trim().length <= 60) current = filled[0].trim();
+      out[i] = current;
+    });
+    return out;
+  }
+
+  function want(text, section, row) {
+    return { text: text, section: section || null, row: row || null };
+  }
+
   // ─── URL IDENTITY ────────────────────────────────────────────────────────
   // The same page has different URLs in every environment: preview vs www,
   // .aspx on Tridion vs extensionless on AEM. Comparing those raw makes every
@@ -282,58 +302,6 @@
       if (label2 && inner.indexOf('<a') === -1) deadCtas.push(label2);
     }
 
-    // A stat card is a figure standing on its own, captioned by the text that
-    // follows it. When the two disagree the page contradicts itself, and no
-    // brief is needed to see it.
-    //
-    // Deliberately structure-independent. Earlier versions keyed off the tag
-    // holding the figure and kept missing real cards: the tag list left out
-    // headings, the figure had to be the tag's entire content so nested markup
-    // hid it, and a non-breaking space between the number and its percent sign
-    // broke the match. Reading the text nodes instead means the markup around
-    // the figure — however a template chooses to nest it — cannot hide it.
-    var statConflicts = [];
-    var statNodes = textNodes(region.html.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, ''))
-      .map(function (t) { return normalise(t); })
-      .filter(function (t) { return t !== ''; });
-
-    for (var si = 0; si < statNodes.length; si++) {
-      var node = statNodes[si], figure = null, nextAt = si + 1;
-
-      if (/^\d[\d.,]*\s*%$/.test(node)) {
-        figure = node.replace(/\s+/g, '');
-      } else if (/^\d[\d.,]*$/.test(node) && /^%/.test(statNodes[si + 1] || '')) {
-        // Templates that style the percent sign separately split it off.
-        figure = node + '%';
-        nextAt = si + 2;
-      }
-      if (!figure) continue;
-
-      // A caption is prose, not the next cell of a table. A row of bare
-      // figures reads as figure-then-different-figure and would otherwise be
-      // reported as a contradiction on every column. Two conditions keep that
-      // out: the text immediately after must not itself be a bare figure, and
-      // the window must contain actual words. The cost is a caption whose own
-      // percentage is styled into a separate element, which is rare enough to
-      // be worth trading for silence on data tables.
-      if (/^\d[\d.,]*\s*%?$/.test(statNodes[nextAt] || '')) continue;
-
-      var after = statNodes.slice(nextAt).join(' ').slice(0, 200);
-      if ((after.match(/[A-Za-z\u00C0-\u024F]/g) || []).length < 3) continue;
-
-      var caption = /(\d[\d.,]*\s*%)/.exec(after);
-      if (!caption) continue;
-
-      var captionFigure = caption[1].replace(/\s+/g, '');
-      if (captionFigure === figure) continue;
-
-      var stop = after.indexOf('.', caption.index);
-      statConflicts.push({
-        figure: figure,
-        caption: after.slice(0, stop === -1 ? Math.min(after.length, caption.index + 60) : stop + 1).trim()
-      });
-    }
-
     return {
       // Three distinct fields that were previously conflated: og:title is the
       // meta title, the window title is the page name, and the last URL
@@ -350,7 +318,6 @@
       links: links,
       placeholderLinks: placeholders,
       deadCtas: deadCtas,
-      statConflicts: statConflicts,
       text: stripTags(region.html),
       regionVia: region.via
     };
@@ -395,9 +362,9 @@
         // is as likely to be a stat, a CTA label or a market name as a
         // heading, and calling every line under 80 characters a section put 39
         // findings in the structure category on a page that had none of them.
-        rows.forEach(function (r) {
+        rows.forEach(function (r, i) {
           var v = r.join(' ').trim();
-          if (v.length >= 40) expect.body.push(v);
+          if (v.length >= 40) expect.body.push(want(v, null, i + 1));
         });
         return expect;
       }
@@ -406,13 +373,15 @@
       expect.metadata.pageName = localisedRow(rows, 'Page name');
       expect.metadata.description = localisedRow(rows, 'Meta description');
       expect.metadata.keywords = localisedRow(rows, 'Meta keywords');
+      var sectionAt = sectionsByRow(rows);
       ['Headline', 'Subheading', 'Title', 'Body'].forEach(function (label) {
-        rows.forEach(function (cells) {
+        rows.forEach(function (cells, i) {
           if (cells.length >= 3 && normalise(cells[0]).toLowerCase() === label.toLowerCase()) {
             var v = cells[cells.length - 1].trim();
             if (!v) return;
-            if (label === 'Headline' || label === 'Title') expect.sections.push(v);
-            else expect.body.push(v);
+            var w = want(v, sectionAt[i], i + 1);
+            if (label === 'Headline' || label === 'Title') expect.sections.push(w);
+            else expect.body.push(w);
           }
         });
       });
@@ -421,21 +390,24 @@
       // Pairing them in order is what lets the comparer check where a button
       // actually points, not just what it says.
       var labels = [], hrefs = [];
-      rows.forEach(function (cells) {
+      rows.forEach(function (cells, i) {
         if (cells.length < 3) return;
         var key = normalise(cells[0]);
         if (!/^cta\b/i.test(key)) return;
         var value = cells[cells.length - 1].trim();
         if (!value) return;
         if (/link/i.test(key)) hrefs.push(value);
-        else labels.push(value);
+        else labels.push({ value: value, section: sectionAt[i], row: i + 1 });
       });
       labels.forEach(function (label, i) {
         var href = hrefs[i];
         // Only treat it as a destination if it looks like one — these rows
         // sometimes hold prose ("Anchor link to the tech specs table").
         var looksLikeUrl = href && /^(https?:\/\/|\/)/.test(href);
-        expect.links.push({ text: label, href: looksLikeUrl ? href : null });
+        expect.links.push({
+          text: label.value, href: looksLikeUrl ? href : null,
+          section: label.section, row: label.row
+        });
       });
       return expect;
     }
@@ -468,12 +440,12 @@
       if (/^(meta title|meta description|meta keywords|url path)\s*:/i.test(line)) continue;
 
       m = /^(.*?)\s*\[\d+\.\d+\]\s*$/.exec(line);
-      if (m && m[1]) { expect.sections.push(m[1].trim()); continue; }
+      if (m && m[1]) { expect.sections.push(want(m[1].trim(), null, i + 1)); continue; }
 
       m = /^(?:HERO\s*:\s*)?AEM Assets\s*[-–]\s*(.+)$/i.exec(line);
-      if (m) { expect.images.push(m[1].trim()); continue; }
+      if (m) { expect.images.push(want(m[1].trim(), null, i + 1)); continue; }
 
-      if (line.length >= 40) expect.body.push(line);
+      if (line.length >= 40) expect.body.push(want(line, null, i + 1));
     }
     return expect;
   }
@@ -506,6 +478,70 @@
   }
 
   // ─── COMPARING ───────────────────────────────────────────────────────────
+
+  // Presence is not enough. Every check here used to ask "does this appear at
+  // all", so two brief rows carrying the same line both resolved against a
+  // single occurrence on the page and a missing component reported as
+  // complete. What the brief asks for twice, the page has to carry twice.
+
+  function occurrences(haystack, needle) {
+    if (!needle) return 0;
+    var n = 0, at = 0;
+    while ((at = haystack.indexOf(needle, at)) !== -1) { n++; at += needle.length; }
+    return n;
+  }
+
+  function groupWants(items) {
+    var groups = [], index = {};
+    items.forEach(function (it) {
+      var key = normalise(it.text).toLowerCase();
+      if (!key) return;
+      if (!index[key]) { index[key] = { key: key, text: it.text, wants: [] }; groups.push(index[key]); }
+      index[key].wants.push(it);
+    });
+    return groups;
+  }
+
+  // "Proof point, row 34; Sustentabilidade, row 51" — so an author can open
+  // both places the brief asked for it rather than guessing which one is short.
+  function whereFrom(wants) {
+    var seen = {}, parts = [];
+    wants.forEach(function (w) {
+      var s = w.section && w.row ? w.section + ', row ' + w.row
+            : w.row ? 'row ' + w.row
+            : w.section || '';
+      if (s && !seen[s]) { seen[s] = 1; parts.push(s); }
+    });
+    return parts.join('; ');
+  }
+
+  function countFindings(group, pageCount, out) {
+    var briefCount = group.wants.length;
+    var where = whereFrom(group.wants);
+
+    if (pageCount < briefCount) {
+      out.push({
+        expected: group.text,
+        note: 'the brief asks for this ' + briefCount + ' times and the page carries it ' +
+              pageCount + (where ? ' — ' + where : ''),
+        severity: 'break',
+        fromBrief: true,
+        missing: briefCount - pageCount
+      });
+      return;
+    }
+    if (pageCount > briefCount) {
+      // The reverse question, and a noisier one: templates repeat copy in
+      // teasers and related-content rails. Worth a look, not a defect.
+      out.push({
+        expected: group.text,
+        note: 'the page carries this ' + pageCount + ' times and the brief asks for it ' + briefCount,
+        severity: 'check',
+        fromBrief: false
+      });
+    }
+  }
+
 
   // Metadata is compared word for word — normalise() folds only the punctuation
   // a CMS rewrites on its way to the page, and never case. What matters as much
@@ -601,33 +637,44 @@
   function bodyDeviations(expect, page) {
     var out = [];
     var pageText = normalise(page.text);
-    expect.body.forEach(function (paragraph) {
-      var want = unwrapQuotes(paragraph);
-      if (!want) return;
-      if (pageText.indexOf(normalise(want)) !== -1) return;
-      // The whole paragraph is not there in one piece. That is usually the
-      // page splitting it across elements rather than copy going missing, so
-      // report only the sentences that are genuinely absent.
-      var parts = sentencesOf(want);
+    var cleaned = expect.body.map(function (w) {
+      return { text: unwrapQuotes(w.text), section: w.section, row: w.row };
+    }).filter(function (w) { return w.text; });
+
+    groupWants(cleaned).forEach(function (group) {
+      var needle = normalise(group.text);
+      var pageCount = occurrences(pageText, needle);
+
+      if (pageCount > 0) { countFindings(group, pageCount, out); return; }
+
+      // Not there in one piece. That is usually the page splitting a paragraph
+      // across elements rather than copy going missing, so descend and report
+      // only the sentences that are genuinely absent.
+      var parts = sentencesOf(group.text);
+      var where = whereFrom(group.wants);
       if (!parts.length) {
-        out.push({ expected: paragraph, note: 'not found on the page', severity: 'break', fromBrief: true });
+        out.push({
+          expected: group.text,
+          note: 'not found on the page' + (where ? ' — ' + where : ''),
+          severity: 'break', fromBrief: true, missing: group.wants.length
+        });
         return;
       }
-      parts.forEach(function (part) {
-        if (pageText.indexOf(normalise(part)) === -1) {
-          out.push({ expected: part, note: 'not found on the page', severity: 'break', fromBrief: true });
-        }
+      var absent = parts.filter(function (part) { return occurrences(pageText, normalise(part)) === 0; });
+      if (!absent.length) {
+        // Every sentence is present, so the paragraph is there in pieces —
+        // count those pieces as one occurrence and check the tally.
+        countFindings(group, 1, out);
+        return;
+      }
+      absent.forEach(function (part) {
+        out.push({
+          expected: part,
+          note: 'not found on the page' + (where ? ' — ' + where : ''),
+          severity: 'break', fromBrief: true, missing: group.wants.length
+        });
       });
     });
-    (page.statConflicts || []).forEach(function (c) {
-      out.push({
-        expected: c.figure,
-        found: c.caption,
-        note: 'the figure and its caption disagree on the page',
-        severity: 'break'
-      });
-    });
-
     return out;
   }
 
@@ -636,7 +683,8 @@
     var onPage = page.images.map(function (img) { return assetIdentity(img.src, variantPattern); })
       .filter(function (id) { return id.length > 0; });
 
-    expect.images.forEach(function (name) {
+    expect.images.forEach(function (w) {
+      var name = w && w.text !== undefined ? w.text : w;
       var wanted = assetIdentity(name, variantPattern);
       if (!wanted) return;
       var found = onPage.some(function (id) {
@@ -663,15 +711,26 @@
 
   function linkDeviations(expect, page) {
     var out = [];
+    // Each page link answers for one brief row only. Two CTAs sharing a label
+    // used to both resolve against the first anchor on the page.
+    var claimed = [];
     expect.links.forEach(function (want) {
-      var byText = page.links.filter(function (l) { return same(l.text, want.text); })[0];
+      var byText = page.links.filter(function (l, idx) {
+        return claimed.indexOf(idx) === -1 && same(l.text, want.text);
+      })[0];
+      if (byText) claimed.push(page.links.indexOf(byText));
       if (!byText) {
         // The anchor may be on the page but held back as a placeholder. That
         // is one defect, and it is already reported below — saying the link is
         // also missing would report the same anchor twice.
         var asPlaceholder = (page.placeholderLinks || []).filter(function (l) { return same(l.text, want.text); })[0];
         if (!asPlaceholder) {
-          out.push({ expected: want.text, found: null, note: 'link not found on the page', severity: 'break', fromBrief: true });
+          var where = whereFrom([want]);
+          out.push({
+            expected: want.text, found: null,
+            note: 'link not found on the page' + (where ? ' — ' + where : ''),
+            severity: 'break', fromBrief: true, missing: 1
+          });
         }
         return;
       }
@@ -717,11 +776,29 @@
 
     if (!expect.sections.length) return out;
     var pageHeadings = page.headings.map(function (h) { return normalise(h.text).toLowerCase(); });
+
+    groupWants(expect.sections).forEach(function (group) {
+      var pageCount = pageHeadings.filter(function (h) { return h === group.key; }).length;
+      var where = whereFrom(group.wants);
+      if (pageCount === 0) {
+        out.push({
+          expected: group.text,
+          note: 'section heading missing from the page' + (where ? ' — ' + where : ''),
+          severity: 'break', fromBrief: true, missing: group.wants.length
+        });
+        return;
+      }
+      countFindings(group, pageCount, out);
+    });
+
+    // Order is checked on the brief's sequence, independently of the counts.
     var cursor = -1;
-    expect.sections.forEach(function (section) {
-      var at = pageHeadings.indexOf(normalise(section).toLowerCase());
-      if (at === -1) { out.push({ expected: section, note: 'section heading missing from the page', severity: 'break', fromBrief: true }); return; }
-      if (at < cursor) out.push({ expected: section, note: 'section appears out of the brief\'s order', severity: 'break', fromBrief: true });
+    expect.sections.forEach(function (w) {
+      var at = pageHeadings.indexOf(normalise(w.text).toLowerCase());
+      if (at === -1) return;
+      if (at < cursor) {
+        out.push({ expected: w.text, note: 'section appears out of the brief\'s order', severity: 'break', fromBrief: true });
+      }
       cursor = Math.max(cursor, at);
     });
     return out;
@@ -829,9 +906,13 @@
       // is what makes the two failure modes legible without a heuristic: zero
       // of zero is a brief that did not parse, and two of seventy-four is a
       // brief that parsed wrongly. Both used to need a special guard to read.
+      // Count the occurrences that are short, not the findings — one finding can
+      // stand for a line the brief asked for twice and the page carries once.
       var briefFailures = 0;
       categories.forEach(function (c) {
-        c.deviations.forEach(function (d) { if (d.fromBrief) briefFailures++; });
+        c.deviations.forEach(function (d) {
+          if (d.fromBrief) briefFailures += (d.missing || 1);
+        });
       });
       var coverage = {
         total: expectationCount,

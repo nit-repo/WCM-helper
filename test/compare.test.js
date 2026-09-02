@@ -405,26 +405,6 @@ test('14l. an in-page anchor is a real destination, not a placeholder', function
   assert.ok(!d.some(function (x) { return /placeholder/.test(x.note); }), 'reported: ' + textOf(d));
 });
 
-test('14m. a figure that contradicts its own caption is caught', function () {
-  // Straight from the live page: the card reads 70% above "Até 74%".
-  var main = CLEAN_MAIN +
-    '<div class="highlight"><span>70%</span></div><h6>Até 74% de poupança energética.</h6>';
-  var d = cat(comparer.compare(BRIEF, page({ main: main }), { workTypeId: 'new-page' }), 'body');
-  var conflict = d.filter(function (x) { return /disagree/.test(x.note); })[0];
-
-  assert.ok(conflict, 'reported: ' + textOf(d));
-  assert.strictEqual(conflict.expected, '70%');
-  assert.ok(/74%/.test(conflict.found), 'the caption should be quoted back: ' + conflict.found);
-});
-
-test('14n. a figure that agrees with its caption is not reported', function () {
-  var main = CLEAN_MAIN +
-    '<div class="highlight"><span>70%</span></div><h6>Até 70% de poupança energética.</h6>';
-  var d = cat(comparer.compare(BRIEF, page({ main: main }), { workTypeId: 'new-page' }), 'body');
-
-  assert.ok(!d.some(function (x) { return /disagree/.test(x.note); }), 'false alarm: ' + textOf(d));
-});
-
 test('14o. a lazy-loaded image resolves to the asset, not the placeholder', function () {
   var loader = '/Content/ajax-loader-big.gif?t=20260724';
   var real = 'https://s7g10.scene7.com/is/image/kone/2_2-9:760x428';
@@ -505,9 +485,10 @@ test('20. a brief with quoted multi-line cells parses as columns, not prose', fu
 
   var expect = comparer.readBrief(QUOTED_BRIEF, 'localization');
   assert.strictEqual(expect.body.length, 1, 'the two-paragraph cell is one expectation, not two fragments');
-  assert.ok(/poupar tempo[\s\S]*instalados rapidamente/.test(expect.body[0]),
+  assert.ok(/poupar tempo[\s\S]*instalados rapidamente/.test(expect.body[0].text),
     'and it carries both paragraphs: ' + JSON.stringify(expect.body));
-  assert.ok(expect.body[0].indexOf('"') === -1, 'with no wrapping quote left on it');
+  assert.ok(expect.body[0].text.indexOf('"') === -1, 'with no wrapping quote left on it');
+  assert.strictEqual(expect.body[0].row, 4, 'and it remembers the brief row it came from');
 });
 
 test('20b. an anchor held back as a placeholder is not also reported as missing', function () {
@@ -696,89 +677,9 @@ test('33. a real placeholder CTA is still reported', function () {
   assert.ok(/Saiba mais/.test(textOf(devs)), 'this one was never wired up: ' + textOf(devs));
 });
 
-test('34. a stat and its caption are matched across real template markup', function () {
-  // The window used to be counted in raw characters, so the wrapper divs on a
-  // real card pushed the caption out of range and the contradiction went
-  // unreported on the very page it was built for.
-  var wrappers = '<div class="col-md-4 proof-point-card text-center" data-component="proof-point">' +
-    '<div class="proof-point-card-inner-wrapper">'.repeat(12);
-  var page = '<html><body><main><span>70%</span>' + wrappers +
-    '<h6>Até 74% de poupança energética.</h6></main></body></html>';
-
-  var conflicts = comparer.readPage(page).statConflicts;
-
-  assert.strictEqual(conflicts.length, 1, 'markup between them is not distance: ' + JSON.stringify(conflicts));
-  assert.strictEqual(conflicts[0].figure, '70%');
-});
-
-test('35. a percentage far away in reading order is not treated as a caption', function () {
-  var page = '<html><body><main><span>70%</span><p>' +
-    new Array(70).join('palavra ') + '</p><h6>Até 74% de poupança.</h6></main></body></html>';
-
-  assert.deepStrictEqual(comparer.readPage(page).statConflicts, [],
-    'unrelated figures elsewhere on the page must not pair up');
-});
-
-// The 70%/74% contradiction on the real KONE Portugal page went unreported
-// through two rounds of fixes, because the detector kept depending on which
-// elements the template wrapped the figure in. It no longer looks at tags.
-
-var STAT_CAPTION = '<h6>Até 74% de poupança energética.</h6>';
-
-function statsIn(markup) {
-  return comparer.readPage('<html><body><main>' + markup + '</main></body></html>').statConflicts;
-}
-
-test('36. a contradicting figure is caught whatever markup holds it', function () {
-  var shapes = {
-    'a span': '<span>70%</span>',
-    'a heading': '<h2>70%</h2>',
-    'a heading the old tag list left out': '<h4><strong>70%</strong></h4>',
-    'nested elements': '<div class="big"><span>70%</span></div>',
-    'the percent sign styled separately': '<span>70</span><span>%</span>',
-    'a non-breaking space before the sign': '<span>70&nbsp;%</span>',
-    'a link around the figure': '<a href="/x"><span>70%</span></a>'
-  };
-
-  Object.keys(shapes).forEach(function (name) {
-    var found = statsIn(shapes[name] + STAT_CAPTION);
-    assert.strictEqual(found.length, 1, 'missed when the figure sits in ' + name);
-    assert.strictEqual(found[0].figure, '70%');
-  });
-});
-
-test('37. wrapper markup between a figure and its caption is not distance', function () {
-  var wrappers = '<div class="proof-point-card-inner-wrapper text-center">'.repeat(14);
-
-  assert.strictEqual(statsIn('<h2>70%</h2>' + wrappers + STAT_CAPTION).length, 1);
-});
-
-test('38. a figure that agrees with its caption is never reported', function () {
-  assert.deepStrictEqual(statsIn('<h2>74%</h2>' + STAT_CAPTION), []);
-});
-
-test('39. a row of bare figures is not a figure and a caption', function () {
-  // Reading text instead of tags makes a data table look like a stat card
-  // followed by a different number. It is not, and must stay silent.
-  assert.deepStrictEqual(statsIn('<table><tr><td>70%</td><td>74%</td><td>88%</td></tr></table>'), []);
-  assert.deepStrictEqual(statsIn('<table><tr><td>70%</td><td>74%</td><td>Energy</td></tr></table>'), []);
-});
-
-test('40. consecutive stat cards do not caption each other', function () {
-  var cards =
-    '<div><span>70%</span><h6>Até 70% de poupança.</h6></div>' +
-    '<div><span>88%</span><h6>Até 88% mais rápido.</h6></div>';
-
-  assert.deepStrictEqual(statsIn(cards), []);
-});
-
-test('41. percentages in running prose are not stat cards', function () {
-  assert.deepStrictEqual(statsIn('<p>Reduza o consumo em 70% e melhore 74% da eficiência.</p>'), []);
-});
-
 test('42. an unreadable brief still reports what the page says about itself', function () {
   var page = '<html><body><main><h2>Repetido</h2><h2>Repetido</h2>' +
-    '<a href="#">Saiba mais</a><span>70%</span><h6>Até 74% de poupança.</h6></main></body></html>';
+    '<a href="#">Saiba mais</a></main></body></html>';
 
   var r = comparer.compare('x\ny\nz', page, { workTypeId: 'new-page' });
 
@@ -787,7 +688,6 @@ test('42. an unreadable brief still reports what the page says about itself', fu
   var all = textOf(r.categories);
   assert.ok(/more than once/.test(all), all);
   assert.ok(/placeholder/.test(all), all);
-  assert.ok(/disagree/.test(all), all);
 });
 
 // og:title, the window title and the URL's last segment are three different
@@ -856,6 +756,109 @@ test('48. page path is shown as a segment but compared as a whole path', functio
 
   assert.strictEqual(row.found, 'lift-safety-features', 'displayed as the segment');
   assert.strictEqual(row.state, 'matches', 'and matched against the full canonical');
+});
+
+// The bug this section exists for: a brief carrying a line twice against a
+// page carrying it once reported "All 53 items from the brief are on the
+// page". Every check asked whether something appeared at all and never how
+// many times, so two brief rows both resolved against one page occurrence.
+
+test('49. a line the brief asks for twice and the page has once is missing content', function () {
+  var brief = [
+    'Proof point',
+    'Body\tA\tAté 74% de poupança energética.',
+    'Sustentabilidade',
+    'Body\tB\tAté 74% de poupança energética.'
+  ].join('\n');
+  var pg = '<html><body><main><h1>x</h1><p>Até 74% de poupança energética.</p></main></body></html>';
+
+  var r = comparer.compare(brief, pg, { workTypeId: 'localization' });
+  var d = cat(r, 'body');
+
+  assert.strictEqual(r.coverage.found, 1, 'one of the two is there: ' + JSON.stringify(r.coverage));
+  assert.strictEqual(r.coverage.missing, 1);
+  assert.strictEqual(r.coverage.complete, false, 'this used to report complete');
+  assert.strictEqual(d.length, 1, textOf(d));
+  assert.strictEqual(d[0].severity, 'break', 'missing content is serious');
+  assert.ok(/asks for this 2 times and the page carries it 1/.test(d[0].note), d[0].note);
+});
+
+test('50. the finding names where in the brief each copy was asked for', function () {
+  var brief = [
+    'Proof point',
+    'Body\tA\tAté 74% de poupança energética.',
+    'Sustentabilidade',
+    'Body\tB\tAté 74% de poupança energética.'
+  ].join('\n');
+  var pg = '<html><body><main><h1>x</h1><p>Até 74% de poupança energética.</p></main></body></html>';
+
+  var note = cat(comparer.compare(brief, pg, { workTypeId: 'localization' }), 'body')[0].note;
+
+  assert.ok(/Proof point, row 2/.test(note), 'the section and row of the first: ' + note);
+  assert.ok(/Sustentabilidade, row 4/.test(note), 'and of the second: ' + note);
+});
+
+test('51. asked twice and carried twice is clean', function () {
+  var brief = [
+    'Body\tA\tAté 74% de poupança energética.',
+    'Body\tB\tAté 74% de poupança energética.'
+  ].join('\n');
+  var pg = '<html><body><main><h1>x</h1><p>Até 74% de poupança energética.</p>' +
+    '<p>Até 74% de poupança energética.</p></main></body></html>';
+
+  var r = comparer.compare(brief, pg, { workTypeId: 'localization' });
+
+  assert.strictEqual(r.coverage.complete, true, JSON.stringify(r.coverage));
+  assert.deepStrictEqual(cat(r, 'body'), []);
+});
+
+test('52. a heading the brief asks for twice and the page has once is caught', function () {
+  var brief = [
+    'Proof point',
+    'Headline\tA\tProof point card',
+    'FAQ section',
+    'Headline\tB\tProof point card'
+  ].join('\n');
+  var pg = '<html><body><main><h1>x</h1><h2>Proof point card</h2></main></body></html>';
+
+  var r = comparer.compare(brief, pg, { workTypeId: 'localization' });
+
+  assert.strictEqual(r.coverage.missing, 1, JSON.stringify(r.coverage));
+  assert.ok(/asks for this 2 times/.test(textOf(cat(r, 'structure'))), textOf(cat(r, 'structure')));
+});
+
+test('53. two CTAs sharing a label and a destination need two anchors', function () {
+  // Each page link answers for one brief row. Both used to resolve against
+  // the first anchor on the page, so the second went unnoticed.
+  var brief = ['CTA\tA\tSaiba mais', 'CTA Link\tA\t/a/', 'CTA\tB\tSaiba mais', 'CTA Link\tB\t/a/'].join('\n');
+  var pg = '<html><body><main><h1>x</h1><a href="/a/">Saiba mais</a></main></body></html>';
+
+  var r = comparer.compare(brief, pg, { workTypeId: 'localization' });
+
+  assert.strictEqual(r.coverage.missing, 1, JSON.stringify(r.coverage));
+  assert.ok(/not found/.test(textOf(cat(r, 'links'))), textOf(cat(r, 'links')));
+});
+
+test('54. the page carrying more copies than the brief asked for is a check', function () {
+  var brief = ['Headline\tA\tProof point card',
+    'Body\tB\tAté 74% de poupança energética em todo o edifício.'].join('\n');
+  var pg = '<html><body><main><h1>Proof point card</h1>' +
+    '<p>Até 74% de poupança energética em todo o edifício.</p>' +
+    '<p>Até 74% de poupança energética em todo o edifício.</p></main></body></html>';
+
+  var d = cat(comparer.compare(brief, pg, { workTypeId: 'localization' }), 'body');
+
+  assert.strictEqual(d.length, 1, textOf(d));
+  assert.strictEqual(d[0].severity, 'check', 'templates repeat copy legitimately');
+  assert.ok(/page carries this 2 times/.test(d[0].note), d[0].note);
+});
+
+test('55. the stat-conflict check is gone', function () {
+  var pg = '<html><body><main><h1>x</h1><span>70%</span><h6>Até 74% de poupança.</h6></main></body></html>';
+  var r = comparer.compare(BRIEF, pg, { workTypeId: 'new-page' });
+
+  assert.strictEqual(comparer.readPage(pg).statConflicts, undefined, 'no such field any more');
+  assert.ok(!/disagree/.test(textOf(r.categories)), 'and nothing reports it: ' + textOf(r.categories));
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
