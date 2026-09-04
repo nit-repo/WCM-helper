@@ -861,5 +861,159 @@ test('55. the stat-conflict check is gone', function () {
   assert.ok(!/disagree/.test(textOf(r.categories)), 'and nothing reports it: ' + textOf(r.categories));
 });
 
+// ─── The page's own components ───────────────────────────────────────────
+// Fixture is an excerpt of the real KONE Slovenia page; every assertion below
+// is a fact read off that markup, not a shape invented to pass.
+
+var SI_PAGE = fs.readFileSync(
+  path.join(__dirname, 'fixtures', 'kone-si-monospace-100dx.html'), 'utf8');
+
+// A Slovenian brief for that page. Rows 5 and 7 are deliberately content the
+// page never received in Slovenian — the page carries the English instead.
+var SI_BRIEF = [
+  'Hero section',
+  'Prihranite dragocen prostor in si zagotovite vecjo oblikovalsko svobodo z nasim cenovno ugodnim stanovanjskim dvigalom brez strojnice.',
+  'Value highlights',
+  'Odlicne dobave, vec kot 150 tisoc dobav letno, stateski partner, zavezan uspehu vasih projektov.',
+  'Vgrajena povezljivost omogoca 24/7 napovedno vzdrzevanje in klicanje dvigal s pametnega telefona.',
+  'FAQ section',
+  'Kaj je storitev na daljavo in kako mi pomaga?'
+].join('\n');
+
+function siResult() { return comparer.compare(SI_BRIEF, SI_PAGE, { workTypeId: 'localization' }); }
+function siPage() { return comparer.readPage(SI_PAGE); }
+
+test('56. the page\'s modules are read in document order, named by their own class', function () {
+  var names = siPage().modules.map(function (m) { return m.name; });
+
+  assert.ok(names.indexOf('hero-banner') !== -1, 'hero missing: ' + names.join(', '));
+  ['module-multi-cta', 'module-value-highlights', 'module-product-specification',
+   'module-faq', 'module-content-river'].forEach(function (n) {
+    assert.ok(names.indexOf(n) !== -1, n + ' missing: ' + names.join(', '));
+  });
+  assert.ok(names.indexOf('module-faq') > names.indexOf('module-value-highlights'),
+    'order is not document order: ' + names.join(', '));
+});
+
+test('57. the FAQ module resolves to its real id and heading', function () {
+  var faq = siPage().modules.filter(function (m) { return m.name === 'module-faq'; })[0];
+
+  assert.ok(faq, 'no FAQ module found');
+  assert.strictEqual(faq.id, 'item-142402');
+  assert.strictEqual(faq.label, 'FAQ', 'short slugs are acronyms: ' + faq.label);
+  assert.strictEqual(faq.heading, 'Prenosi in specifikacije');
+});
+
+test('58. a field is addressed by the path the CMS printed, index included', function () {
+  var faq = siPage().modules.filter(function (m) { return m.name === 'module-faq'; })[0];
+  var paths = faq.fields.map(function (f) { return f.path; });
+
+  assert.deepStrictEqual(paths, [
+    'Accordion/items[1]/title', 'Accordion/items[1]/body',
+    'Accordion/items[2]/title', 'Accordion/items[2]/body'
+  ], 'got ' + paths.join(', '));
+});
+
+test('59. a field value is read whichever side of its comment the template puts it', function () {
+  var mods = siPage().modules;
+  function value(name, p) {
+    var mod = mods.filter(function (m) { return m.name === name; })[0];
+    return mod.fields.filter(function (f) { return f.path === p; })[0].value;
+  }
+
+  // Value after the comment (a heading).
+  assert.strictEqual(value('module-faq', 'Accordion/items[1]/title'), 'Tehnicni dokumenti');
+  // Value before the comment (a button label) — the shape a one-sided read misses.
+  assert.strictEqual(value('hero-banner', 'HeroBanner/actiontext'), 'Stopite v stik');
+  // Rich text nested two elements deep, bounded by its enclosing element and
+  // not by the next closing tag, which would have truncated it to nothing.
+  assert.strictEqual(value('module-faq', 'Accordion/items[1]/body'),
+    'Tehnicni vodnik za nacrtovanje KONE MonoSpace 100 DX');
+});
+
+test('60. untranslated content is named by its field, not reported as a missing row', function () {
+  var body = cat(siResult(), 'body');
+  var english = body.filter(function (d) { return /never translated/.test(d.note); });
+
+  assert.strictEqual(english.length, 3, 'expected the three English fields: ' + textOf(english));
+  assert.ok(english.some(function (d) {
+    return d.where === 'FAQ (item-142402) · Accordion/items[2]/title' &&
+           /What is remote service/.test(d.found);
+  }), 'the FAQ item is not named by module and field: ' + textOf(english));
+  english.forEach(function (d) { assert.strictEqual(d.severity, 'break'); });
+});
+
+test('61. an English brief never raises the untranslated check', function () {
+  var r = comparer.compare(BRIEF, SI_PAGE, { workTypeId: 'new-page' });
+
+  assert.ok(!/never translated/.test(textOf(r.categories)),
+    'an English brief cannot say English is untranslated: ' + textOf(r.categories));
+});
+
+test('62. an authored field published empty is reported, and names itself', function () {
+  var empty = cat(siResult(), 'body').filter(function (d) { return /field is empty/.test(d.note); });
+
+  assert.strictEqual(empty.length, 3, 'the three CTA titles: ' + textOf(empty));
+  assert.ok(empty.every(function (d) { return /MultiCTAModule\/module\[[123]\]\/title/.test(d.where); }),
+    'not addressed by field: ' + textOf(empty));
+});
+
+test('63. an empty asset field is not reported as empty copy', function () {
+  var empty = cat(siResult(), 'body').filter(function (d) { return /field is empty/.test(d.note); });
+
+  assert.ok(!empty.some(function (d) { return /damimageurl/.test(d.where); }),
+    'an image field holds a URL, and the image checks cover it: ' + textOf(empty));
+});
+
+test('64. a link into the CMS editor is a break, and names the field it sits in', function () {
+  var d = cat(siResult(), 'links').filter(function (x) { return /CMS editor/.test(x.note); });
+
+  assert.strictEqual(d.length, 1, 'expected the one CME link: ' + textOf(cat(siResult(), 'links')));
+  assert.strictEqual(d[0].where, 'FAQ (item-142402) · Accordion/items[1]/body');
+  assert.strictEqual(d[0].severity, 'break');
+});
+
+test('65. lang and data-lang disagreeing is a break', function () {
+  var page = siPage();
+  assert.strictEqual(page.lang, 'sl');
+  assert.strictEqual(page.dataLang, 'EN');
+
+  var d = cat(siResult(), 'metadata').filter(function (x) { return x.field === 'Page language'; });
+  assert.strictEqual(d.length, 1, 'not caught: ' + textOf(cat(siResult(), 'metadata')));
+  assert.strictEqual(d[0].severity, 'break');
+});
+
+test('66. hidden headings produce no duplicate findings', function () {
+  var page = siPage();
+  var hidden = page.headings.filter(function (h) { return h.hidden; });
+  assert.ok(hidden.length >= 3, 'fixture should carry the template\'s hidden H2s, got ' + hidden.length);
+
+  var d = cat(siResult(), 'structure').filter(function (x) { return /more than once/.test(x.note); });
+  assert.strictEqual(d.length, 0, 'a heading nobody can see is not a duplicate: ' + textOf(d));
+});
+
+test('67. a nested wrapper never truncates a module', function () {
+  var faq = siPage().modules.filter(function (m) { return m.name === 'module-faq'; })[0];
+
+  // The accordion body sits several divs deep; a lazy match would close on the
+  // first </section> — there is only one, but the depth scan is what makes
+  // that a fact rather than a coincidence.
+  assert.ok(/Tehnicni vodnik/.test(faq.text), 'module text stops short: ' + faq.text.slice(0, 120));
+  assert.ok(faq.end > faq.start, 'module has no extent');
+});
+
+test('68. every page-derived finding on this page carries where it lives', function () {
+  var r = siResult();
+  var located = [];
+  r.categories.forEach(function (c) {
+    c.deviations.forEach(function (d) { if (d.where) located.push(d.where); });
+  });
+
+  assert.ok(located.length >= 7, 'expected findings to name their module: ' + located.join(' | '));
+  located.forEach(function (w) {
+    assert.ok(/\(item-\d+\)/.test(w), 'a location without its component id: ' + w);
+  });
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

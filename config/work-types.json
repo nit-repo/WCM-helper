@@ -35,6 +35,9 @@
     "workTypes": ["new-page", "localization", "content-update", "keyword-update"],
     "contentSelectors": ["main", "[role=main]", ".content-wrapper", ".page-content"],
     "assetVariantPattern": "[-_](\\d{1,2}|crop|thumb|small|large|mobile|desktop)$",
+    "modulePrefix": "module-",
+    "moduleClasses": ["hero-banner"],
+    "editorLinkPattern": "/ui/editor/item\\?item=",
     "safeAnchorLabels": [
       "back to top",
       "top of page",

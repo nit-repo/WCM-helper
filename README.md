@@ -105,7 +105,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 155 verification cases across the five modules
+npm test      # 168 verification cases across the five modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -135,6 +135,29 @@ Assets now live in Adobe DAM whichever CMS serves the page, so a `adobecqms.net`
 
 **Every call shows its working.** Each classification carries the signals that produced it and their weights, so you can check the tool rather than trust it. The same brief always analyses identically. When nothing clearly identifies a brief, it says so instead of guessing, and the work type and CMS can both be set by hand.
 
+## The page names its own components
+
+For a long time the page side of the comparer could see six things: `<title>`, the meta tags, `h1`–`h3`, `<img>`, `<a>`, and one flat blob of text. Everything else went into how carefully two strings were compared. So the worst a finding could say was *"not found on the page — row 75"*: an absence, a brief row number, and nothing about the page at all.
+
+The markup was already carrying the answer. A KONE page is built from components, and Tridion prints what it authored:
+
+```html
+<section class="module module-faq module-with-h2" id="item-142402">
+  <!-- Start Component Field: {"XPath":"tcm:Content/custom:Accordion/custom:items[1]/custom:title"} -->
+```
+
+The component's name is its class token, its id is on the tag, and every authored field carries its CMS path — repeat index included. "The second item in the FAQ" is not inferred from indentation or counted by hand; the page states it. Modules are read in document order by a depth-counting scan rather than a lazy match, so a nested wrapper can never close one early.
+
+What that buys, on a real page:
+
+- **Untranslated content is named, not merely missed.** A field reading as English on a page whose brief is not English is reported as *"FAQ (item-142402) · Accordion/items[2]/title — this field reads as English on a page the brief localizes"*, quoting the English sitting there. That is the defect a missing-row finding can never describe, because the row is looking for text nobody ever wrote. It only fires when the brief itself is not English, so an English brief never accuses the page of anything.
+- **A component published with a hole in it is caught.** Three empty `MultiCTAModule/module[n]/title` fields on the live Slovenia page, each named by its field. Asset fields are exempt — they hold a URL, and the image checks already cover those.
+- **A link into the CME** (`/ui/editor/item?item=tcm:…`) is a break, the Tridion twin of the `/content/` author path already checked for on AEM.
+- **`lang="sl"` against `data-lang="EN"`** — the page contradicting itself about its own language.
+- **Hidden headings stop producing phantom duplicates.** The template stamps the window title into several `display:none` H2s; counting those reported three duplicate headings on a page that renders one.
+
+Every page-derived finding now carries where it lives, so the report points at a field an author can open rather than a row they have to go looking for.
+
 ## One shared understanding of the brief
 
 `engine.js`, `compare.js` and `filler.js` used to each parse the brief their own way, and each had found the same class of bug independently: raw-newline splitting that a quoted multi-line cell would shatter, and a target inferred from structure that never checked whether more than one candidate existed. `brief.js` now does the one thing all three need — quote-aware row splitting, which row is a section header, which columns are markets, and which market the brief actually targets — and the other three consume it rather than re-deriving it. Fixing a parsing bug once, in one file that all three load, is the point.
@@ -152,7 +175,8 @@ readers.js              .docx / .xlsx / .csv → text, with no dependencies
 config/work-types.json  the six playbooks, the compare settings, the market list
 test/brief.test.js      15 cases, the shared parse alone
 test/engine.test.js     43 cases, fixtures are real briefs
-test/compare.test.js    63 cases, deviations planted one per category
+test/compare.test.js    76 cases, deviations planted one per category,
+                        plus an excerpt of a real KONE page as a fixture
 test/readers.test.js    9 cases, run against real ZIP bytes
 test/filler.test.js     25 cases, including markup that must never be guessed
 serve.js                local static server

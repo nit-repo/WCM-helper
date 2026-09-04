@@ -361,6 +361,10 @@
       var tag = '<span class="sev-tag ' + (check ? 'check">check' : 'break">break') + '</span>';
       var head = (d.field ? esc(d.field) + ' — ' : '') + esc(d.note);
       var lines = '<p class="dev-note">' + tag + head + '</p>';
+      // Where on the page it lives, taken from the component the CMS named —
+      // "FAQ (item-142402) · Accordion/items[2]/title". An author can open
+      // that field directly instead of hunting for a brief row.
+      if (d.where) lines += '<p class="dev-where">' + esc(d.where) + '</p>';
       if (d.expected) lines += '<p class="dev-line"><b>Brief</b><span>' + esc(d.expected) + '</span></p>';
       if (d.found) lines += '<p class="dev-line"><b>Page</b><span>' + esc(d.found) + '</span></p>';
       return '<li class="' + (check ? 'check' : 'break') + '">' + lines + '</li>';

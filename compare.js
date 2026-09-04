@@ -151,6 +151,181 @@
     return out;
   }
 
+  // ─── COMPONENTS ──────────────────────────────────────────────────────────
+  // Tridion prints what it authored. A content block is a <section> carrying a
+  // module-<name> class and an item id, and every authored field inside it
+  // carries its CMS field path in a comment, repeat index included:
+  //
+  //   <section class="module module-faq" id="item-142402">
+  //     <!-- Start Component Field: {"XPath":"tcm:Content/custom:Accordion/custom:items[1]/custom:title"} -->
+  //
+  // So "the first item in the FAQ" is not something to infer from class-name
+  // guessing or to count by hand — the page states it. Reading it is what lets
+  // a finding say where it lives instead of quoting a brief row number back.
+
+  function classesOf(tag) {
+    var cls = attr(tag, 'class');
+    return cls ? cls.split(/\s+/).filter(function (c) { return c; }) : [];
+  }
+
+  var VOID_TAG_RE = /^<(br|img|input|hr|meta|link|source|area|base|col|embed|param|track|wbr)\b/i;
+
+  // The end of the element opening at openIndex, counting opens against closes
+  // of the same tag rather than stopping at the first close. Modules are
+  // <section> and do not nest today; a lazy [\s\S]*? would still be one
+  // template change away from closing on the wrong tag.
+  function elementEnd(html, tagName, openIndex) {
+    var re = new RegExp('<(/?)' + tagName + '\\b', 'gi');
+    re.lastIndex = openIndex;
+    var depth = 0, m;
+    while ((m = re.exec(html)) !== null) {
+      if (m[1]) {
+        depth--;
+        if (depth === 0) {
+          var close = html.indexOf('>', m.index);
+          return close === -1 ? html.length : close + 1;
+        }
+      } else depth++;
+    }
+    return html.length;
+  }
+
+  var FIELD_RE = /<!--\s*Start Component Field:\s*\{[^}]*"XPath"\s*:\s*"([^"]+)"[^}]*\}\s*-->/gi;
+
+  // tcm:Content/custom:Accordion/custom:items[1]/custom:title -> Accordion/items[1]/title
+  function fieldPath(xpath) {
+    return String(xpath)
+      .replace(/^tcm:Content\//i, '')
+      .split('/')
+      .map(function (s) { return s.replace(/^custom:/i, ''); })
+      .join('/');
+  }
+
+  // The value sits either side of the comment depending on the template: after
+  // it for a heading or a rich-text block, before it for a button or link
+  // label. Take what follows to the end of the enclosing element; when that is
+  // empty, take what precedes back to the previous tag. Both shapes are on the
+  // real page, which is why this reads both ways rather than picking one.
+  function fieldValueAfter(html, from) {
+    var depth = 0, i = from, out = '';
+    while (i < html.length) {
+      var lt = html.indexOf('<', i);
+      if (lt === -1) { out += html.slice(i); break; }
+      out += html.slice(i, lt);
+      var isComment = html.substr(lt, 4) === '<!--';
+      if (!isComment) {
+        if (html.charAt(lt + 1) === '/') {
+          if (depth === 0) break;
+          depth--;
+        } else if (!VOID_TAG_RE.test(html.slice(lt, lt + 12))) {
+          var tagEnd = html.indexOf('>', lt);
+          if (tagEnd === -1 || html.charAt(tagEnd - 1) !== '/') depth++;
+        }
+      }
+      var gt = isComment ? html.indexOf('-->', lt) + 2 : html.indexOf('>', lt);
+      if (gt === -1 || gt < lt) break;
+      i = gt + 1;
+    }
+    return normalise(stripTags(out));
+  }
+
+  function fieldValueBefore(html, commentStart) {
+    var prevGt = html.lastIndexOf('>', commentStart);
+    if (prevGt === -1) return '';
+    return normalise(html.slice(prevGt + 1, commentStart));
+  }
+
+  function fieldsIn(html, offset) {
+    var out = [], m;
+    FIELD_RE.lastIndex = 0;
+    while ((m = FIELD_RE.exec(html)) !== null) {
+      var after = fieldValueAfter(html, m.index + m[0].length);
+      var value = after || fieldValueBefore(html, m.index);
+      out.push({
+        path: fieldPath(m[1]),
+        value: value,
+        at: offset + m.index
+      });
+    }
+    return out;
+  }
+
+  // module-value-highlights -> "Value highlights"; module-faq -> "FAQ". Short
+  // slugs are acronyms on this estate (faq, cta), so they stay uppercase.
+  function humanise(name, prefix) {
+    var slug = name.indexOf(prefix) === 0 ? name.slice(prefix.length) : name;
+    var words = slug.split('-').filter(function (w) { return w; });
+    return words.map(function (w, i) {
+      if (w.length <= 3) return w.toUpperCase();
+      return i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w;
+    }).join(' ');
+  }
+
+  function firstHeading(html) {
+    var m = /<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]>/i.exec(html);
+    return m ? stripTags(m[1]) : null;
+  }
+
+  function modulesIn(regionHtml, cfg) {
+    var prefix = (cfg && cfg.modulePrefix) || 'module-';
+    var extra = (cfg && cfg.moduleClasses) || ['hero-banner'];
+    var out = [], re = /<section\b[^>]*>/gi, m;
+    while ((m = re.exec(regionHtml)) !== null) {
+      var tokens = classesOf(m[0]);
+      var name = tokens.filter(function (c) {
+        return c.indexOf(prefix) === 0 || extra.indexOf(c) !== -1;
+      })[0];
+      if (!name) continue;
+      var end = elementEnd(regionHtml, 'section', m.index);
+      var inner = regionHtml.slice(m.index, end);
+      out.push({
+        name: name,
+        label: humanise(name, prefix),
+        id: attr(m[0], 'id') || null,
+        heading: firstHeading(inner),
+        start: m.index,
+        end: end,
+        text: stripTags(inner),
+        fields: fieldsIn(inner, m.index)
+      });
+      re.lastIndex = end;
+    }
+    return out;
+  }
+
+  // Where on the page a finding lives: the module containing it, and the
+  // nearest authored field at or before it. "FAQ · Accordion/items[1]/title".
+  function whereOf(page, at) {
+    if (at == null || !page.modules) return null;
+    var mod = page.modules.filter(function (m) { return at >= m.start && at < m.end; })[0];
+    if (!mod) return null;
+    var field = null;
+    mod.fields.forEach(function (f) { if (f.at <= at) field = f; });
+    var label = mod.label + (mod.id ? ' (' + mod.id + ')' : '');
+    return field ? label + ' · ' + field.path : label;
+  }
+
+  // ─── SOURCE LANGUAGE ─────────────────────────────────────────────────────
+  // A localization brief is written in the target language. When the page then
+  // carries English prose in an authored field, that field was never
+  // translated — the defect a "not found on the page" row can never name,
+  // because the row is looking for text that was never written.
+
+  var ENGLISH_WORDS = ['the', 'and', 'is', 'are', 'of', 'to', 'for', 'with', 'that',
+    'this', 'from', 'have', 'has', 'will', 'can', 'your', 'you', 'our', 'we', 'it',
+    'as', 'on', 'in', 'by', 'be', 'not', 'all', 'more', 'how', 'what', 'so', 'us'];
+
+  function englishScore(text) {
+    var s = ' ' + normalise(text).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ') + ' ';
+    var hits = 0;
+    ENGLISH_WORDS.forEach(function (w) { if (s.indexOf(' ' + w + ' ') !== -1) hits++; });
+    return hits;
+  }
+
+  // Three distinct English function words, so a stray brand name — "KONE
+  // 24/7 Connected Services", "Max Floors" — never trips it.
+  function looksEnglish(text) { return englishScore(text) >= 3; }
+
   function stripTags(html) {
     return normalise(String(html).replace(/<[^>]*>/g, ' '));
   }
@@ -217,14 +392,22 @@
     // CMS tree, which is a different thing from either title.
     var segments = pathOf(canonicalHref || '').split('/').filter(function (s) { return s !== ''; });
 
-    var headings = [], hm, hre = /<(h[1-3])\b[^>]*>([\s\S]*?)<\/\1>/gi;
+    // The template injects the window title as a hidden H2 several times over.
+    // Counting those as headings reported three duplicates on a page that
+    // renders one, so a heading nobody can see is carried but marked.
+    var headings = [], hm, hre = /<(h[1-3])\b([^>]*)>([\s\S]*?)<\/\1>/gi;
     while ((hm = hre.exec(region.html)) !== null) {
-      headings.push({ level: hm[1].toLowerCase(), text: stripTags(hm[2]) });
+      headings.push({
+        level: hm[1].toLowerCase(),
+        text: stripTags(hm[3]),
+        hidden: /display\s*:\s*none/i.test(hm[2]),
+        at: hm.index
+      });
     }
 
     var images = [], im, ire = /<img\b[^>]*>/gi;
     while ((im = ire.exec(region.html)) !== null) {
-      images.push({ src: imageSrc(im[0]), alt: attr(im[0], 'alt') });
+      images.push({ src: imageSrc(im[0]), alt: attr(im[0], 'alt'), at: im.index });
     }
 
     var links = [], placeholders = [], lm, lre = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
@@ -238,11 +421,11 @@
       // label and by the ARIA attributes that give them away. "Back to top"
       // was reported as a defect on a page where it was working correctly.
       if (!href || href === '#') {
-        if (!safeAnchor(lm[1], label, cfg)) placeholders.push({ href: href, text: label });
+        if (!safeAnchor(lm[1], label, cfg)) placeholders.push({ href: href, text: label, at: lm.index });
         continue;
       }
       if (href.charAt(0) === '#') continue;
-      links.push({ href: href, text: label });
+      links.push({ href: href, text: label, at: lm.index });
     }
 
     // A call to action rendered as bare text: the label shipped, the link did
@@ -254,7 +437,7 @@
     while ((cm = cre.exec(region.html)) !== null) {
       var inner = cm[1];
       var label2 = stripTags(inner);
-      if (label2 && inner.indexOf('<a') === -1) deadCtas.push(label2);
+      if (label2 && inner.indexOf('<a') === -1) deadCtas.push({ text: label2, at: cm.index });
     }
 
     return {
@@ -274,6 +457,11 @@
       placeholderLinks: placeholders,
       deadCtas: deadCtas,
       text: stripTags(region.html),
+      // The declared language of the page against the one the template stamps
+      // on <body>. Both are on the real Slovenia page and they disagree.
+      lang: (/<html\b[^>]*>/i.exec(html) ? attr(/<html\b[^>]*>/i.exec(html)[0], 'lang') : '') || null,
+      dataLang: (/<body\b[^>]*>/i.exec(html) ? attr(/<body\b[^>]*>/i.exec(html)[0], 'data-lang') : '') || null,
+      modules: modulesIn(region.html, cfg),
       regionVia: region.via
     };
   }
@@ -582,6 +770,16 @@
       });
     });
 
+    // Neither of these needs the brief: the page contradicts itself.
+    if (page.lang && page.dataLang && page.lang.toLowerCase().slice(0, 2) !== page.dataLang.toLowerCase().slice(0, 2)) {
+      out.push({
+        field: 'Page language', expected: page.lang, found: page.dataLang,
+        note: 'the page is served as lang="' + page.lang + '" but the template carries data-lang="' +
+              page.dataLang + '" — the two disagree, and analytics and search read the second',
+        severity: 'break'
+      });
+    }
+
     if (page.h1.length === 0) out.push({ field: 'H1', expected: null, found: null, note: 'the page has no H1', severity: 'break' });
     else if (page.h1.length > 1) {
       out.push({ field: 'H1', expected: 'one H1', found: page.h1.join(' / '), note: page.h1.length + ' H1 tags on the page', severity: 'break' });
@@ -630,6 +828,49 @@
         });
       });
     });
+
+    return out.concat(fieldDeviations(expect, page));
+  }
+
+  // What the page carries, read field by field rather than as one blob of
+  // text. Both of these name the CMS field an author has to open, because the
+  // page states it — neither can be expressed as a brief row number.
+
+  var ASSET_FIELD_RE = /image|url|dam|src|asset/i;
+
+  function fieldDeviations(expect, page) {
+    var out = [];
+    var briefText = expect.body.concat(expect.sections)
+      .map(function (w) { return w.text; }).join(' ');
+    // Only a brief written in something other than English can tell us that
+    // English on the page is untranslated. An English brief says nothing.
+    var localizing = briefText.length > 0 && !looksEnglish(briefText);
+
+    (page.modules || []).forEach(function (mod) {
+      mod.fields.forEach(function (field) {
+        var where = mod.label + (mod.id ? ' (' + mod.id + ')' : '') + ' · ' + field.path;
+
+        if (!field.value) {
+          // An asset field holds a URL the image checks already cover; an
+          // empty text field is a component shipped with a hole in it.
+          if (ASSET_FIELD_RE.test(field.path)) return;
+          out.push({
+            expected: null, found: null, where: where,
+            note: 'this field is empty on the page — the component was published without it',
+            severity: 'break'
+          });
+          return;
+        }
+
+        if (localizing && looksEnglish(field.value)) {
+          out.push({
+            expected: null, found: field.value, where: where,
+            note: 'this field reads as English on a page the brief localizes — it was never translated',
+            severity: 'break'
+          });
+        }
+      });
+    });
     return out;
   }
 
@@ -658,13 +899,13 @@
     });
 
     page.images.forEach(function (img) {
-      if (!img.src) out.push({ expected: null, found: img.alt || '(no alt)', note: 'image tag with no src', severity: 'break' });
-      else if (!img.alt) out.push({ expected: null, found: img.src, note: 'image has no alt text', severity: 'break' });
+      if (!img.src) out.push({ expected: null, found: img.alt || '(no alt)', where: whereOf(page, img.at), note: 'image tag with no src', severity: 'break' });
+      else if (!img.alt) out.push({ expected: null, found: img.src, where: whereOf(page, img.at), note: 'image has no alt text', severity: 'break' });
     });
     return out;
   }
 
-  function linkDeviations(expect, page) {
+  function linkDeviations(expect, page, cfg) {
     var out = [];
     // Each page link answers for one brief row only. Two CTAs sharing a label
     // used to both resolve against the first anchor on the page.
@@ -695,7 +936,20 @@
     });
     page.links.forEach(function (l) {
       if (/^https?:\/\/[^/]*author|\/content\//i.test(l.href)) {
-        out.push({ expected: null, found: l.href, note: 'author or /content/ path published to the live page', severity: 'break' });
+        out.push({
+          expected: null, found: l.href, where: whereOf(page, l.at),
+          note: 'author or /content/ path published to the live page', severity: 'break'
+        });
+      }
+      // The Tridion twin of the same defect: a link into the CME editor,
+      // authored into body copy where a document link belongs.
+      var editor = (cfg && cfg.editorLinkPattern) || '/ui/editor/item\\?item=';
+      if (new RegExp(editor, 'i').test(l.href)) {
+        out.push({
+          expected: null, found: l.href, where: whereOf(page, l.at),
+          note: 'this links into the CMS editor, not to a published page — an author pasted a CME URL',
+          severity: 'break'
+        });
       }
     });
 
@@ -704,12 +958,16 @@
       out.push({
         expected: null,
         found: l.text || '(no label)',
+        where: whereOf(page, l.at),
         note: l.href === '#' ? 'link still points at the placeholder href="#"' : 'link has no destination',
         severity: 'break'
       });
     });
-    (page.deadCtas || []).forEach(function (label) {
-      out.push({ expected: null, found: label, note: 'call to action is bare text with no link', severity: 'break' });
+    (page.deadCtas || []).forEach(function (cta) {
+      out.push({
+        expected: null, found: cta.text, where: whereOf(page, cta.at),
+        note: 'call to action is bare text with no link', severity: 'break'
+      });
     });
     return out;
   }
@@ -719,12 +977,20 @@
 
     // A heading that appears twice is a structural fault and needs no brief to
     // be one, so it is reported whether or not the brief listed any sections.
+    // A heading nobody can see is not a duplicate anyone can read. The KONE
+    // template stamps the window title into several display:none H2s, which
+    // reported as three duplicates on a page that renders one.
     var seen = {};
-    page.headings.forEach(function (h) {
+    page.headings.filter(function (h) { return !h.hidden; }).forEach(function (h) {
       var k = normalise(h.text).toLowerCase();
       if (!k) return;
       if (seen[k]) {
-        if (seen[k] === 1) out.push({ expected: h.text, note: 'this heading appears more than once on the page', severity: 'break' });
+        if (seen[k] === 1) {
+          out.push({
+            expected: h.text, where: whereOf(page, h.at),
+            note: 'this heading appears more than once on the page', severity: 'break'
+          });
+        }
         seen[k]++;
       } else seen[k] = 1;
     });
@@ -769,7 +1035,7 @@
       { id: 'metadata', label: 'Metadata', deviations: metadataDeviations(expect, page) },
       { id: 'body', label: 'Body Text', deviations: bodyDeviations(expect, page) },
       { id: 'images', label: 'Images', deviations: imageDeviations(expect, page, cfg.assetVariantPattern) },
-      { id: 'links', label: 'Hyperlinks / CTAs', deviations: linkDeviations(expect, page) },
+      { id: 'links', label: 'Hyperlinks / CTAs', deviations: linkDeviations(expect, page, cfg) },
       { id: 'structure', label: 'Structure', deviations: structureDeviations(expect, page) }
     ];
     var breaks = 0, checks = 0;
@@ -852,7 +1118,7 @@
         { id: 'metadata', label: 'Metadata', deviations: ordered(metadataDeviations(expect, page)) },
         { id: 'body', label: 'Body Text', deviations: ordered(bodyDeviations(expect, page)) },
         { id: 'images', label: 'Images', deviations: ordered(imageDeviations(expect, page, cfg.assetVariantPattern)) },
-        { id: 'links', label: 'Hyperlinks / CTAs', deviations: ordered(linkDeviations(expect, page)) },
+        { id: 'links', label: 'Hyperlinks / CTAs', deviations: ordered(linkDeviations(expect, page, cfg)) },
         { id: 'structure', label: 'Structure', deviations: ordered(structureDeviations(expect, page)) }
       ];
 
