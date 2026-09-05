@@ -1125,5 +1125,71 @@ test('77. the ledger and the coverage count never disagree', function () {
   assert.strictEqual(r.coverage.found + r.coverage.missing, r.expectations);
 });
 
+// ─── Inline vs block tags in stripTags ───────────────────────────────────
+// The India blog page (kone.in/blog/different-types-of-elevators.html) is
+// Word-pasted content: the sentence a reader sees as one run of text is
+// stored with several inline tags between a word and the punctuation that
+// follows it — real markup, not a hypothetical.
+//
+//   Construction elevators</span></a></strong><span lang="EN-IN">, also known as…
+//
+// A browser renders no gap there because span/a/strong are inline. Replacing
+// every tag with a space invented one, and row 55 of the brief reported
+// "not found on the page" for a paragraph that was there verbatim.
+
+var INLINE_PUNCT_PAGE = '<html lang="en"><body><main>' +
+  '<section class="module module-rich-text"><div class="rte"><p>' +
+  '<strong><a href="/x"><span>Construction elevators</span></a></strong>' +
+  '<span lang="EN-IN">, also known as construction hoists, are temporary systems ' +
+  'used during the construction phase of a building.</span>' +
+  '</p></div></section>' +
+  '</main></body></html>';
+
+var INLINE_PUNCT_BRIEF = 'Construction elevators, also known as construction hoists, ' +
+  'are temporary systems used during the construction phase of a building.';
+
+test('78. a tag boundary immediately before punctuation is not a false break', function () {
+  var r = comparer.compare(INLINE_PUNCT_BRIEF, INLINE_PUNCT_PAGE, { workTypeId: 'localization' });
+  var body = cat(r, 'body');
+
+  assert.strictEqual(body.filter(function (d) { return d.severity === 'break'; }).length, 0,
+    'the paragraph is on the page verbatim: ' + textOf(body));
+  assert.strictEqual(r.coverage.missing, 0, 'row 55 must report found, not missing');
+});
+
+test('79. block boundaries still separate words the source keeps apart', function () {
+  var page = comparer.readPage('<main><p>One</p><p>Two</p></main>', {});
+  assert.strictEqual(page.text, 'One Two', 'removing tags must not join what the source separates');
+});
+
+test('80. a link whose text keeps its trailing space still reads with a space', function () {
+  var page = comparer.readPage(
+    '<main><p><a href="/x"><strong>Residential elevators</strong></a> are designed for homes.</p></main>', {});
+  assert.ok(page.text.indexOf('Residential elevators are designed for homes.') !== -1,
+    'got ' + JSON.stringify(page.text));
+});
+
+test('81. <br> still separates', function () {
+  var page = comparer.readPage('<main><p>a<br>b</p></main>', {});
+  assert.strictEqual(page.text, 'a b');
+});
+
+test('82. an unknown tag defaults to block, unchanged from today', function () {
+  var page = comparer.readPage('<main><custom-el>x</custom-el>y</main>', {});
+  assert.strictEqual(page.text, 'x y');
+});
+
+test('83. table cells and list items still separate', function () {
+  var page = comparer.readPage('<main><table><tr><td>A</td><td>B</td></tr></table><ul><li>C</li><li>D</li></ul></main>', {});
+  assert.ok(page.text.indexOf('A B') !== -1, 'got ' + JSON.stringify(page.text));
+  assert.ok(page.text.indexOf('C D') !== -1, 'got ' + JSON.stringify(page.text));
+});
+
+test('84. a field value read through fieldValueAfter is unaffected on the Slovenia fixture', function () {
+  var faq = siPage().modules.filter(function (m) { return m.name === 'module-faq'; })[0];
+  assert.ok(faq, 'FAQ module must still be found');
+  assert.strictEqual(faq.fields[0].path, 'Accordion/items[1]/title');
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

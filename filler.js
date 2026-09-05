@@ -45,7 +45,22 @@
       .trim();
   }
 
-  function stripTags(s) { return normalise(String(s).replace(/<[^>]*>/g, ' ')); }
+  // Same rule as compare.js's stripTags, and the same defect it fixes: inline
+  // tags carry no whitespace of their own, so replacing every tag with a
+  // space put a space in an English master that a browser never renders,
+  // which failed an exact match against the brief and fell through to the
+  // fuzzy path. Deliberately a copy, not a shared import — see the note atop
+  // this file on why these two stay duplicated.
+  var INLINE_TAG_RE = /^(a|span|strong|b|em|i|u|sup|sub|small|code|mark|abbr|cite|q|s|del|ins|label|font)$/i;
+
+  function stripTags(s) {
+    var out = String(s)
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<\/?([a-z][a-z0-9]*)\b[^>]*>/gi, function (m, tag) {
+        return INLINE_TAG_RE.test(tag) ? '' : ' ';
+      });
+    return normalise(out);
+  }
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"]/g, function (c) {

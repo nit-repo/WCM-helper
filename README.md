@@ -105,7 +105,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 177 verification cases across the five modules
+npm test      # 185 verification cases across the five modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -167,6 +167,8 @@ row 2 · found in Hero banner
 
 A missing row is placed by the rows around it that did match — the nearest located row above and below name the span it belongs in. That is derived from the matches, never guessed: with nothing on one side it says "after Hero banner", and with no components on the page at all it says nothing rather than inventing a location. Found-or-missing is still decided by the whole-region count, so a page built without module sections reports exactly as it always did — the components only answer *where*.
 
+**Reading text out of markup respects inline vs block elements.** Word-pasted content — the India blog page is a real example — carries a tag boundary right up against punctuation with no space in the source: `Construction elevators</span></a></strong><span lang="EN-IN">, also known as…`. A browser renders no gap there because `span`/`a`/`strong` are inline. The extractor used to replace every tag with a space regardless, so its copy of the page read `Construction elevators , also known as…` and an exact-match brief row reported "not found" for a paragraph that was there verbatim. Inline tags now contribute nothing; block tags and `<br>` still contribute a space, which is what keeps `<p>One</p><p>Two</p>` from reading as `OneTwo`. `filler.js` carried the identical bug — an English master pasted with a link before a comma would fail the exact match and fall through to a lower-confidence fuzzy match — and gets the identical fix.
+
 ## One shared understanding of the brief
 
 `engine.js`, `compare.js` and `filler.js` used to each parse the brief their own way, and each had found the same class of bug independently: raw-newline splitting that a quoted multi-line cell would shatter, and a target inferred from structure that never checked whether more than one candidate existed. `brief.js` now does the one thing all three need — quote-aware row splitting, which row is a section header, which columns are markets, and which market the brief actually targets — and the other three consume it rather than re-deriving it. Fixing a parsing bug once, in one file that all three load, is the point.
@@ -184,9 +186,9 @@ readers.js              .docx / .xlsx / .csv → text, with no dependencies
 config/work-types.json  the six playbooks, the compare settings, the market list
 test/brief.test.js      15 cases, the shared parse alone
 test/engine.test.js     43 cases, fixtures are real briefs
-test/compare.test.js    85 cases, deviations planted one per category,
+test/compare.test.js    92 cases, deviations planted one per category,
                         plus an excerpt of a real KONE page as a fixture
 test/readers.test.js    9 cases, run against real ZIP bytes
-test/filler.test.js     25 cases, including markup that must never be guessed
+test/filler.test.js     26 cases, including markup that must never be guessed
 serve.js                local static server
 ```

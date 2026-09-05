@@ -279,5 +279,22 @@ test('25. a single exact match is unaffected — still certain, still immediate'
   assert.strictEqual(r.match.localized, 'Zmanjšajte stroške energije');
 });
 
+// ─── Inline tags before punctuation ──────────────────────────────────────
+// The same defect as compare.js's stripTags: a Tridion field pasted from
+// Word carries a tag boundary immediately before punctuation, with no space
+// in the source. Replacing every tag with a space invented one, so pasting
+// the English straight out of the field failed an exact match and fell
+// through to the fuzzy path with a lower score.
+
+test('26. an inline tag boundary right before punctuation still matches exactly', function () {
+  var brief = 'Body\tConstruction elevators, also known as construction hoists.\tGradbena dvigala, znana tudi kot gradbeni dvigniki.';
+  var english = '<strong><a href="/x"><span>Construction elevators</span></a></strong>' +
+    '<span lang="EN-IN">, also known as construction hoists.</span>';
+  var r = filler.fill(brief, english);
+
+  assert.strictEqual(r.how, 'exact', 'got ' + r.how);
+  assert.strictEqual(r.match.localized, 'Gradbena dvigala, znana tudi kot gradbeni dvigniki.');
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

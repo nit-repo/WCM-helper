@@ -382,8 +382,21 @@
   // 24/7 Connected Services", "Max Floors" — never trips it.
   function looksEnglish(text) { return englishScore(text) >= 3; }
 
+  // Inline elements carry no whitespace of their own — a browser renders
+  // "elevators</span></a>, also" with no gap before the comma, because span
+  // and a are inline. Replacing every tag with a space invented one there
+  // that no reader sees, and failed an exact match against a real page over
+  // it. Block elements and <br> do separate content and still contribute a
+  // space; an unknown tag defaults to block, which is today's behaviour.
+  var INLINE_TAG_RE = /^(a|span|strong|b|em|i|u|sup|sub|small|code|mark|abbr|cite|q|s|del|ins|label|font)$/i;
+
   function stripTags(html) {
-    return normalise(String(html).replace(/<[^>]*>/g, ' '));
+    var out = String(html)
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<\/?([a-z][a-z0-9]*)\b[^>]*>/gi, function (m, tag) {
+        return INLINE_TAG_RE.test(tag) ? '' : ' ';
+      });
+    return normalise(out);
   }
 
   // Nav, header and footer would otherwise fill the body-text report with
