@@ -937,9 +937,9 @@ test('60. untranslated content is named by its field, not reported as a missing 
 
   assert.strictEqual(english.length, 3, 'expected the three English fields: ' + textOf(english));
   assert.ok(english.some(function (d) {
-    return d.where === 'FAQ (item-142402) · Accordion/items[2]/title' &&
+    return d.where === 'FAQ · Accordion/items[2]/title' &&
            /What is remote service/.test(d.found);
-  }), 'the FAQ item is not named by module and field: ' + textOf(english));
+  }), 'the FAQ item is not named by component and field: ' + textOf(english));
   english.forEach(function (d) { assert.strictEqual(d.severity, 'break'); });
 });
 
@@ -969,7 +969,7 @@ test('64. a link into the CMS editor is a break, and names the field it sits in'
   var d = cat(siResult(), 'links').filter(function (x) { return /CMS editor/.test(x.note); });
 
   assert.strictEqual(d.length, 1, 'expected the one CME link: ' + textOf(cat(siResult(), 'links')));
-  assert.strictEqual(d[0].where, 'FAQ (item-142402) · Accordion/items[1]/body');
+  assert.strictEqual(d[0].where, 'FAQ · Accordion/items[1]/body');
   assert.strictEqual(d[0].severity, 'break');
 });
 
@@ -1002,17 +1002,127 @@ test('67. a nested wrapper never truncates a module', function () {
   assert.ok(faq.end > faq.start, 'module has no extent');
 });
 
-test('68. every page-derived finding on this page carries where it lives', function () {
+test('68. a location names the component and the field, never the page\'s item id', function () {
   var r = siResult();
   var located = [];
   r.categories.forEach(function (c) {
-    c.deviations.forEach(function (d) { if (d.where) located.push(d.where); });
+    c.deviations.forEach(function (d) { if (d.where) located.push(d); });
   });
 
-  assert.ok(located.length >= 7, 'expected findings to name their module: ' + located.join(' | '));
-  located.forEach(function (w) {
-    assert.ok(/\(item-\d+\)/.test(w), 'a location without its component id: ' + w);
+  assert.ok(located.length >= 7, 'expected findings to name their component: ' + textOf(located));
+  located.forEach(function (d) {
+    // The id is per-page: the same component is a different number on the next
+    // page, and three sections on this one carry none at all.
+    assert.ok(!/item-\d+/.test(d.where), 'a per-page id used as a name: ' + d.where);
+    assert.ok(/ \u00b7 /.test(d.where), 'a location with no field path: ' + d.where);
   });
+});
+
+test('69. the per-page ids ride alongside the name, not inside it', function () {
+  var faq = cat(siResult(), 'links').filter(function (d) { return /CMS editor/.test(d.note); })[0];
+
+  assert.strictEqual(faq.where, 'FAQ · Accordion/items[1]/body');
+  assert.strictEqual(faq.anchor, '#item-142402', 'the browser anchor');
+  assert.strictEqual(faq.componentId, 'tcm:151-142402', 'the id that opens it in the CME');
+  assert.strictEqual(faq.moduleHeading, 'Prenosi in specifikacije');
+});
+
+test('70. two components of the same type are told apart by position', function () {
+  var mods = siPage().modules;
+  var rivers = mods.filter(function (m) { return m.name === 'module-content-river'; });
+
+  assert.strictEqual(rivers.length, 2, 'the fixture carries both content-rivers');
+  assert.deepStrictEqual(rivers.map(function (m) { return m.ordinal; }), [1, 2]);
+  assert.ok(rivers.every(function (m) { return m.ofType === 2; }));
+
+  // And a type that appears once takes no number.
+  var faq = mods.filter(function (m) { return m.name === 'module-faq'; })[0];
+  assert.strictEqual(faq.ofType, 1, 'one FAQ on the page');
+});
+
+test('71. a component with no item id still gets a usable location', function () {
+  var carousel = siPage().modules.filter(function (m) {
+    return m.name === 'module-product-specification-carousel';
+  })[0];
+
+  assert.ok(carousel, 'the id-less carousel is missing from the fixture');
+  assert.strictEqual(carousel.id, null, 'its id is on an inner div, not the section');
+  assert.strictEqual(carousel.label, 'Product specification carousel');
+  assert.ok(carousel.fields.length >= 3, 'it carries authored fields: ' + carousel.fields.length);
+
+  // A finding inside it is placed by the component, and simply carries no
+  // anchor — the reference is absent rather than invented.
+  var place = comparer.placeIn(carousel, 'ProductSpecificationItem/title');
+  assert.strictEqual(place.where, 'Product specification carousel · ProductSpecificationItem/title');
+  assert.strictEqual(place.anchor, null);
+});
+
+// ─── The ledger: the passing side of the comparison ──────────────────────
+
+var SI_LEDGER_BRIEF = [
+  'Prihranite dragocen prostor in si zagotovite vecjo oblikovalsko svobodo z nasim cenovno ugodnim stanovanjskim dvigalom brez strojnice.',
+  'Kaj je storitev na daljavo in kako mi pomaga?',
+  'Uporabite KONE Studio, nase spletno orodje za nacrtovanje dvigal, za raziskovanje prilagodljivih konfiguracij in zasnov.'
+].join('\n');
+
+function ledgerOf(brief, html, id) {
+  var r = comparer.compare(brief, html, { workTypeId: id || 'localization' });
+  return r.categories.filter(function (c) { return c.id === 'body'; })[0].ledger;
+}
+
+test('72. every brief row appears in the ledger, matched or not, in brief order', function () {
+  var led = ledgerOf(SI_LEDGER_BRIEF, SI_PAGE);
+
+  assert.strictEqual(led.length, 3, 'one entry per brief row: ' + textOf(led));
+  assert.deepStrictEqual(led.map(function (e) { return e.row; }), [1, 2, 3], 'brief order');
+  assert.deepStrictEqual(led.map(function (e) { return e.status; }), ['found', 'missing', 'found']);
+});
+
+test('73. a matched row names the component it was found in', function () {
+  var led = ledgerOf(SI_LEDGER_BRIEF, SI_PAGE);
+
+  assert.strictEqual(led[0].in, 'Hero banner');
+  assert.strictEqual(led[2].in, 'Content river #1', 'got ' + led[2].in);
+});
+
+test('74. a missing row is placed between the rows that did land', function () {
+  var led = ledgerOf(SI_LEDGER_BRIEF, SI_PAGE);
+
+  assert.deepStrictEqual(led[1].between, ['Hero banner', 'Content river #1'],
+    'got ' + JSON.stringify(led[1].between));
+});
+
+test('75. a missing row with nothing after it says so rather than inventing a span', function () {
+  var led = ledgerOf(SI_LEDGER_BRIEF.split('\n').slice(0, 2).join('\n'), SI_PAGE);
+
+  assert.strictEqual(led[1].status, 'missing');
+  assert.deepStrictEqual(led[1].between, ['Hero banner', null], 'got ' + JSON.stringify(led[1].between));
+});
+
+test('76. a page with no components still produces a full ledger', function () {
+  // Every fixture in this file above is such a page. Summing per component
+  // instead of over the region would report all of them missing.
+  var brief = [
+    'In a high-rise building, elevators are among the most heavily used systems and residents depend on them every day.',
+    'A sentence that is nowhere on this page at all, and must come back missing.'
+  ].join('\n');
+  var led = ledgerOf(brief, CLEAN, 'localization');
+
+  assert.strictEqual(led.length, 2);
+  assert.strictEqual(led[0].status, 'found', 'found/missing must not depend on components');
+  assert.strictEqual(led[0].in, null, 'and there is no component to name');
+  assert.strictEqual(led[1].status, 'missing');
+  assert.strictEqual(led[1].between, null, 'nothing places it, so it claims nothing');
+});
+
+test('77. the ledger and the coverage count never disagree', function () {
+  var r = comparer.compare(SI_LEDGER_BRIEF, SI_PAGE, { workTypeId: 'localization' });
+  var led = r.categories.filter(function (c) { return c.id === 'body'; })[0].ledger;
+  var missing = led.filter(function (e) { return e.status === 'missing'; }).length;
+
+  assert.strictEqual(r.coverage.total, led.length);
+  assert.strictEqual(r.coverage.missing, missing, 'two readings of the same match');
+  assert.strictEqual(r.coverage.found + r.coverage.missing, r.expectations);
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

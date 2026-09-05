@@ -266,6 +266,14 @@
     return m ? stripTags(m[1]) : null;
   }
 
+  // The CME id of the component, which is what opens it in Tridion. It is not
+  // always inside its own section — on the carousel the comment sits before
+  // the opening tag — so this is read when it is there and never assumed.
+  function componentIdIn(html) {
+    var m = /<!--\s*Start Component Presentation:\s*\{[^}]*"ComponentID"\s*:\s*"([^"]+)"/i.exec(html);
+    return m ? m[1] : null;
+  }
+
   function modulesIn(regionHtml, cfg) {
     var prefix = (cfg && cfg.modulePrefix) || 'module-';
     var extra = (cfg && cfg.moduleClasses) || ['hero-banner'];
@@ -281,7 +289,11 @@
       out.push({
         name: name,
         label: humanise(name, prefix),
+        // The item id is this page's anchor and nothing more: the same
+        // component is a different number on every page, and three sections
+        // on the real page carry none at all. It is a reference, never a name.
         id: attr(m[0], 'id') || null,
+        componentId: componentIdIn(inner),
         heading: firstHeading(inner),
         start: m.index,
         end: end,
@@ -290,19 +302,63 @@
       });
       re.lastIndex = end;
     }
+
+    // A page carries two content-rivers and two multi-CTAs. Type alone cannot
+    // tell them apart, so a module of a repeated type takes its position.
+    var counts = {};
+    out.forEach(function (mod) { counts[mod.name] = (counts[mod.name] || 0) + 1; });
+    var seen = {};
+    out.forEach(function (mod) {
+      seen[mod.name] = (seen[mod.name] || 0) + 1;
+      mod.ordinal = seen[mod.name];
+      mod.ofType = counts[mod.name];
+    });
     return out;
+  }
+
+  // The one place a location string is built. What is stable lives in the
+  // name — the component's type, its position when the type repeats, and the
+  // field path, which is the component's schema and identical wherever it is
+  // used. The per-page ids ride alongside as references.
+
+  function moduleLabel(mod) {
+    return mod.label + (mod.ofType > 1 ? ' #' + mod.ordinal : '');
+  }
+
+  function locationOf(mod, fieldPath) {
+    return moduleLabel(mod) + (fieldPath ? ' \u00b7 ' + fieldPath : '');
+  }
+
+  function placeOf(mod, fieldPath) {
+    return {
+      where: locationOf(mod, fieldPath),
+      anchor: mod.id ? '#' + mod.id : null,
+      componentId: mod.componentId || null,
+      moduleHeading: mod.heading || null
+    };
+  }
+
+  // Attach a place to a finding, leaving the finding untouched when the page
+  // has no components to place it in.
+  function at(finding, page, offset) {
+    var loc = whereOf(page, offset);
+    if (!loc) return finding;
+    finding.where = loc.where;
+    if (loc.anchor) finding.anchor = loc.anchor;
+    if (loc.componentId) finding.componentId = loc.componentId;
+    if (loc.moduleHeading) finding.moduleHeading = loc.moduleHeading;
+    return finding;
   }
 
   // Where on the page a finding lives: the module containing it, and the
   // nearest authored field at or before it. "FAQ · Accordion/items[1]/title".
-  function whereOf(page, at) {
-    if (at == null || !page.modules) return null;
-    var mod = page.modules.filter(function (m) { return at >= m.start && at < m.end; })[0];
+  function whereOf(page, offset) {
+    if (offset == null || !page.modules) return null;
+    var mod = page.modules.filter(function (m) { return offset >= m.start && offset < m.end; })[0];
     if (!mod) return null;
     var field = null;
-    mod.fields.forEach(function (f) { if (f.at <= at) field = f; });
-    var label = mod.label + (mod.id ? ' (' + mod.id + ')' : '');
-    return field ? label + ' · ' + field.path : label;
+    mod.fields.forEach(function (f) { if (f.at <= offset) field = f; });
+    return placeOf(mod, field ? field.path : null);
   }
 
   // ─── SOURCE LANGUAGE ─────────────────────────────────────────────────────
@@ -787,25 +843,95 @@
     return out;
   }
 
-  function bodyDeviations(expect, page) {
-    var out = [];
+  // Which component a piece of brief copy landed in. The whole-region count
+  // stays the authority on found-or-missing: a page built without module
+  // sections has no components to search, and summing per module would report
+  // every row missing. This only answers "where".
+
+  function bodyMatches(expect, page) {
     var pageText = normalise(page.text);
+    var mods = (page.modules || []).map(function (m) {
+      return { label: moduleLabel(m), text: normalise(m.text) };
+    });
+    function locate(needle) {
+      var hit = mods.filter(function (m) { return m.text.indexOf(needle) !== -1; })[0];
+      return hit ? hit.label : null;
+    }
+
     var cleaned = expect.body.map(function (w) {
       return { text: unwrapQuotes(w.text), section: w.section, row: w.row };
     }).filter(function (w) { return w.text; });
 
-    groupWants(cleaned).forEach(function (group) {
+    var groups = groupWants(cleaned).map(function (group) {
       var needle = normalise(group.text);
       var pageCount = occurrences(pageText, needle);
+      var parts = [], absent = [], where = null, status;
 
-      if (pageCount > 0) { countFindings(group, pageCount, out); return; }
+      if (pageCount > 0) {
+        status = 'found';
+        where = locate(needle);
+      } else {
+        // Not there in one piece. That is usually the page splitting a
+        // paragraph across elements rather than copy going missing, so descend
+        // and report only the sentences that are genuinely absent.
+        parts = sentencesOf(group.text);
+        absent = parts.filter(function (part) { return occurrences(pageText, normalise(part)) === 0; });
+        if (parts.length && !absent.length) {
+          status = 'found';
+          pageCount = 1;
+          where = locate(normalise(parts[0]));
+        } else {
+          status = 'missing';
+        }
+      }
+      return { group: group, status: status, in: where, pageCount: pageCount, parts: parts, absent: absent };
+    });
 
-      // Not there in one piece. That is usually the page splitting a paragraph
-      // across elements rather than copy going missing, so descend and report
-      // only the sentences that are genuinely absent.
-      var parts = sentencesOf(group.text);
+    var index = {};
+    groups.forEach(function (g) { index[g.group.key] = g; });
+
+    // One entry per brief row, in the brief's own order, whether it matched or
+    // not — the passing side of the comparison, which the report has never
+    // shown. An author could see that a row failed but never that it was
+    // checked, or where it landed.
+    var ledger = cleaned.map(function (w) {
+      var g = index[normalise(w.text).toLowerCase()];
+      return {
+        row: w.row, section: w.section, text: w.text,
+        status: g ? g.status : 'missing',
+        in: g ? g.in : null,
+        between: null
+      };
+    });
+    bracket(ledger);
+
+    return { groups: groups, ledger: ledger };
+  }
+
+  // A missing row is placed by the rows around it that did match: the nearest
+  // located row above and below name the span it belongs in. Derived from the
+  // matches, never guessed — with nothing either side, it says nothing.
+  function bracket(ledger) {
+    ledger.forEach(function (entry, i) {
+      if (entry.status !== 'missing') return;
+      var before = null, after = null, j;
+      for (j = i - 1; j >= 0; j--) { if (ledger[j].in) { before = ledger[j].in; break; } }
+      for (j = i + 1; j < ledger.length; j++) { if (ledger[j].in) { after = ledger[j].in; break; } }
+      if (before || after) entry.between = [before, after];
+    });
+  }
+
+  function bodyDeviations(expect, page, matches) {
+    matches = matches || bodyMatches(expect, page);
+    var out = [];
+
+    matches.groups.forEach(function (g) {
+      var group = g.group;
       var where = whereFrom(group.wants);
-      if (!parts.length) {
+
+      if (g.status === 'found') { countFindings(group, g.pageCount, out); return; }
+
+      if (!g.parts.length) {
         out.push({
           expected: group.text,
           note: 'not found on the page' + (where ? ' — ' + where : ''),
@@ -813,14 +939,7 @@
         });
         return;
       }
-      var absent = parts.filter(function (part) { return occurrences(pageText, normalise(part)) === 0; });
-      if (!absent.length) {
-        // Every sentence is present, so the paragraph is there in pieces —
-        // count those pieces as one occurrence and check the tally.
-        countFindings(group, 1, out);
-        return;
-      }
-      absent.forEach(function (part) {
+      g.absent.forEach(function (part) {
         out.push({
           expected: part,
           note: 'not found on the page' + (where ? ' — ' + where : ''),
@@ -848,14 +967,24 @@
 
     (page.modules || []).forEach(function (mod) {
       mod.fields.forEach(function (field) {
-        var where = mod.label + (mod.id ? ' (' + mod.id + ')' : '') + ' · ' + field.path;
+        // Same builder the offset-based findings use, so a field finding and a
+        // link finding in the same component read identically.
+        var place = placeOf(mod, field.path);
+
+        function report(finding) {
+          finding.where = place.where;
+          if (place.anchor) finding.anchor = place.anchor;
+          if (place.componentId) finding.componentId = place.componentId;
+          if (place.moduleHeading) finding.moduleHeading = place.moduleHeading;
+          out.push(finding);
+        }
 
         if (!field.value) {
           // An asset field holds a URL the image checks already cover; an
           // empty text field is a component shipped with a hole in it.
           if (ASSET_FIELD_RE.test(field.path)) return;
-          out.push({
-            expected: null, found: null, where: where,
+          report({
+            expected: null, found: null,
             note: 'this field is empty on the page — the component was published without it',
             severity: 'break'
           });
@@ -863,8 +992,8 @@
         }
 
         if (localizing && looksEnglish(field.value)) {
-          out.push({
-            expected: null, found: field.value, where: where,
+          report({
+            expected: null, found: field.value,
             note: 'this field reads as English on a page the brief localizes — it was never translated',
             severity: 'break'
           });
@@ -899,8 +1028,8 @@
     });
 
     page.images.forEach(function (img) {
-      if (!img.src) out.push({ expected: null, found: img.alt || '(no alt)', where: whereOf(page, img.at), note: 'image tag with no src', severity: 'break' });
-      else if (!img.alt) out.push({ expected: null, found: img.src, where: whereOf(page, img.at), note: 'image has no alt text', severity: 'break' });
+      if (!img.src) out.push(at({ expected: null, found: img.alt || '(no alt)', note: 'image tag with no src', severity: 'break' }, page, img.at));
+      else if (!img.alt) out.push(at({ expected: null, found: img.src, note: 'image has no alt text', severity: 'break' }, page, img.at));
     });
     return out;
   }
@@ -936,38 +1065,37 @@
     });
     page.links.forEach(function (l) {
       if (/^https?:\/\/[^/]*author|\/content\//i.test(l.href)) {
-        out.push({
-          expected: null, found: l.href, where: whereOf(page, l.at),
+        out.push(at({
+          expected: null, found: l.href,
           note: 'author or /content/ path published to the live page', severity: 'break'
-        });
+        }, page, l.at));
       }
       // The Tridion twin of the same defect: a link into the CME editor,
       // authored into body copy where a document link belongs.
       var editor = (cfg && cfg.editorLinkPattern) || '/ui/editor/item\\?item=';
       if (new RegExp(editor, 'i').test(l.href)) {
-        out.push({
-          expected: null, found: l.href, where: whereOf(page, l.at),
+        out.push(at({
+          expected: null, found: l.href,
           note: 'this links into the CMS editor, not to a published page — an author pasted a CME URL',
           severity: 'break'
-        });
+        }, page, l.at));
       }
     });
 
     // Neither of these needs the brief to be right about them.
     (page.placeholderLinks || []).forEach(function (l) {
-      out.push({
+      out.push(at({
         expected: null,
         found: l.text || '(no label)',
-        where: whereOf(page, l.at),
         note: l.href === '#' ? 'link still points at the placeholder href="#"' : 'link has no destination',
         severity: 'break'
-      });
+      }, page, l.at));
     });
     (page.deadCtas || []).forEach(function (cta) {
-      out.push({
-        expected: null, found: cta.text, where: whereOf(page, cta.at),
+      out.push(at({
+        expected: null, found: cta.text,
         note: 'call to action is bare text with no link', severity: 'break'
-      });
+      }, page, cta.at));
     });
     return out;
   }
@@ -986,10 +1114,10 @@
       if (!k) return;
       if (seen[k]) {
         if (seen[k] === 1) {
-          out.push({
-            expected: h.text, where: whereOf(page, h.at),
+          out.push(at({
+            expected: h.text,
             note: 'this heading appears more than once on the page', severity: 'break'
-          });
+          }, page, h.at));
         }
         seen[k]++;
       } else seen[k] = 1;
@@ -1114,9 +1242,14 @@
         });
       }
 
+      // Computed once: the findings and the row-by-row ledger are two readings
+      // of the same match, and must never disagree about what was found.
+      var bodyMatch = bodyMatches(expect, page);
+
       var categories = [
         { id: 'metadata', label: 'Metadata', deviations: ordered(metadataDeviations(expect, page)) },
-        { id: 'body', label: 'Body Text', deviations: ordered(bodyDeviations(expect, page)) },
+        { id: 'body', label: 'Body Text', ledger: bodyMatch.ledger,
+          deviations: ordered(bodyDeviations(expect, page, bodyMatch)) },
         { id: 'images', label: 'Images', deviations: ordered(imageDeviations(expect, page, cfg.assetVariantPattern)) },
         { id: 'links', label: 'Hyperlinks / CTAs', deviations: ordered(linkDeviations(expect, page, cfg)) },
         { id: 'structure', label: 'Structure', deviations: ordered(structureDeviations(expect, page)) }
@@ -1190,6 +1323,9 @@
       compare: compare,
       readPage: function (h) { return readPage(h, cfg); },
       readBrief: readBrief,
+      // Exposed so a test can assert a location without a defect to hang it
+      // on — the id-less carousel ships no defect on the real page.
+      placeIn: placeOf,
       splitRows: splitRows,
       normalise: normalise,
       pathOf: pathOf,

@@ -105,7 +105,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 168 verification cases across the five modules
+npm test      # 177 verification cases across the five modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -156,7 +156,16 @@ What that buys, on a real page:
 - **`lang="sl"` against `data-lang="EN"`** — the page contradicting itself about its own language.
 - **Hidden headings stop producing phantom duplicates.** The template stamps the window title into several `display:none` H2s; counting those reported three duplicate headings on a page that renders one.
 
-Every page-derived finding now carries where it lives, so the report points at a field an author can open rather than a row they have to go looking for.
+**The name is what stays the same between pages.** A component is named by its type and its field path — `FAQ · Accordion/items[2]/title` — because both are identical wherever that component is used. The item id is not: `item-142402` here is `item-93871` on the next page, and three sections on the real page carry no id at all, the carousel among them with nine authored fields. So the ids ride alongside the name rather than inside it: the anchor to jump to the block in a browser, the `tcm:` id to open it in the CME. Where a page carries two of the same component — it carries two content-rivers and two multi-CTAs — they are told apart by position, `Content river #1` and `#2`.
+
+**The report shows what passed, not only what failed.** Body Text still leads with its summary, and opens to a row-by-row ledger: every line the brief asked for, whether it landed, and which component it landed in.
+
+```
+row 4 · not found — sits between Hero banner and Content river
+row 2 · found in Hero banner
+```
+
+A missing row is placed by the rows around it that did match — the nearest located row above and below name the span it belongs in. That is derived from the matches, never guessed: with nothing on one side it says "after Hero banner", and with no components on the page at all it says nothing rather than inventing a location. Found-or-missing is still decided by the whole-region count, so a page built without module sections reports exactly as it always did — the components only answer *where*.
 
 ## One shared understanding of the brief
 
@@ -175,7 +184,7 @@ readers.js              .docx / .xlsx / .csv → text, with no dependencies
 config/work-types.json  the six playbooks, the compare settings, the market list
 test/brief.test.js      15 cases, the shared parse alone
 test/engine.test.js     43 cases, fixtures are real briefs
-test/compare.test.js    76 cases, deviations planted one per category,
+test/compare.test.js    85 cases, deviations planted one per category,
                         plus an excerpt of a real KONE page as a fixture
 test/readers.test.js    9 cases, run against real ZIP bytes
 test/filler.test.js     25 cases, including markup that must never be guessed

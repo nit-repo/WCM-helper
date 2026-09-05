@@ -345,15 +345,52 @@
     }).join('') + '</table>';
   }
 
+  // Where a missing row belongs, said in the components around it. Both sides
+  // known reads as a span; one side, as the last thing that did land.
+  function betweenText(between) {
+    if (!between) return 'nothing on the page places it';
+    var before = between[0], after = between[1];
+    if (before && after) return 'sits between ' + before + ' and ' + after;
+    if (before) return 'after ' + before;
+    return 'before ' + after;
+  }
+
+  // The passing side of the comparison. The summary line is unchanged — this
+  // opens underneath it, so a clean report still reads clean at a glance but
+  // can be opened to see that every row was actually checked, and where it
+  // landed. Misses first: they are what a reader came for.
+  function renderLedger(c) {
+    if (!c.ledger || !c.ledger.length) return '';
+
+    var missing = c.ledger.filter(function (e) { return e.status === 'missing'; });
+    var found = c.ledger.filter(function (e) { return e.status !== 'missing'; });
+
+    var items = missing.concat(found).map(function (e) {
+      var where = e.status === 'missing'
+        ? 'not found — ' + betweenText(e.between)
+        : 'found in ' + (e.in || 'the page');
+      return '<li class="' + (e.status === 'missing' ? 'break' : 'found') + '">' +
+        '<p class="ledger-head"><b>row ' + e.row + '</b>' +
+        (e.section ? '<span class="ledger-section">' + esc(e.section) + '</span>' : '') +
+        '<span class="ledger-where">' + esc(where) + '</span></p>' +
+        '<p class="ledger-text">' + esc(e.text) + '</p></li>';
+    }).join('');
+
+    return '<details class="ledger"><summary>' + c.ledger.length +
+      ' item' + (c.ledger.length === 1 ? '' : 's') + ' from the brief, row by row</summary>' +
+      '<ul class="ledger-rows">' + items + '</ul></details>';
+  }
+
   function renderCategory(c) {
     var rows = renderRows(c.rows);
+    var ledger = renderLedger(c);
 
     if (!c.deviations.length) {
       // "Nothing was checked" and "everything matched" must never look alike.
       var body = c.note
         ? '<p class="note warn">' + esc(c.note) + '</p>'
         : '<p class="clean">No deviations.</p>';
-      return '<section class="card"><h3>' + esc(c.label) + '</h3>' + body + rows + '</section>';
+      return '<section class="card"><h3>' + esc(c.label) + '</h3>' + body + ledger + rows + '</section>';
     }
 
     var items = c.deviations.map(function (d) {
@@ -365,6 +402,14 @@
       // "FAQ (item-142402) · Accordion/items[2]/title". An author can open
       // that field directly instead of hunting for a brief row.
       if (d.where) lines += '<p class="dev-where">' + esc(d.where) + '</p>';
+      // The per-page references: the anchor to jump to it in the browser, the
+      // component id to open it in the CME. Both differ on every page, so they
+      // sit under the name rather than in it.
+      var refs = [];
+      if (d.moduleHeading) refs.push(d.moduleHeading);
+      if (d.componentId) refs.push(d.componentId);
+      if (d.anchor) refs.push(d.anchor);
+      if (refs.length) lines += '<p class="dev-ref">' + esc(refs.join('  ·  ')) + '</p>';
       if (d.expected) lines += '<p class="dev-line"><b>Brief</b><span>' + esc(d.expected) + '</span></p>';
       if (d.found) lines += '<p class="dev-line"><b>Page</b><span>' + esc(d.found) + '</span></p>';
       return '<li class="' + (check ? 'check' : 'break') + '">' + lines + '</li>';
@@ -372,7 +417,7 @@
 
     var breaks = c.deviations.filter(function (d) { return d.severity !== 'check'; }).length;
     return '<section class="card' + (breaks ? ' dirty' : '') + '"><h3>' + esc(c.label) + ' — ' +
-      c.deviations.length + '</h3><ul class="devs">' + items + '</ul>' + rows + '</section>';
+      c.deviations.length + '</h3><ul class="devs">' + items + '</ul>' + ledger + rows + '</section>';
   }
 
   function renderCompareEmpty() {
