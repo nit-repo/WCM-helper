@@ -1,519 +1,403 @@
 {
-  "version": 1,
-  "notes": "Work-type scoring dictionary and the shared field catalogue. Weights: 3 = strong (unambiguous, type-specific), 2 = medium (fairly specific), 1 = weak (generic, cross-type). Every brief is scored against every type; highest total wins.",
+  "version": 2,
+  "notes": "Six playbooks, one per kind of job a WCM author actually gets. Each one carries only what that job needs and the literal steps to do it in each CMS. Signal weights: 4 = structural giveaway, 3 = strong, 2 = medium, 1 = weak. Every brief is scored against every playbook; highest total wins.",
 
-  "ragThresholds": { "green": 80, "amber": 50 },
-  "ambiguityMargin": 0.15,
+  "cms": {
+    "damHosts": ["adobecqms.net"],
+    "damPathMarkers": ["/content/dam/", "assetdetails.html", "assets.html"],
+    "aemMarkets": [".in", ".ae", ".us", ".fr"],
+    "tridionMarkers": [".aspx"],
+    "default": "Tridion",
+    "note": "The estate is mid-migration and most of it is still Tridion, so AEM is the exception: only the markets listed in aemMarkets have moved. Add a market here when it migrates. A .aspx page is Tridion whatever market it sits on. All assets live in Adobe DAM now whichever CMS serves the site, so DAM links never decide the platform — only the target site URL does."
+  },
 
-  "minConfidentScore": 4,
-  "requireNonWeakSignal": true,
+  "markets": {
+    "note": "Column headers a multi-market localization brief uses for its locale columns, and the domain each resolves to for CMS detection when the brief carries no full site URL. Add a market here when a brief uses one that is not listed — matching is case-insensitive against the header row.",
+    "list": [
+      { "name": "SPAIN", "domain": "kone.es" },
+      { "name": "ITALY", "domain": "kone.it" },
+      { "name": "PORTUGAL", "domain": "kone.pt" },
+      { "name": "DENMARK", "domain": "kone.dk" },
+      { "name": "CYPRUS", "domain": "kone.com.cy" },
+      { "name": "SLOVENIA", "domain": "kone.si" },
+      { "name": "LITHUANIA", "domain": "kone.lt" },
+      { "name": "LATVIA", "domain": "kone.lv" },
+      { "name": "ESTONIA", "domain": "kone.ee" },
+      { "name": "ICELAND", "domain": "kone.is" },
+      { "name": "UK", "domain": "kone.co.uk" },
+      { "name": "IRELAND", "domain": "kone.ie" },
+      { "name": "INDIA", "domain": "kone.in" },
+      { "name": "AUSTRALIA", "domain": "kone.com.au" }
+    ]
+  },
 
-  "fields": {
-    "objective": {
-      "label": "Objective / Goal",
-      "question": "What is the objective of this page — why is it needed and what should it achieve?",
-      "detect": [{ "regex": "objective|goal|purpose|aim|rationale|business case|so that|in order to|we need this" }]
-    },
-    "target_location": {
-      "label": "Target Page Location / Path",
-      "question": "What's the target page URL or path for this change?",
-      "detect": [{ "signal": "urlPresent" }, { "signal": "contentPathPresent" }, { "regex": "page path|structure group|located at|sits under|will live at|path:" }]
-    },
-    "component_content": {
-      "label": "Component Content",
-      "question": "Which components are needed, and what content goes in each one?",
-      "detect": [{ "signal": "componentsIdentified" }]
-    },
-    "page_title_seo": {
-      "label": "Page Title (SEO)",
-      "question": "What should the SEO Page Title be — 10–60 characters, and different from the H1?",
-      "detect": [{ "regex": "page title|seo title|meta title|browser title|title tag" }]
-    },
-    "meta_description": {
-      "label": "Meta Description",
-      "question": "What should the meta description say — 120–160 characters, unique to this page?",
-      "detect": [{ "regex": "meta ?description|meta desc|description tag" }]
-    },
-    "market": {
-      "label": "Target Region / Market",
-      "question": "Which market or region is this for? Note the One-Ticket-Per-Market rule — one country per ticket.",
-      "detect": [{ "signal": "marketDetected" }]
-    },
-    "named_approver": {
-      "label": "Named Approver",
-      "question": "Who is the named approver, and are they aware of the 3-day approval SLA?",
-      "detect": [{ "regex": "approver|approved|approval from|sign ?-?off by|signed off|reviewed by|stakeholder is" }]
-    },
-    "reference_designs": {
-      "label": "Reference URLs / Designs",
-      "question": "Do you have wireframes, a design file, or a reference page we can build from?",
-      "detect": [{ "regex": "wireframe|design file|figma|mock ?-?up|reference page|reference url|like the .* page" }]
-    },
-    "target_page_url": {
-      "label": "Target Page URL",
-      "question": "What's the URL of the page to update — the published URL or the AEM/Tridion path?",
-      "detect": [{ "signal": "urlPresent" }, { "signal": "contentPathPresent" }]
-    },
-    "what_to_change": {
-      "label": "What to Change",
-      "question": "What exactly needs to change — which component, field, or piece of copy?",
-      "detect": [{ "regex": "change|update|replace|swap|remove|amend|correct|revise|rewrite" }]
-    },
-    "new_content": {
-      "label": "New Content / Assets",
-      "question": "What's the replacement content — final copy, DAM image path, or new link target?",
-      "detect": [{ "regex": "new copy|new text|new label|new url|new link|new image|replacement|change it to|should read|should say|should now|reads:|dam path" }]
-    },
-    "current_content": {
-      "label": "Current Content",
-      "question": "What does the page currently say or show, so we can confirm we're changing the right thing?",
-      "detect": [{ "regex": "currently|at the moment|today it|right now|existing copy|as-is|it says" }]
-    },
-    "environment": {
-      "label": "Environment",
-      "question": "Which environment is this on — DEV, QA, PRE-PROD, or PROD?",
-      "detect": [{ "signal": "environmentDetected" }]
-    },
-    "which_exf": {
-      "label": "Which EXF",
-      "question": "Which Experience Fragment is affected — Header, Footer, Navigation, or a Promo Drawer?",
-      "detect": [{ "regex": "header|footer|navigation|mega ?menu|promo drawer|nav ?bar|experience fragment|exf" }]
-    },
-    "change_detail": {
-      "label": "Change Detail",
-      "question": "What exactly changes in the EXF — the link label, the URL target, or a new nav item?",
-      "detect": [{ "regex": "label|link|url|item|add|remove|rename|point to|target|re-?order" }]
-    },
-    "rollout_scope": {
-      "label": "Rollout Scope",
-      "question": "How far does this roll out — Master EN only, one region (AME / FPL), or all country sites?",
-      "detect": [{ "regex": "master en|region master|\\bame\\b|\\bfpl\\b|all country|all market|all site|globally|global rollout|single market|one market|only the" }]
-    },
-    "seo_issue_type": {
-      "label": "SEO Issue Type",
-      "question": "Which SEO issue is this — nofollow, noindex, canonical, orphaned page, or metadata?",
-      "detect": [{ "regex": "nofollow|noindex|canonical|orphan|meta ?description|page title|redirect|hreflang|robots|sitemap|indexation|link equity" }]
-    },
-    "current_state": {
-      "label": "Current State",
-      "question": "What's wrong today — what is the current state of these pages?",
-      "detect": [{ "regex": "currently|at the moment|today|right now|existing|as-is|is set to|has a" }]
-    },
-    "target_state": {
-      "label": "Target State",
-      "question": "What's the target state — what should it be once fixed?",
-      "detect": [{ "regex": "should be|should have|must be|needs to be|target state|expected|desired|change to|set to|remove the" }]
-    },
-    "severity": {
-      "label": "Severity Level",
-      "question": "What's the severity — S1 blocker, S2 critical, S3 major, or S4 minor?",
-      "detect": [{ "regex": "\\bs[1-4]\\b|severity|blocker|critical|major|minor|cosmetic" }]
-    },
-    "priority": {
-      "label": "Priority",
-      "question": "What's the priority — High or Low?",
-      "detect": [{ "regex": "priority|\\bp[12]\\b|urgent|asap|high priority|low priority" }]
-    },
-    "steps_to_reproduce": {
-      "label": "Steps to Reproduce",
-      "question": "What are the exact steps to reproduce this — page URL, what you clicked, and what happened?",
-      "detect": [{ "regex": "steps to reproduce|repro steps|to reproduce|reproduce by|reproduced by|step 1|^\\s*1[\\.\\)]" }]
-    },
-    "expected_actual": {
-      "label": "Expected vs Actual Behaviour",
-      "question": "What did you expect to happen, and what actually happened instead?",
-      "detect": [{ "regex": "expected|actual|instead of|but it|should have|does not|doesn't|fails to" }]
-    },
-    "evidence": {
-      "label": "Evidence",
-      "question": "Can you attach evidence — a screenshot, DevTools console log, DOM snippet, or network trace?",
-      "detect": [{ "regex": "screenshot|screen ?shot|attached|attachment|console log|devtools|dom snippet|network trace|har file|see image|recording" }]
-    },
-    "affected_component": {
-      "label": "Affected Component",
-      "question": "Which component is affected — EXF, Container, Accordion, RTE, Image, or something else?",
-      "detect": [{ "signal": "componentsIdentified" }]
-    },
-    "source_tridion_url": {
-      "label": "Source Tridion URL / Component",
-      "question": "What's the source Tridion URL or component path being migrated?",
-      "detect": [{ "regex": "tridion (url|page|path|component)|source url|source page|legacy url|legacy page|old url|existing tridion" }]
-    },
-    "target_aem_path": {
-      "label": "Target AEM Path",
-      "question": "Where should the migrated page live in AEM — the full /content path?",
-      "detect": [{ "signal": "contentPathPresent" }, { "regex": "target aem|aem path|new path|destination path|target path" }]
-    },
-    "component_mapping": {
-      "label": "Component Mapping",
-      "question": "How do the Tridion components map to their AEM equivalents?",
-      "detect": [{ "regex": "mapping|maps to|map to|equivalent|becomes|convert(ed)? to|->|→" }]
-    },
-    "seo_mapping_reference": {
-      "label": "SEO Mapping Reference",
-      "question": "Is there an SEO mapping sheet covering old URL → new canonical for these pages?",
-      "detect": [{ "regex": "seo mapping|mapping sheet|redirect map|url mapping|canonical mapping|retrofitting sheet|migration sheet" }]
-    },
-    "source_page": {
-      "label": "Source Page / EXF",
-      "question": "What's the source page or EXF being rolled out from?",
-      "detect": [{ "signal": "urlPresent" }, { "signal": "contentPathPresent" }, { "regex": "master en|source page|source exf|blueprint|experience fragment" }]
-    },
-    "rollout_target": {
-      "label": "Rollout Target",
-      "question": "What's the rollout target — Region Master (AME / FPL) or specific country sites?",
-      "detect": [{ "regex": "region master|country site|\\bame\\b|\\bfpl\\b|master en|all sites|down to the" }]
-    },
-    "scope": {
-      "label": "Scope",
-      "question": "What's the scope — a single country, one region, or global?",
-      "detect": [{ "regex": "single country|one country|one market|region|global|all market|all site|everywhere" }]
-    },
-    "publish_after": {
-      "label": "Publish Immediately After",
-      "question": "Should this publish immediately after rollout, or is activation scheduled for a specific date/time?",
-      "detect": [{ "regex": "publish|activate|activation|go ?-?live|schedule|immediately|straight away" }]
-    },
-    "source_master_publication": {
-      "label": "Source Master Publication",
-      "question": "Which Master publication is the source — the Master EN page or the Tridion Master?",
-      "detect": [{ "regex": "master publication|master en|global master|source master|parent publication" }]
-    },
-    "target_markets": {
-      "label": "Target Markets",
-      "question": "Which markets does this adopt into? List the country sites — each one needs its own ticket.",
-      "detect": [{ "signal": "marketDetected" }]
-    },
-    "localization_scope": {
-      "label": "Localization Scope",
-      "question": "What's the localization scope — full localize, partial, or translation only?",
-      "detect": [{ "regex": "localiz|localis|translat|copy as-?is|no translation|english only|local variation" }]
-    },
-    "structure_group_path": {
-      "label": "Structure Group Path",
-      "question": "What's the Structure Group path (Tridion) or AEM parent path — and does it already exist in the child publication?",
-      "detect": [{ "regex": "structure group" }, { "signal": "contentPathPresent" }]
-    },
-    "campaign_timeline": {
-      "label": "Campaign Timeline",
-      "question": "What's the campaign timeline? A 4–6 week advance horizon is expected for global campaigns.",
-      "detect": [{ "regex": "\\d{4}-\\d{2}-\\d{2}|\\d{1,2}/\\d{1,2}/\\d{2,4}|\\d{1,2}(st|nd|rd|th)? (january|february|march|april|may|june|july|august|september|october|november|december)|(jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)[a-z]* \\d{1,2}|deadline|launch date|go ?-?live date|week commencing|timeline|by end of" }]
-    },
-    "named_local_approvers": {
-      "label": "Named Local Approvers",
-      "question": "Who is the named approver in each target market? One approver per market is required.",
-      "detect": [{ "regex": "approver|approved|approval from|sign ?-?off by|local contact|market contact" }]
-    },
-    "audit_scope": {
-      "label": "Scope of Audit",
-      "question": "What's in scope for the audit — which pages, components, or regions?",
-      "detect": [{ "regex": "scope|all pages|these pages|template|components|regions|site ?wide|page list" }]
-    },
-    "qa_pillar": {
-      "label": "QA Pillar Focus",
-      "question": "Which QA pillar(s) — the full 52-point audit, or metadata / content / responsive / accessibility only?",
-      "detect": [{ "regex": "pillar|full audit|52[ -]?point|accessibility|a11y|wcag|metadata|responsive|performance" }]
-    },
-    "bug_reporting_format": {
-      "label": "Bug Reporting Format",
-      "question": "How should findings be reported — severity S1–S4 with evidence attached, raised in JIRA?",
-      "detect": [{ "regex": "severity|\\bs[1-4]\\b|evidence|jira|report format|bug format|raise (a )?ticket" }]
-    }
+  "compare": {
+    "workTypes": ["new-page", "localization", "content-update", "keyword-update"],
+    "contentSelectors": ["main", "[role=main]", ".content-wrapper", ".page-content"],
+    "assetVariantPattern": "[-_](\\d{1,2}|crop|thumb|small|large|mobile|desktop)$",
+    "modulePrefix": "module-",
+    "moduleClasses": ["hero-banner"],
+    "accordionTriggers": ["accordion-trigger"],
+    "editorLinkPattern": "/ui/editor/item\\?item=",
+    "safeAnchorLabels": [
+      "back to top",
+      "top of page",
+      "skip to",
+      "scroll to top",
+      "voltar ao topo",
+      "volver arriba",
+      "torna su"
+    ],
+    "note": "Which element wraps the main content decides whether the body report is signal or nav labels. These are the standard fallbacks; if a KONE template uses its own wrapper, add its class here (leading dot) ahead of the fallbacks. Redirect and removal are absent on purpose: they are verified by following the URL, not by reading markup. assetVariantPattern strips crop and size suffixes so a DAM variant still resolves to the source asset; widen it if a template uses other suffixes. accordionTriggers lists the class(es) used on an FAQ/accordion question button — an AEM template can render a question as plain button text with no heading tag at all, and this is how the structure check still recognises it as one."
   },
 
   "workTypes": [
     {
-      "id": "new-page",
-      "label": "New Page / Content Creation",
-      "cms": ["AEM", "Tridion"],
-      "baseEffort": "Medium",
-      "pageCreation": true,
-      "keywords": [
-        { "term": "new page", "weight": 3 },
-        { "term": "net-new page", "weight": 3 },
-        { "term": "page creation", "weight": 3 },
-        { "term": "create a page", "weight": 3 },
-        { "term": "create a new", "weight": 3 },
-        { "term": "build a new", "weight": 3 },
-        { "term": "new landing page", "weight": 3 },
-        { "term": "from scratch", "weight": 3 },
-        { "term": "landing page", "weight": 2 },
-        { "term": "create", "weight": 2 },
-        { "term": "wireframe", "weight": 2 },
-        { "term": "template", "weight": 2 },
-        { "term": "page properties", "weight": 2 },
-        { "term": "build", "weight": 2 },
-        { "term": "page", "weight": 1 },
-        { "term": "content", "weight": 1 },
-        { "term": "publish", "weight": 1 }
+      "id": "redirect",
+      "label": "Redirect",
+      "summary": "Point one or more old URLs at a new destination.",
+      "signals": [
+        { "signal": "urlPairRows", "weight": 4 },
+        { "term": "redirect", "weight": 3 },
+        { "term": "redirects", "weight": 3 },
+        { "term": "redirection", "weight": 3 },
+        { "term": "301", "weight": 3 },
+        { "term": "302", "weight": 3 },
+        { "term": "old url", "weight": 2 },
+        { "term": "decommission", "weight": 2 },
+        { "term": "retire", "weight": 1 }
       ],
-      "requiredFields": ["objective", "target_location", "component_content", "page_title_seo", "meta_description", "market", "named_approver"],
-      "optionalFields": ["reference_designs"],
-      "executionSteps": { "AEM": "new-page-aem", "Tridion": "new-page-tridion" },
-      "riskFlags": ["png-smart-crop", "accented-anchor-id", "author-url-leak", "h1-equals-page-title", "missing-h1"]
+      "needs": [
+        {
+          "id": "source_url",
+          "label": "Source URL(s)",
+          "question": "Which URL(s) are being redirected? Give the full path for each one.",
+          "detect": [{ "signal": "hasSiteUrl" }]
+        },
+        {
+          "id": "destination_url",
+          "label": "Destination URL(s)",
+          "question": "Where should each source URL land? Give the full destination URL.",
+          "detect": [
+            { "signal": "redirectRowsComplete" },
+            { "regex": "redirect(s|ed)? to|destination|target url|point(s|ing)? to|goes to" }
+          ]
+        }
+      ],
+      "steps": {
+        "AEM": [
+          "Open AEM Author → Tools → ACS Commons → Redirect Manager.",
+          "Select the redirect configuration for this site.",
+          "Add one row per pair: Source = the old path, Target = the destination URL, Status = 301.",
+          "Save the configuration.",
+          "Publish the redirect configuration.",
+          "Open a source URL in a private window and confirm it lands on the destination."
+        ],
+        "Tridion": [
+          "Find the site folder in Tridion for that domain.",
+          "Check which redirect mechanism this site uses, then follow either A or B below.",
+          "A — Redirect component: open Building Blocks → the Redirection folder → create a new redirect component holding the source and destination → save.",
+          "A — Publish the redirect root page under root/system/redirects.",
+          "B — Page metadata: find the source page from the URL structure, or open it by TCM ID → open the page → fill the redirect fields in its metadata → save.",
+          "B — Publish the page.",
+          "Open a source URL in a private window and confirm it lands on the destination."
+        ]
+      }
     },
+
+    {
+      "id": "removal",
+      "label": "Page removal",
+      "summary": "Take a page off the live site because something supersedes it, and send its URL to the replacement.",
+      "signals": [
+        { "signal": "removalMarkers", "weight": 5 },
+        { "term": "superseded", "weight": 3 },
+        { "term": "supersedes", "weight": 3 },
+        { "term": "decommission", "weight": 3 },
+        { "term": "unpublish", "weight": 3 },
+        { "term": "take down", "weight": 3 },
+        { "term": "remove this reference", "weight": 3 },
+        { "term": "remove the page", "weight": 3 },
+        { "term": "remove this page", "weight": 3 },
+        { "term": "delete the page", "weight": 3 },
+        { "term": "no longer needed", "weight": 2 },
+        { "term": "retire", "weight": 2 },
+        { "term": "remove", "weight": 2 }
+      ],
+      "needs": [
+        {
+          "id": "pages_to_remove",
+          "label": "Page(s) to remove",
+          "question": "Which page(s) are being taken down? Give the full URL for each one.",
+          "detect": [{ "signal": "hasSiteUrl" }]
+        },
+        {
+          "id": "destination_url",
+          "label": "Replacement URL to redirect to",
+          "question": "Which URL supersedes these — where should the old URLs land once the pages are down?",
+          "detect": [
+            { "signal": "urlPairRows" },
+            { "regex": "(redirect(s|ed)? to|point(s|ing)? to|replaced by|superseded by|replacement is)\\s*:?\\s*<?https?://" }
+          ]
+        }
+      ],
+      "steps": {
+        "AEM": [
+          "Open AEM Sites and navigate to the page.",
+          "Unpublish the page: Manage Publication → Unpublish. Leave the page in AEM — removal here means taking it off the live site, not deleting it.",
+          "Open Tools → ACS Commons → Redirect Manager and add the redirect: Source = the old path, Target = the replacement URL, Status = 301.",
+          "Publish the redirect configuration.",
+          "Open the old URL in a private window and confirm it lands on the replacement rather than a 404.",
+          "Repeat for every market listed in the brief — each country site is its own page and its own redirect."
+        ],
+        "Tridion": [
+          "Find the site folder, then the page from its URL structure (or open it by TCM ID).",
+          "Unpublish the page from the live site. Leave it in Tridion — removal here means taking it off the live site, not deleting it.",
+          "Set up the redirect to the replacement, using whichever mechanism this site uses: Building Blocks → the Redirection folder → a new redirect component, or the old page's metadata.",
+          "Publish the redirect — the redirect root page under root/system/redirects, or the page itself if the redirect sits in its metadata.",
+          "Open the old URL in a private window and confirm it lands on the replacement rather than a 404.",
+          "Repeat for every market listed in the brief — each country site is its own page and its own redirect."
+        ]
+      }
+    },
+
     {
       "id": "content-update",
-      "label": "Content Update / Edit",
-      "cms": ["AEM", "Tridion"],
-      "baseEffort": "Small",
-      "keywords": [
-        { "term": "copy change", "weight": 3 },
-        { "term": "image swap", "weight": 3 },
-        { "term": "swap the image", "weight": 3 },
-        { "term": "update the copy", "weight": 3 },
-        { "term": "update the text", "weight": 3 },
-        { "term": "cta update", "weight": 3 },
-        { "term": "link correction", "weight": 3 },
-        { "term": "broken link", "weight": 3 },
-        { "term": "existing page", "weight": 3 },
-        { "term": "amend", "weight": 2 },
-        { "term": "update", "weight": 2 },
-        { "term": "edit", "weight": 2 },
-        { "term": "replace", "weight": 2 },
+      "label": "Content update",
+      "summary": "Change something on a page that already exists — copy, image, link, or a component added, removed or moved.",
+      "signals": [
+        { "term": "delete this", "weight": 3 },
+        { "term": "remove this", "weight": 3 },
         { "term": "swap", "weight": 3 },
-        { "term": "correct", "weight": 2 },
-        { "term": "label", "weight": 2 },
-        { "term": "change", "weight": 1 },
-        { "term": "content", "weight": 1 },
-        { "term": "text", "weight": 1 },
-        { "term": "page", "weight": 1 }
+        { "term": "replace the", "weight": 3 },
+        { "term": "delete", "weight": 2 },
+        { "term": "remove", "weight": 2 },
+        { "term": "replace", "weight": 2 },
+        { "term": "change the", "weight": 2 },
+        { "term": "update the", "weight": 2 },
+        { "term": "paragraph", "weight": 2 },
+        { "term": "broken link", "weight": 2 },
+        { "term": "hero section", "weight": 2 },
+        { "term": "hero image", "weight": 2 },
+        { "term": "reorder", "weight": 2 },
+        { "term": "image", "weight": 1 },
+        { "term": "update", "weight": 1 },
+        { "term": "change", "weight": 1 }
       ],
-      "requiredFields": ["target_page_url", "what_to_change", "new_content", "environment", "market", "named_approver"],
-      "optionalFields": ["current_content"],
-      "executionSteps": { "AEM": "content-update-aem", "Tridion": "content-update-tridion" },
-      "riskFlags": ["accordion-prod-save", "multi-market-single-ticket", "hardcoded-label", "author-url-leak"]
-    },
-    {
-      "id": "exf-update",
-      "label": "Experience Fragment (EXF) Update",
-      "cms": ["AEM"],
-      "baseEffort": "Medium",
-      "keywords": [
-        { "term": "exf", "weight": 3 },
-        { "term": "experience fragment", "weight": 3 },
-        { "term": "mega menu", "weight": 3 },
-        { "term": "promo drawer", "weight": 3 },
-        { "term": "matrushka", "weight": 3 },
-        { "term": "navigation exf", "weight": 3 },
-        { "term": "header exf", "weight": 3 },
-        { "term": "footer exf", "weight": 3 },
-        { "term": "feature drawer", "weight": 3 },
-        { "term": "header", "weight": 2 },
-        { "term": "footer", "weight": 2 },
-        { "term": "navigation", "weight": 2 },
-        { "term": "nav item", "weight": 2 },
-        { "term": "drawer", "weight": 2 },
-        { "term": "level 1", "weight": 2 },
-        { "term": "level 2", "weight": 2 },
-        { "term": "sub-link", "weight": 2 },
-        { "term": "menu", "weight": 1 },
-        { "term": "link", "weight": 1 },
-        { "term": "publish", "weight": 1 }
+      "needs": [
+        {
+          "id": "target_url",
+          "label": "Target page URL",
+          "question": "Which page is being changed? Give the full URL.",
+          "detect": [{ "signal": "hasSiteUrl" }, { "signal": "hasContentPath" }]
+        },
+        {
+          "id": "change_description",
+          "label": "What to change",
+          "question": "What exactly should change on that page — and what should it become?",
+          "detect": [
+            { "regex": "delete|remove|replace|swap|change|update|add (a|the|new)|move|reorder|use (the )?(header|body|text|image)" }
+          ]
+        }
       ],
-      "requiredFields": ["which_exf", "change_detail", "rollout_scope", "environment", "named_approver"],
-      "optionalFields": [],
-      "executionSteps": { "AEM": "exf-update-aem" },
-      "riskFlags": ["exf-child-publish", "async-rollout-collision", "untranslated-nav-labels", "author-url-leak", "matrushka-l1-l2"]
+      "steps": {
+        "AEM": [
+          "Open AEM Sites and navigate to the page.",
+          "Find the component holding the content named in the brief.",
+          "Make the change exactly as the brief states.",
+          "Image change — open the asset in Adobe DAM, choose Smart Crop, pick the preset for the slot (hero, card, banner), adjust the crop if needed, copy the embed URL, and paste it into the component's image URL field.",
+          "Link change — set internal links with the Path Picker; paste external URLs in full.",
+          "Preview the page.",
+          "Publish, then check the live URL in a private window."
+        ],
+        "Tridion": [
+          "Find the site folder, then the page from its URL structure (or open it by TCM ID).",
+          "Open the component holding the content named in the brief.",
+          "Make the change exactly as the brief states.",
+          "Image change — open the asset in Adobe DAM, choose Smart Crop, pick the preset for the slot, adjust the crop if needed, copy the embed URL, and paste it into the component's image URL field.",
+          "Save the component.",
+          "Publish the page, then check the live URL in a private window."
+        ]
+      }
     },
+
     {
-      "id": "seo",
-      "label": "SEO / Metadata Optimisation",
-      "cms": ["AEM", "Tridion"],
-      "baseEffort": "Small",
-      "keywords": [
-        { "term": "nofollow", "weight": 3 },
-        { "term": "noindex", "weight": 3 },
-        { "term": "canonical", "weight": 3 },
-        { "term": "meta description", "weight": 3 },
-        { "term": "hreflang", "weight": 3 },
-        { "term": "orphaned page", "weight": 3 },
-        { "term": "orphan", "weight": 3 },
-        { "term": "robots.txt", "weight": 3 },
-        { "term": "301 redirect", "weight": 3 },
-        { "term": "link equity", "weight": 3 },
-        { "term": "json-ld", "weight": 3 },
-        { "term": "seo audit", "weight": 3 },
-        { "term": "indexation", "weight": 3 },
-        { "term": "seo", "weight": 2 },
-        { "term": "metadata", "weight": 2 },
-        { "term": "page title", "weight": 2 },
-        { "term": "crawler", "weight": 2 },
-        { "term": "search visibility", "weight": 2 },
-        { "term": "redirect", "weight": 2 },
-        { "term": "sitemap", "weight": 2 },
-        { "term": "anchor text", "weight": 2 },
-        { "term": "internal link", "weight": 2 },
-        { "term": "title", "weight": 1 },
-        { "term": "description", "weight": 1 },
-        { "term": "url", "weight": 1 }
+      "id": "new-page",
+      "label": "New page",
+      "summary": "Build a page that does not exist yet, from a brief that carries all of its content.",
+      "signals": [
+        { "term": "url path", "weight": 3 },
+        { "term": "new page", "weight": 3 },
+        { "term": "create a page", "weight": 3 },
+        { "term": "create the page", "weight": 3 },
+        { "term": "meta title", "weight": 2 },
+        { "term": "meta description", "weight": 2 },
+        { "term": "meta keywords", "weight": 2 },
+        { "term": "primary keywords", "weight": 2 },
+        { "term": "blog", "weight": 2 },
+        { "term": "landing page", "weight": 2 },
+        { "signal": "hasSections", "weight": 2 },
+        { "term": "faq", "weight": 1 },
+        { "term": "hero", "weight": 1 }
       ],
-      "requiredFields": ["target_page_url", "seo_issue_type", "current_state", "target_state", "market"],
-      "optionalFields": ["seo_mapping_reference"],
-      "executionSteps": { "AEM": "seo-aem", "Tridion": "seo-tridion" },
-      "riskFlags": ["nofollow-internal-link", "query-string-variants", "missing-h1", "canonical-mismatch"]
-    },
-    {
-      "id": "bug",
-      "label": "Bug / Defect Fix",
-      "cms": ["AEM", "Tridion"],
-      "baseEffort": "Small",
-      "keywords": [
-        { "term": "bug", "weight": 3 },
-        { "term": "defect", "weight": 3 },
-        { "term": "not working", "weight": 3 },
-        { "term": "fails to save", "weight": 3 },
-        { "term": "steps to reproduce", "weight": 3 },
-        { "term": "reproduce", "weight": 3 },
-        { "term": "console error", "weight": 3 },
-        { "term": "regression", "weight": 3 },
-        { "term": "404", "weight": 3 },
-        { "term": "broken", "weight": 3 },
-        { "term": "error", "weight": 3 },
-        { "term": "s1", "weight": 3 },
-        { "term": "s2", "weight": 3 },
-        { "term": "s3", "weight": 3 },
-        { "term": "issue", "weight": 2 },
-        { "term": "fix", "weight": 2 },
-        { "term": "incorrect", "weight": 2 },
-        { "term": "unexpected", "weight": 2 },
-        { "term": "glitch", "weight": 2 },
-        { "term": "screenshot", "weight": 2 },
-        { "term": "devtools", "weight": 2 },
-        { "term": "severity", "weight": 2 },
-        { "term": "problem", "weight": 1 },
-        { "term": "wrong", "weight": 1 },
-        { "term": "check", "weight": 1 }
+      "needs": [
+        {
+          "id": "url_path",
+          "label": "URL path",
+          "question": "What is the full URL path for the new page?",
+          "detect": [{ "regex": "url path" }, { "signal": "hasSiteUrl" }, { "signal": "hasContentPath" }]
+        },
+        {
+          "id": "meta_title",
+          "label": "Meta title",
+          "question": "What should the meta title be?",
+          "detect": [{ "regex": "meta title|page title|seo title" }]
+        },
+        {
+          "id": "meta_description",
+          "label": "Meta description",
+          "question": "What should the meta description be?",
+          "detect": [{ "regex": "meta description" }]
+        },
+        {
+          "id": "page_content",
+          "label": "Section content",
+          "question": "What content goes in each section of the page, in order?",
+          "detect": [{ "signal": "hasSections" }, { "signal": "hasLongBody" }]
+        }
       ],
-      "requiredFields": ["environment", "target_page_url", "affected_component", "severity", "priority", "steps_to_reproduce", "expected_actual", "evidence"],
-      "optionalFields": [],
-      "executionSteps": { "AEM": "bug-fix-aem", "Tridion": "bug-fix-tridion" },
-      "riskFlags": ["accordion-prod-save", "rte-anchor-rollout", "png-smart-crop", "content-path-leak", "exf-child-publish"]
+      "steps": {
+        "AEM": [
+          "In AEM Sites, open the parent folder for that path and create the page from the right template. Set the page name to the last segment of the URL path.",
+          "Open Page Properties and set the meta title, meta description and meta keywords from the brief.",
+          "Work down the brief section by section, adding the component each section calls for and filling in its heading and body.",
+          "Images — open the named asset in Adobe DAM, choose Smart Crop, pick the preset for the slot, copy the embed URL, and paste it into the component.",
+          "Links — set internal links with the Path Picker; paste external URLs in full.",
+          "Add the FAQ or accordion component for any Q&A block at the end of the brief.",
+          "Preview the page, then publish."
+        ],
+        "Tridion": [
+          "Find the site folder and the parent structure group matching the URL path.",
+          "Create the page from the right page template.",
+          "Create the components the brief calls for in Building Blocks and add them to the page in the brief's order.",
+          "Fill in the page metadata: meta title, meta description, meta keywords.",
+          "Images — open the named asset in Adobe DAM, choose Smart Crop, pick the preset for the slot, copy the embed URL, and paste it into the component.",
+          "Save the page, then publish it."
+        ]
+      }
     },
+
     {
-      "id": "migration",
-      "label": "Migration (Tridion → AEM)",
-      "cms": ["AEM", "Tridion"],
-      "baseEffort": "Complex",
-      "pageCreation": true,
-      "keywords": [
-        { "term": "migration", "weight": 3 },
-        { "term": "migrate", "weight": 3 },
-        { "term": "tridion to aem", "weight": 3 },
-        { "term": "retrofitting", "weight": 3 },
-        { "term": "component mapping", "weight": 3 },
-        { "term": "legacy page", "weight": 3 },
-        { "term": "rtf table", "weight": 3 },
-        { "term": "seo mapping", "weight": 3 },
-        { "term": "pipe-delimited", "weight": 3 },
-        { "term": "tridion", "weight": 2 },
-        { "term": "legacy", "weight": 2 },
-        { "term": "mapping", "weight": 2 },
-        { "term": "convert", "weight": 2 },
-        { "term": "source url", "weight": 2 },
-        { "term": "rtf", "weight": 2 },
-        { "term": "move", "weight": 1 },
-        { "term": "transfer", "weight": 1 },
-        { "term": "old", "weight": 1 }
+      "id": "keyword-update",
+      "label": "Keyword update",
+      "summary": "Set the primary keyword on each page in a keyword mapping sheet. The keyword only — not the title, description or copy.",
+      "signals": [
+        { "term": "primary keyword", "weight": 3 },
+        { "term": "primary keywords", "weight": 3 },
+        { "term": "target keyword", "weight": 3 },
+        { "term": "focus keyword", "weight": 3 },
+        { "term": "keyword mapping", "weight": 3 },
+        { "term": "secondary keyword", "weight": 2 },
+        { "term": "secondary keywords", "weight": 2 },
+        { "term": "page type", "weight": 2 },
+        { "term": "keyword", "weight": 2 }
       ],
-      "requiredFields": ["source_tridion_url", "target_aem_path", "component_mapping", "seo_mapping_reference", "market", "named_approver"],
-      "optionalFields": [],
-      "executionSteps": { "AEM": "migration-aem", "Tridion": "migration-aem", "Mixed": "migration-aem" },
-      "riskFlags": ["duplicate-migration-rows", "breadcrumb-mismatch", "live-copy-inheritance", "rtf-table-conversion", "canonical-mismatch"]
-    },
-    {
-      "id": "rollout",
-      "label": "Rollout / Publishing",
-      "cms": ["AEM"],
-      "baseEffort": "Small",
-      "keywords": [
-        { "term": "rollout", "weight": 3 },
-        { "term": "roll out", "weight": 3 },
-        { "term": "live copy", "weight": 3 },
-        { "term": "blueprint rollout", "weight": 3 },
-        { "term": "region master", "weight": 3 },
-        { "term": "dispatcher cache", "weight": 3 },
-        { "term": "activate", "weight": 3 },
-        { "term": "publish to", "weight": 3 },
-        { "term": "activation", "weight": 2 },
-        { "term": "publish", "weight": 2 },
-        { "term": "blueprint", "weight": 2 },
-        { "term": "master en", "weight": 2 },
-        { "term": "ame", "weight": 2 },
-        { "term": "fpl", "weight": 2 },
-        { "term": "country site", "weight": 2 },
-        { "term": "release", "weight": 1 },
-        { "term": "go live", "weight": 1 },
-        { "term": "live", "weight": 1 }
+      "needs": [
+        {
+          "id": "pages",
+          "label": "Page(s) to update",
+          "question": "Which pages does this cover? Give the full URL for each row.",
+          "detect": [{ "signal": "hasSiteUrl" }]
+        },
+        {
+          "id": "primary_keyword",
+          "label": "Primary keyword per page",
+          "question": "Which keyword should each page target?",
+          "detect": [{ "regex": "primary keyword|target keyword|focus keyword|keyword\\s*:" }]
+        }
       ],
-      "requiredFields": ["source_page", "rollout_target", "scope", "publish_after"],
-      "optionalFields": [],
-      "executionSteps": { "AEM": "rollout-aem" },
-      "riskFlags": ["exf-child-publish", "async-rollout-collision", "content-path-leak", "dispatcher-cache"]
+      "steps": {
+        "AEM": [
+          "Open AEM Sites and navigate to the page.",
+          "Open Page Properties and set the keyword field to the primary keyword given for that row.",
+          "Leave the meta title, meta description and body copy exactly as they are — this job is the keyword only.",
+          "Save, then publish the page.",
+          "Check the published page's metadata carries the keyword.",
+          "Repeat for every row in the sheet, working down in priority order."
+        ],
+        "Tridion": [
+          "Find the site folder, then the page from its URL structure (or open it by TCM ID).",
+          "Open the page's metadata and set the keyword field to the primary keyword given for that row.",
+          "Leave the meta title, meta description and body copy exactly as they are — this job is the keyword only.",
+          "Save, then publish the page.",
+          "Check the published page's metadata carries the keyword.",
+          "Repeat for every row in the sheet, working down in priority order."
+        ]
+      }
     },
+
     {
-      "id": "blueprint-adoption",
-      "label": "Global Blueprint Adoption",
-      "cms": ["AEM", "Tridion"],
-      "baseEffort": "Complex",
-      "keywords": [
-        { "term": "global adoption", "weight": 3 },
-        { "term": "blueprint adoption", "weight": 3 },
-        { "term": "global campaign", "weight": 3 },
-        { "term": "undo-localize", "weight": 3 },
+      "id": "localization",
+      "label": "Localization",
+      "summary": "Put a market's own language onto a page whose English master already exists.",
+      "signals": [
+        { "signal": "translatedColumns", "weight": 4 },
+        { "signal": "nonEnglishText", "weight": 3 },
         { "term": "localize", "weight": 3 },
-        { "term": "master publication", "weight": 3 },
-        { "term": "child publication", "weight": 3 },
-        { "term": "structure group", "weight": 3 },
-        { "term": "one ticket per market", "weight": 3 },
-        { "term": "all markets", "weight": 3 },
-        { "term": "adoption", "weight": 2 },
-        { "term": "global rollout", "weight": 2 },
-        { "term": "localization", "weight": 2 },
-        { "term": "translate", "weight": 2 },
-        { "term": "inheritance", "weight": 2 },
-        { "term": "markets", "weight": 2 },
-        { "term": "global", "weight": 1 },
-        { "term": "campaign", "weight": 1 },
-        { "term": "market", "weight": 1 }
+        { "term": "localise", "weight": 3 },
+        { "term": "localization", "weight": 3 },
+        { "term": "localisation", "weight": 3 },
+        { "term": "localized", "weight": 3 },
+        { "term": "translation", "weight": 3 },
+        { "term": "translated", "weight": 3 },
+        { "term": "local market", "weight": 3 },
+        { "term": "master content", "weight": 3 },
+        { "term": "model site", "weight": 3 },
+        { "term": "headline", "weight": 1 },
+        { "term": "subheading", "weight": 1 },
+        { "term": "meta title", "weight": 1 }
       ],
-      "requiredFields": ["source_master_publication", "target_markets", "localization_scope", "structure_group_path", "campaign_timeline", "named_local_approvers"],
-      "optionalFields": [],
-      "executionSteps": { "AEM": "blueprint-adoption-aem", "Tridion": "blueprint-adoption-tridion" },
-      "riskFlags": ["missing-structure-group", "multi-market-single-ticket", "approval-sla-risk", "campaign-horizon"]
-    },
-    {
-      "id": "qa-audit",
-      "label": "QA / Audit",
-      "cms": ["AEM", "Tridion"],
-      "baseEffort": "Medium",
-      "keywords": [
-        { "term": "qa audit", "weight": 3 },
-        { "term": "52-point", "weight": 3 },
-        { "term": "52 point", "weight": 3 },
-        { "term": "accessibility audit", "weight": 3 },
-        { "term": "wcag", "weight": 3 },
-        { "term": "bookmarklet", "weight": 3 },
-        { "term": "pillar 1", "weight": 3 },
-        { "term": "pillar 2", "weight": 3 },
-        { "term": "shift-left", "weight": 3 },
-        { "term": "audit", "weight": 2 },
-        { "term": "checklist", "weight": 2 },
-        { "term": "sign-off", "weight": 2 },
-        { "term": "qa", "weight": 2 },
-        { "term": "validate", "weight": 2 },
-        { "term": "verify", "weight": 2 },
-        { "term": "compliance", "weight": 2 },
-        { "term": "core web vitals", "weight": 2 },
-        { "term": "uat", "weight": 2 },
-        { "term": "check", "weight": 1 },
-        { "term": "test", "weight": 1 },
-        { "term": "quality", "weight": 1 }
+      "needs": [
+        {
+          "id": "target_market",
+          "label": "Target market site",
+          "question": "Which market site is this for — which country domain should it be published to?",
+          "detect": [
+            { "signal": "targetMarketDeclared" },
+            { "regex": "kone\\.[a-z]{2,3}\\b|for (the )?[a-z]+ (market|site)|market:|country:" }
+          ]
+        },
+        {
+          "id": "target_page",
+          "label": "Page path",
+          "question": "Which page on that market site is being localized? Give the path.",
+          "detect": [{ "signal": "hasSiteUrl" }, { "signal": "hasContentPath" }]
+        },
+        {
+          "id": "localized_content",
+          "label": "Localized content",
+          "question": "Where is the translated copy? Each field needs its local-language text.",
+          "detect": [{ "signal": "translatedColumns" }, { "signal": "nonEnglishText" }]
+        }
       ],
-      "requiredFields": ["audit_scope", "environment", "qa_pillar", "bug_reporting_format"],
-      "optionalFields": [],
-      "executionSteps": { "AEM": "qa-audit-aem", "Tridion": "qa-audit-aem" },
-      "riskFlags": ["missing-h1", "content-path-leak", "dispatcher-cache"]
+      "steps": {
+        "AEM": [
+          "Open the market's page in AEM Sites — it already carries the English master content rolled out from the master.",
+          "Go component by component in the brief's order, replacing the English text with the local-language text from the brief.",
+          "Update each component's config as the brief states: CTA labels, link paths, anchor targets, spec table values.",
+          "Images — open the asset in Adobe DAM, choose Smart Crop, pick the preset for the slot, copy the embed URL, and paste it into the component.",
+          "Preview the page and check nothing is left in English.",
+          "Publish, then check the live URL in a private window."
+        ],
+        "Tridion": [
+          "Find the market's site folder — the English master content is already there, ready to localize.",
+          "Open each component in the brief's order and replace the English text with the local-language text from the brief.",
+          "Update each component's config as the brief states: CTA labels, link paths, anchor targets, spec table values.",
+          "Images — open the asset in Adobe DAM, choose Smart Crop, pick the preset for the slot, copy the embed URL, and paste it into the component.",
+          "Save the components and check nothing is left in English.",
+          "Publish the page, then check the live URL in a private window."
+        ]
+      }
     }
   ]
 }
