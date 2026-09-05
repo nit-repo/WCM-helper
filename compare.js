@@ -399,6 +399,22 @@
     return normalise(out);
   }
 
+  // A recurring shape: find every element among a set of tags carrying one
+  // of a configured set of class tokens, and read its text. A dead CTA and
+  // an accordion question are the same extraction with a different tag list
+  // and a different class list — this is that extraction written once. The
+  // \1 backreference closes on the tag that actually opened, rather than any
+  // tag in the list, which the first version of this (dead CTAs) did not do.
+  function elementsByClass(html, tags, classList) {
+    var out = [], m;
+    var re = new RegExp('<(' + tags.join('|') + ')\\b[^>]*class\\s*=\\s*["\'][^"\']*\\b(?:' +
+      classList.join('|') + ')\\b[^"\']*["\'][^>]*>([\\s\\S]*?)<\\/\\1>', 'gi');
+    while ((m = re.exec(html)) !== null) {
+      out.push({ text: stripTags(m[2]), inner: m[2], at: m.index });
+    }
+    return out;
+  }
+
   // Nav, header and footer would otherwise fill the body-text report with
   // menu labels and cookie copy. Prefer an explicit main region; fall back to
   // the body with the chrome cut out.
@@ -499,29 +515,20 @@
 
     // A call to action rendered as bare text: the label shipped, the link did
     // not. Matches a single-level container, which is how these are written.
-    var deadCtas = [], cm;
-    var cre = new RegExp('<(?:div|p|span)\\b[^>]*class\\s*=\\s*["\'][^"\']*\\b(?:' +
-      ((cfg && cfg.ctaContainers) || ['actions', 'cta', 'ctalink']).join('|') +
-      ')\\b[^"\']*["\'][^>]*>([\\s\\S]*?)</(?:div|p|span)>', 'gi');
-    while ((cm = cre.exec(region.html)) !== null) {
-      var inner = cm[1];
-      var label2 = stripTags(inner);
-      if (label2 && inner.indexOf('<a') === -1) deadCtas.push({ text: label2, at: cm.index });
-    }
+    var deadCtas = elementsByClass(region.html, ['div', 'p', 'span'],
+        (cfg && cfg.ctaContainers) || ['actions', 'cta', 'ctalink'])
+      .filter(function (el) { return el.text && el.inner.indexOf('<a') === -1; })
+      .map(function (el) { return { text: el.text, at: el.at }; });
 
     // An accordion question functions as a heading — it labels a block of
     // content a reader expands — whether or not the template wrapped it in
     // an h-tag. This one doesn't: the question is bare <button> text. Read
     // it the same way a CTA container is read, by a configurable class
     // token, so the structure check has something to find it with.
-    var triggerHeadings = [], tm;
-    var tre = new RegExp('<(button|a|div|span)\\b[^>]*class\\s*=\\s*["\'][^"\']*\\b(?:' +
-      ((cfg && cfg.accordionTriggers) || ['accordion-trigger']).join('|') +
-      ')\\b[^"\']*["\'][^>]*>([\\s\\S]*?)<\\/\\1>', 'gi');
-    while ((tm = tre.exec(region.html)) !== null) {
-      var triggerLabel = stripTags(tm[2]);
-      if (triggerLabel) triggerHeadings.push({ text: triggerLabel, at: tm.index });
-    }
+    var triggerHeadings = elementsByClass(region.html, ['button', 'a', 'div', 'span'],
+        (cfg && cfg.accordionTriggers) || ['accordion-trigger'])
+      .filter(function (el) { return el.text; })
+      .map(function (el) { return { text: el.text, at: el.at }; });
 
     return {
       // Three distinct fields that were previously conflated: og:title is the
@@ -1193,19 +1200,40 @@
     return out;
   }
 
+  // Real defects first, things to glance at second — a reviewer should never
+  // have to read past a low-priority check to find a break.
+  function ordered(list) {
+    return list.slice().sort(function (a, b) {
+      var rank = { 'break': 0, 'check': 1 };
+      return (rank[a.severity] || 0) - (rank[b.severity] || 0);
+    });
+  }
+
+  // The one place the five categories are built, in their final order. Both
+  // the normal comparison and the two guards that fall back to page-only
+  // checks call this, so a reorder or a new category is one array to
+  // change — not two that have to be kept in sync by hand, which is exactly
+  // how Structure could have ended up before Body Text in one path and
+  // after it in the other.
+  function buildCategories(expect, page, cfg) {
+    var bodyMatch = bodyMatches(expect, page);
+    return [
+      { id: 'metadata', label: 'Metadata', deviations: ordered(metadataDeviations(expect, page)) },
+      { id: 'structure', label: 'Structure', deviations: ordered(structureDeviations(expect, page)) },
+      { id: 'body', label: 'Body Text', ledger: bodyMatch.ledger,
+        deviations: ordered(bodyDeviations(expect, page, bodyMatch)) },
+      { id: 'images', label: 'Images', deviations: ordered(imageDeviations(expect, page, cfg.assetVariantPattern)) },
+      { id: 'links', label: 'Hyperlinks / CTAs', deviations: ordered(linkDeviations(expect, page, cfg)) }
+    ];
+  }
+
   // The five categories with every brief-derived finding removed — what the
   // page says about itself. Used by both guards: a brief that could not be
   // read and a brief that was read wrongly should still surface these.
 
   function pageOnlyCategories(page, cfg) {
     var expect = { mode: null, metadata: {}, sections: [], body: [], images: [], links: [] };
-    var categories = [
-      { id: 'metadata', label: 'Metadata', deviations: metadataDeviations(expect, page) },
-      { id: 'structure', label: 'Structure', deviations: structureDeviations(expect, page) },
-      { id: 'body', label: 'Body Text', deviations: bodyDeviations(expect, page) },
-      { id: 'images', label: 'Images', deviations: imageDeviations(expect, page, cfg.assetVariantPattern) },
-      { id: 'links', label: 'Hyperlinks / CTAs', deviations: linkDeviations(expect, page, cfg) }
-    ];
+    var categories = buildCategories(expect, page, cfg);
     var breaks = 0, checks = 0;
     categories.forEach(function (c) {
       c.deviations = c.deviations.filter(function (d) { return !d.fromBrief; });
@@ -1273,27 +1301,7 @@
         };
       }
 
-      // Real defects first, things to glance at second — a reviewer should
-      // never have to read past a low-priority check to find a break.
-      function ordered(list) {
-        return list.slice().sort(function (a, b) {
-          var rank = { 'break': 0, 'check': 1 };
-          return (rank[a.severity] || 0) - (rank[b.severity] || 0);
-        });
-      }
-
-      // Computed once: the findings and the row-by-row ledger are two readings
-      // of the same match, and must never disagree about what was found.
-      var bodyMatch = bodyMatches(expect, page);
-
-      var categories = [
-        { id: 'metadata', label: 'Metadata', deviations: ordered(metadataDeviations(expect, page)) },
-        { id: 'structure', label: 'Structure', deviations: ordered(structureDeviations(expect, page)) },
-        { id: 'body', label: 'Body Text', ledger: bodyMatch.ledger,
-          deviations: ordered(bodyDeviations(expect, page, bodyMatch)) },
-        { id: 'images', label: 'Images', deviations: ordered(imageDeviations(expect, page, cfg.assetVariantPattern)) },
-        { id: 'links', label: 'Hyperlinks / CTAs', deviations: ordered(linkDeviations(expect, page, cfg)) }
-      ];
+      var categories = buildCategories(expect, page, cfg);
 
       // The question the tool exists to answer is not "what is different" but
       // "is everything the brief asked for actually on the page". Counting that
