@@ -1191,5 +1191,65 @@ test('84. a field value read through fieldValueAfter is unaffected on the Sloven
   assert.strictEqual(faq.fields[0].path, 'Accordion/items[1]/title');
 });
 
+// ─── Accordion questions as headings ─────────────────────────────────────
+// Real KONE India FAQ block: eight questions, each a <button
+// class="accordion-trigger"> with no heading tag around it at all. The
+// brief marks every question with the same [n.n] convention as a real
+// section title, so all eight were classified as expected headings and
+// checked only against <h1>-<h3> — reporting all eight missing while the
+// text sat in the accordion exactly where it belonged.
+
+var FAQ_HTML = fs.readFileSync(
+  path.join(__dirname, 'fixtures', 'kone-in-elevator-types-faq.html'), 'utf8');
+var FAQ_PAGE = '<html lang="en"><body><main>' + FAQ_HTML + '</main></body></html>';
+
+var FAQ_BRIEF = [
+  'FAQs[8.0]',
+  'What are the different types of elevators available today?[8.1]',
+  'Which type of elevator is best for residential buildings?[8.2]',
+  'What is the difference between a hydraulic elevator and a traction elevator?[8.3]',
+  'Which elevator is suitable for high-rise buildings?[8.4]',
+  'What safety features are available in modern building elevators?[8.5]',
+  'What is an MRL elevator and why is it popular?[8.6]',
+  'What elevator designs are available for premium buildings?[8.7]'
+].join('\n');
+
+test('85. an accordion question with no heading tag is not a false structural break', function () {
+  var r = comparer.compare(FAQ_BRIEF, FAQ_PAGE, { workTypeId: 'new-page' });
+  var breaks = cat(r, 'structure');
+
+  assert.strictEqual(breaks.length, 1, 'seven questions must resolve, one real mismatch remains: ' + textOf(breaks));
+  assert.strictEqual(breaks[0].expected, 'FAQs', 'the surviving break must be the FAQs/FAQ mismatch, not a question');
+});
+
+test('86. the FAQ\'s own h2 still matches the ordinary heading path, unaffected', function () {
+  var brief = 'FAQ[8.0]';
+  var r = comparer.compare(brief, FAQ_PAGE, { workTypeId: 'new-page' });
+  assert.strictEqual(cat(r, 'structure').length, 0, 'FAQ (singular) is the real h2 text and must match cleanly');
+});
+
+test('87. a question out of the brief\'s order among trigger labels is still caught', function () {
+  var reordered = [
+    'Which type of elevator is best for residential buildings?[8.1]',
+    'What are the different types of elevators available today?[8.2]'
+  ].join('\n');
+  var r = comparer.compare(reordered, FAQ_PAGE, { workTypeId: 'new-page' });
+  var breaks = cat(r, 'structure');
+  assert.ok(breaks.some(function (d) { return /out of the brief.s order/.test(d.note); }), textOf(breaks));
+});
+
+test('88. the duplicate-heading check does not fire on eight accordion-trigger buttons', function () {
+  var r = comparer.compare(FAQ_BRIEF, FAQ_PAGE, { workTypeId: 'new-page' });
+  var deviations = cat(r, 'structure');
+  assert.strictEqual(deviations.filter(function (d) {
+    return /appears more than once/.test(d.note);
+  }).length, 0, textOf(deviations));
+});
+
+test('89. a page with no accordion-trigger elements behaves exactly as before', function () {
+  var page = comparer.readPage(CLEAN);
+  assert.deepStrictEqual(page.triggerHeadings, [], 'no accordions on this fixture');
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

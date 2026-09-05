@@ -509,6 +509,20 @@
       if (label2 && inner.indexOf('<a') === -1) deadCtas.push({ text: label2, at: cm.index });
     }
 
+    // An accordion question functions as a heading — it labels a block of
+    // content a reader expands — whether or not the template wrapped it in
+    // an h-tag. This one doesn't: the question is bare <button> text. Read
+    // it the same way a CTA container is read, by a configurable class
+    // token, so the structure check has something to find it with.
+    var triggerHeadings = [], tm;
+    var tre = new RegExp('<(button|a|div|span)\\b[^>]*class\\s*=\\s*["\'][^"\']*\\b(?:' +
+      ((cfg && cfg.accordionTriggers) || ['accordion-trigger']).join('|') +
+      ')\\b[^"\']*["\'][^>]*>([\\s\\S]*?)<\\/\\1>', 'gi');
+    while ((tm = tre.exec(region.html)) !== null) {
+      var triggerLabel = stripTags(tm[2]);
+      if (triggerLabel) triggerHeadings.push({ text: triggerLabel, at: tm.index });
+    }
+
     return {
       // Three distinct fields that were previously conflated: og:title is the
       // meta title, the window title is the page name, and the last URL
@@ -525,6 +539,7 @@
       links: links,
       placeholderLinks: placeholders,
       deadCtas: deadCtas,
+      triggerHeadings: triggerHeadings,
       text: stripTags(region.html),
       // The declared language of the page against the one the template stamps
       // on <body>. Both are on the real Slovenia page and they disagree.
@@ -1137,7 +1152,19 @@
     });
 
     if (!expect.sections.length) return out;
-    var pageHeadings = page.headings.map(function (h) { return normalise(h.text).toLowerCase(); });
+
+    // A brief's numbered section marker (Emergency Braking Systems[2.1]) is
+    // the same shape whether the page renders it as a real h1-h3 or as an
+    // accordion question with no heading tag at all — a KONE AEM template
+    // does the latter. Both count as "a heading the brief asked for exists
+    // here", so the presence and order checks read a pool of both, merged
+    // back into document order by offset. The duplicate-heading check above
+    // is untouched: that one is about real HTML structure, and an accordion
+    // legitimately reuses the same button markup for every question.
+    var pageHeadings = page.headings
+      .concat(page.triggerHeadings || [])
+      .sort(function (a, b) { return a.at - b.at; })
+      .map(function (h) { return normalise(h.text).toLowerCase(); });
 
     groupWants(expect.sections).forEach(function (group) {
       var pageCount = pageHeadings.filter(function (h) { return h === group.key; }).length;

@@ -105,7 +105,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 185 verification cases across the five modules
+npm test      # 190 verification cases across the five modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -169,6 +169,8 @@ A missing row is placed by the rows around it that did match — the nearest loc
 
 **Reading text out of markup respects inline vs block elements.** Word-pasted content — the India blog page is a real example — carries a tag boundary right up against punctuation with no space in the source: `Construction elevators</span></a></strong><span lang="EN-IN">, also known as…`. A browser renders no gap there because `span`/`a`/`strong` are inline. The extractor used to replace every tag with a space regardless, so its copy of the page read `Construction elevators , also known as…` and an exact-match brief row reported "not found" for a paragraph that was there verbatim. Inline tags now contribute nothing; block tags and `<br>` still contribute a space, which is what keeps `<p>One</p><p>Two</p>` from reading as `OneTwo`. `filler.js` carried the identical bug — an English master pasted with a link before a comma would fail the exact match and fall through to a lower-confidence fuzzy match — and gets the identical fix.
 
+**A brief's section marker doesn't know it's looking at a question, not a heading.** `Emergency Braking Systems[2.1]` and `What is an MRL elevator and why is it popular?[8.6]` carry the identical bracket convention, so both become an expected page heading — but the Structure check only ever looked for `<h1>`–`<h3>`. On the real KONE India FAQ, every question is a bare `<button class="accordion-trigger">` with no heading tag around it at all, so all eight questions reported "section heading missing" while sitting in the accordion exactly where they belonged. An accordion question functions as a heading — it labels a block of content a reader expands — whether or not the template wrapped it in an `h`-tag, so the Structure check now reads a configurable `accordionTriggers` class (`config/work-types.json`) alongside real headings for both presence and order. The duplicate-heading check is untouched: that one is about genuine HTML structure, and an accordion legitimately reuses the same button markup for every question.
+
 ## One shared understanding of the brief
 
 `engine.js`, `compare.js` and `filler.js` used to each parse the brief their own way, and each had found the same class of bug independently: raw-newline splitting that a quoted multi-line cell would shatter, and a target inferred from structure that never checked whether more than one candidate existed. `brief.js` now does the one thing all three need — quote-aware row splitting, which row is a section header, which columns are markets, and which market the brief actually targets — and the other three consume it rather than re-deriving it. Fixing a parsing bug once, in one file that all three load, is the point.
@@ -186,7 +188,7 @@ readers.js              .docx / .xlsx / .csv → text, with no dependencies
 config/work-types.json  the six playbooks, the compare settings, the market list
 test/brief.test.js      15 cases, the shared parse alone
 test/engine.test.js     43 cases, fixtures are real briefs
-test/compare.test.js    92 cases, deviations planted one per category,
+test/compare.test.js    97 cases, deviations planted one per category,
                         plus an excerpt of a real KONE page as a fixture
 test/readers.test.js    9 cases, run against real ZIP bytes
 test/filler.test.js     26 cases, including markup that must never be guessed

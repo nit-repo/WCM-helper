@@ -37,6 +37,7 @@
     "assetVariantPattern": "[-_](\\d{1,2}|crop|thumb|small|large|mobile|desktop)$",
     "modulePrefix": "module-",
     "moduleClasses": ["hero-banner"],
+    "accordionTriggers": ["accordion-trigger"],
     "editorLinkPattern": "/ui/editor/item\\?item=",
     "safeAnchorLabels": [
       "back to top",
@@ -47,7 +48,7 @@
       "volver arriba",
       "torna su"
     ],
-    "note": "Which element wraps the main content decides whether the body report is signal or nav labels. These are the standard fallbacks; if a KONE template uses its own wrapper, add its class here (leading dot) ahead of the fallbacks. Redirect and removal are absent on purpose: they are verified by following the URL, not by reading markup. assetVariantPattern strips crop and size suffixes so a DAM variant still resolves to the source asset; widen it if a template uses other suffixes."
+    "note": "Which element wraps the main content decides whether the body report is signal or nav labels. These are the standard fallbacks; if a KONE template uses its own wrapper, add its class here (leading dot) ahead of the fallbacks. Redirect and removal are absent on purpose: they are verified by following the URL, not by reading markup. assetVariantPattern strips crop and size suffixes so a DAM variant still resolves to the source asset; widen it if a template uses other suffixes. accordionTriggers lists the class(es) used on an FAQ/accordion question button — an AEM template can render a question as plain button text with no heading tag at all, and this is how the structure check still recognises it as one."
   },
 
   "workTypes": [
