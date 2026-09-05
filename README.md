@@ -21,7 +21,7 @@ Nothing else. A two-line redirect request gets two questions at most — not a c
 
 Paste the same brief plus the built page's source (or upload the `.html`), and the comparer answers one question first — **is everything the brief asked for actually on the page?**
 
-That is the headline. *"All 74 items from the brief are on the page"*, or *"61 of 74 — 13 missing"*. Underneath it sit the differences, in five groups: Metadata, Body Text, Images, Hyperlinks/CTAs, Structure. A group with nothing wrong says "No deviations."
+That is the headline. *"All 74 items from the brief are on the page"*, or *"61 of 74 — 13 missing"*. Underneath it sit the differences, in five groups: Metadata, Structure, Body Text, Images, Hyperlinks/CTAs. Structure sits ahead of Body Text because a missing or misordered heading changes how the body content underneath it should be read. A group with nothing wrong says "No deviations."
 
 Counting coverage is what makes the tool's two worst failures legible without a special rule for each. `0 of 0` is a brief that did not parse; `2 of 74` is a brief that parsed wrongly. Both used to need a bespoke guard to interpret, because a report that shows only failures cannot tell "nothing was wrong" from "nothing was checked".
 

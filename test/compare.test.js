@@ -429,12 +429,12 @@ test('15. determinism — the same pair compares identically twice', function ()
   assert.deepStrictEqual(first, second);
 });
 
-test('16. all five categories are always reported, in the brief\'s order', function () {
+test('16. all five categories are always reported, structure before body', function () {
   var r = comparer.compare(BRIEF, CLEAN, { workTypeId: 'new-page' });
 
   assert.deepStrictEqual(
     r.categories.map(function (c) { return c.id; }),
-    ['metadata', 'body', 'images', 'links', 'structure']
+    ['metadata', 'structure', 'body', 'images', 'links']
   );
 });
 

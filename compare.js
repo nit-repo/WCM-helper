@@ -1201,10 +1201,10 @@
     var expect = { mode: null, metadata: {}, sections: [], body: [], images: [], links: [] };
     var categories = [
       { id: 'metadata', label: 'Metadata', deviations: metadataDeviations(expect, page) },
+      { id: 'structure', label: 'Structure', deviations: structureDeviations(expect, page) },
       { id: 'body', label: 'Body Text', deviations: bodyDeviations(expect, page) },
       { id: 'images', label: 'Images', deviations: imageDeviations(expect, page, cfg.assetVariantPattern) },
-      { id: 'links', label: 'Hyperlinks / CTAs', deviations: linkDeviations(expect, page, cfg) },
-      { id: 'structure', label: 'Structure', deviations: structureDeviations(expect, page) }
+      { id: 'links', label: 'Hyperlinks / CTAs', deviations: linkDeviations(expect, page, cfg) }
     ];
     var breaks = 0, checks = 0;
     categories.forEach(function (c) {
@@ -1288,11 +1288,11 @@
 
       var categories = [
         { id: 'metadata', label: 'Metadata', deviations: ordered(metadataDeviations(expect, page)) },
+        { id: 'structure', label: 'Structure', deviations: ordered(structureDeviations(expect, page)) },
         { id: 'body', label: 'Body Text', ledger: bodyMatch.ledger,
           deviations: ordered(bodyDeviations(expect, page, bodyMatch)) },
         { id: 'images', label: 'Images', deviations: ordered(imageDeviations(expect, page, cfg.assetVariantPattern)) },
-        { id: 'links', label: 'Hyperlinks / CTAs', deviations: ordered(linkDeviations(expect, page, cfg)) },
-        { id: 'structure', label: 'Structure', deviations: ordered(structureDeviations(expect, page)) }
+        { id: 'links', label: 'Hyperlinks / CTAs', deviations: ordered(linkDeviations(expect, page, cfg)) }
       ];
 
       // The question the tool exists to answer is not "what is different" but
