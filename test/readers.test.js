@@ -122,6 +122,21 @@ var XLSX = zip({
     '</sheetData></worksheet>'
 });
 
+// A cell holding two paragraphs pasted with Alt+Enter — the exact shape a
+// real KONE localization sheet uses, and the shape that used to tear its
+// row apart the moment splitRows() read this file's own output back in.
+var XLSX_MULTILINE = zip({
+  '[Content_Types].xml': '<Types/>',
+  'xl/sharedStrings.xml':
+    '<sst><si><t>Country</t></si><si><t>Bulgaria</t></si>' +
+    '<si><t>Ако желаете да поискате достъп до данните си.\n\nМоже да го направите чрез портала.</t></si></sst>',
+  'xl/worksheets/sheet1.xml':
+    '<worksheet><sheetData>' +
+    '<row r="1"><c r="A1" t="s"><v>0</v></c></row>' +
+    '<row r="2"><c r="A2" t="s"><v>1</v></c><c r="B2" t="s"><v>2</v></c></row>' +
+    '</sheetData></worksheet>'
+});
+
 console.log('WCM Helper — brief reader verification\n');
 
 var run = Promise.resolve();
@@ -217,6 +232,19 @@ run = run.then(function () {
 
     assert.deepStrictEqual(Readers.briefWarnings('A clean brief with nothing wrong.'), [],
       'a clean brief should raise nothing');
+  });
+});
+
+run = run.then(function () {
+  return test('10. a cell with an embedded newline round-trips through splitRows as one row', function () {
+    var Brief = require('../brief.js');
+    return Readers.readXlsx(new Uint8Array(XLSX_MULTILINE)).then(function (text) {
+      var rows = Brief.splitRows(text);
+      assert.strictEqual(rows.length, 2, 'the embedded newline must not create a phantom row: ' + JSON.stringify(rows));
+      assert.strictEqual(rows[1][1],
+        'Ако желаете да поискате достъп до данните си.\n\nМоже да го направите чрез портала.',
+        'got: ' + JSON.stringify(rows[1]));
+    });
   });
 });
 

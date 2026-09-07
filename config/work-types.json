@@ -2,6 +2,11 @@
   "version": 2,
   "notes": "Six playbooks, one per kind of job a WCM author actually gets. Each one carries only what that job needs and the literal steps to do it in each CMS. Signal weights: 4 = structural giveaway, 3 = strong, 2 = medium, 1 = weak. Every brief is scored against every playbook; highest total wins.",
 
+  "classification": {
+    "minConfidentScore": 2,
+    "note": "A confident call also needs the winning score to clear this bar, not just beat the runner-up. Per the signal-weight vocabulary above, a lone weight-1 ('weak') hit is not enough on its own to call a brief confidently one kind of job — a real rollout-tracking sheet scored content-update, confident, off the word 'update' appearing once in a column header. A lone weight-2-or-higher hit ('medium' and up) still is, matching how a single structural signal already decides a redirect brief on its own."
+  },
+
   "cms": {
     "damHosts": ["adobecqms.net"],
     "damPathMarkers": ["/content/dam/", "assetdetails.html", "assets.html"],

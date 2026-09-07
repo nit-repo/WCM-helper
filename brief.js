@@ -149,6 +149,145 @@
     return null;
   }
 
+  // ─── TABLE SHAPE ─────────────────────────────────────────────────────────
+  // Every localization brief read so far has been "rows = content fields,
+  // columns = markets" — a Headline row, a Body row, one cell per market.
+  // A real KONE sheet is the transpose: "rows = markets, columns = content
+  // fields" — one row per country, with a header-text column and a body-text
+  // column. Its rows never open with a field label ("Headline", "Body"), so
+  // the existing check finds nothing and the whole sheet reads as empty.
+  //
+  // The market names in that sheet — Bulgaria, Croatia, Germany — are not
+  // (and cannot practically all be) in config's markets.list, so detecting
+  // this shape from a market-name vocabulary would fail on real data. What
+  // is detectable without a vocabulary is the shape itself: a column of
+  // short, distinct identifiers next to a column of actual prose. A
+  // configured market name corroborates when it is there; it is never
+  // required.
+
+  var DEFAULT_FIELD_LABELS = ['headline', 'subheading', 'title', 'body',
+    'meta title', 'meta description', 'meta keywords', 'page name', 'url path'];
+
+  function isFieldLabelCell(cell, fieldLabels) {
+    var v = normaliseCell(cell).toLowerCase().replace(/\s*\d+\s*$/, '').replace(/\s*\/.*$/, '');
+    return fieldLabels.indexOf(v) !== -1 || /^cta\b/i.test(normaliseCell(cell));
+  }
+
+  // Short, no sentence punctuation, four words or fewer — a country, a
+  // language, a code. Real prose runs longer than this whatever language
+  // it is written in, which is what makes this check language-independent.
+  function looksLikeIdentifier(cell) {
+    var s = normaliseCell(cell);
+    return !!s && s.length <= 30 && s.split(/\s+/).length <= 4 && !/[.!?](\s|$)/.test(s);
+  }
+
+  function looksLikeProse(cell) { return normaliseCell(cell).length >= 40; }
+
+  // The same role vocabulary compare.js's readMarketsByField uses to
+  // classify a column once the header row is known — used here a step
+  // earlier, to find the header row itself among several tabular
+  // candidates. Kept as its own copy rather than a shared import: brief.js
+  // stays a dependency of compare.js, never the other way round.
+  var HEADER_ROLE_RE = /header|title|headline|\btext\b|paragraph|description|content|copy/i;
+
+  // rows: splitRows() output. config: the same work-types.json-shaped object
+  // Brief.parse already takes, so markets.list is available as a bonus
+  // signal without a new calling convention. Returns 'unknown' with a
+  // reason rather than guessing when neither known shape fits.
+  function detectOrientation(rows, config) {
+    var fieldLabels = (config && config.compare && config.compare.fieldLabels) || DEFAULT_FIELD_LABELS;
+    var marketList = (config && config.markets && config.markets.list) || [];
+    var tabular = [];
+    rows.forEach(function (r, i) { if (r.length >= 3) tabular.push({ cells: r, row: i }); });
+
+    if (tabular.length < 2) {
+      return { orientation: 'unknown', reason: 'Fewer than two rows have three or more columns.' };
+    }
+
+    // fields-by-market: a data row's first cell names a content field.
+    var fieldHits = tabular.filter(function (r) { return isFieldLabelCell(r.cells[0], fieldLabels); });
+    if (fieldHits.length >= 2) {
+      return {
+        orientation: 'fields-by-market',
+        reason: fieldHits.length + ' of ' + tabular.length + ' tabular rows open with a known field label (' +
+          fieldHits.slice(0, 3).map(function (r) { return r.cells[0]; }).join(', ') + ', ...).'
+      };
+    }
+
+    // markets-by-field: the transpose. Column 1 reads as a short, distinct
+    // identifier on most rows; at least one other column reads as prose on
+    // most rows.
+    //
+    // The header row is not always the first tabular row — a real sheet can
+    // carry stray front matter above the real table ("46 / / / Option 1
+    // text in English / Option 2 text in English / confirm" sat above the
+    // real "Country / Languages / ..." header on the sheet this was built
+    // against). Pick whichever tabular row's own cells read most like
+    // column labels — SECTION_ROLE_RE/BODY_ROLE_RE hits from column 2
+    // onward — rather than assuming position. A row with no role-reading
+    // cells at all falls back to the first tabular row, unchanged from
+    // before.
+    var headerRow = tabular.reduce(function (best, r) {
+      var hits = r.cells.slice(1).filter(function (c) { return HEADER_ROLE_RE.test(c); }).length;
+      return hits > (best.hits || 0) ? { row: r, hits: hits } : best;
+    }, {}).row || tabular[0];
+
+    // A trailing status column ("yes"/"N/A") some rows carry and others
+    // don't is not a shape mismatch — only the columns the header itself
+    // names are ever read, so extra trailing cells are simply unused. Only
+    // rows after the header count as its data — stray front matter above
+    // the real header (seen on a real sheet: a leftover "46 / / / Option 1
+    // text in English / ..." row one line above the true header) must
+    // never be read as if it were one of the header's own rows.
+    var dataRows = tabular.filter(function (r) {
+      return r.row > headerRow.row && r.cells.length >= headerRow.cells.length;
+    });
+    if (dataRows.length < 2) {
+      return { orientation: 'unknown', reason: 'Fewer than two rows after the header carry at least as many columns as it does.' };
+    }
+
+    var idCells = dataRows.filter(function (r) { return looksLikeIdentifier(r.cells[0]); });
+    var distinct = {};
+    idCells.forEach(function (r) { distinct[normaliseCell(r.cells[0]).toLowerCase()] = true; });
+    var namedMarkets = dataRows.filter(function (r) {
+      return marketList.some(function (m) { return normaliseCell(r.cells[0]).toLowerCase() === String(m.name).toLowerCase(); });
+    }).length;
+
+    var proseColumns = [];
+    for (var c = 1; c < headerRow.cells.length; c++) {
+      (function (col) {
+        var n = dataRows.filter(function (r) { return looksLikeProse(r.cells[col]); }).length;
+        if (n >= Math.ceil(dataRows.length * 0.6)) proseColumns.push(col);
+      }(c));
+    }
+
+    var idRatio = idCells.length / dataRows.length;
+    var distinctRatio = Object.keys(distinct).length / dataRows.length;
+
+    if (idRatio >= 0.8 && distinctRatio >= 0.8 && proseColumns.length >= 1) {
+      return {
+        orientation: 'markets-by-field',
+        headerRowIndex: headerRow.row,
+        headerCells: headerRow.cells,
+        dataRows: dataRows.map(function (r) { return r.row; }),
+        reason: Math.round(idRatio * 100) + '% of rows open with a short, distinct label in column 1' +
+          (namedMarkets ? ' (' + namedMarkets + ' a known market name)' : ' (none a configured market name — read from shape alone)') +
+          ', and column' + (proseColumns.length > 1 ? 's ' : ' ') +
+          proseColumns.map(function (c) { return c + 1; }).join(', ') + ' read as prose on most rows.',
+        evidence: {
+          dataRows: dataRows.length, identifierRows: idCells.length,
+          distinctIdentifiers: Object.keys(distinct).length, proseColumns: proseColumns, namedMarketRows: namedMarkets
+        }
+      };
+    }
+
+    return {
+      orientation: 'unknown',
+      reason: 'Neither known shape fits (identifier ' + Math.round(idRatio * 100) + '%, distinct ' +
+        Math.round(distinctRatio * 100) + '%, prose columns ' + proseColumns.length + ') — not read as a table.'
+    };
+  }
+
   // ─── PUBLIC ──────────────────────────────────────────────────────────────
 
   function parse(text, config) {
@@ -205,6 +344,7 @@
     parse: parse,
     marketColumn: marketColumn,
     marketOf: marketOf,
-    linesOf: linesOf
+    linesOf: linesOf,
+    detectOrientation: detectOrientation
   };
 }));

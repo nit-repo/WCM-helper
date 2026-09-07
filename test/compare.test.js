@@ -12,6 +12,7 @@ var assert = require('assert');
 var fs = require('fs');
 var path = require('path');
 var BriefCompare = require('../compare.js');
+var Brief = require('../brief.js');
 
 var config = {
   'work-types': JSON.parse(
@@ -1376,6 +1377,108 @@ test('97. a candidate whose work type Compare does not support scores 0, same as
   assert.strictEqual(picked.how, 'coverage');
   assert.strictEqual(picked.picked.id, 'good');
   assert.strictEqual(picked.candidates.filter(function (c) { return c.id === 'redirect'; })[0].coverage, 0);
+});
+
+// ─── Reading a markets-by-field localization sheet ───────────────────────
+// Every localization brief so far was rows = fields, columns = markets. A
+// real KONE sheet is the transpose — rows = markets, columns = fields —
+// and used to read as "unreadable": every row's cells[0] is a country
+// name, never a recognised field label, so expect.sections/body stayed
+// empty. Bulgaria's row here is a genuine, correct translation, verified
+// against the real live page it names.
+
+var TRANSLATIONS = [
+  'Country\tLanguages\tkone.com section header translated\tOption 1 text translated\tOption 2 text translated',
+  'Bulgaria\tBulgarian\tДостъп до данни съгласно EU Data Act\tАко желаете да поискате достъп до данните си съгласно Регламента на ЕС за данните, можете да го направите.\tМоже да подадете искане чрез нашия портал за контакт.',
+  'Croatia\tCroatian\tPristup podacima prema EU Data Actu\tAko želite zatražiti pristup svojim podacima, možete to učiniti.\tZahtjev možete podnijeti putem našeg kontakt portala.',
+  'Germany\tGerman\tDatenzugriff gemäß EU-Datengesetz\tWenn Sie Zugang zu Ihren Daten beantragen möchten, können Sie dies tun.\tSie können eine Anfrage über unser Kontaktportal stellen.'
+].join('\n');
+
+test('98. a Translations-shaped brief is readable, not "unreadable"', function () {
+  var expect = comparer.readBrief(TRANSLATIONS, 'localization', config['work-types']);
+
+  assert.strictEqual(expect.mode, 'markets-by-field');
+  assert.ok(expect.sections.length >= 3 && expect.body.length >= 3, JSON.stringify(expect));
+});
+
+test('99. each market row is scoped to that market, not tab-joined into one blob', function () {
+  var expect = comparer.readBrief(TRANSLATIONS, 'localization', config['work-types']);
+  var bg = expect.sections.filter(function (w) { return w.section === 'Bulgaria'; })[0];
+
+  assert.strictEqual(bg.text, 'Достъп до данни съгласно EU Data Act');
+  var bgBody = expect.body.filter(function (w) { return w.section === 'Bulgaria'; });
+  assert.strictEqual(bgBody.length, 2, 'two option paragraphs, not one blob: ' + JSON.stringify(bgBody));
+  assert.ok(bgBody.every(function (w) { return w.text.indexOf('Bulgaria') === -1; }),
+    'the market identity column must never leak into the body text: ' + JSON.stringify(bgBody));
+});
+
+test('100. a page carrying the Bulgarian translation verbatim reports it found', function () {
+  var page = '<html><body><main><h2>Достъп до данни съгласно EU Data Act</h2>' +
+    '<p>Ако желаете да поискате достъп до данните си съгласно Регламента на ЕС за данните, можете да го направите.</p>' +
+    '<p>Може да подадете искане чрез нашия портал за контакт.</p></main></body></html>';
+  var r = comparer.compare(TRANSLATIONS, page, { workTypeId: 'localization' });
+
+  assert.strictEqual(r.unreadable, false);
+  var bgBreaks = cat(r, 'body').filter(function (d) {
+    return d.severity === 'break' && /поискате|подадете искане/.test(d.expected || d.note || '');
+  });
+  assert.strictEqual(bgBreaks.length, 0, 'Bulgaria\'s own copy must not be reported missing: ' + textOf(cat(r, 'body')));
+});
+
+test('101. stray front matter above the real header is not read as the header, or as a data row', function () {
+  var withFrontMatter = [
+    '46\t\t\tOption 1 text in English\tOption 2 text in English\tconfirm',
+    'EU Country\tEnglish\tEU Data Act data access\tIf you wish to request access, contact us at eudataact@kone.com.'
+  ].join('\n') + '\n' + TRANSLATIONS;
+
+  var shape = Brief.detectOrientation(Brief.splitRows(withFrontMatter), config['work-types']);
+  assert.strictEqual(shape.orientation, 'markets-by-field', shape.reason);
+
+  var expect = comparer.readBrief(withFrontMatter, 'localization', config['work-types']);
+  var sections = expect.sections.map(function (w) { return w.section; });
+  assert.ok(sections.indexOf('46') === -1 && sections.indexOf('EU Country') === -1,
+    'the front-matter rows must never be read as markets: ' + JSON.stringify(sections));
+  assert.ok(sections.indexOf('Bulgaria') !== -1);
+});
+
+// ─── A row two-thirds present must not read as fully missing ────────────
+// The exact shape found on the real Bulgaria row before it was fixed by
+// Item 3: sentence-descent finds some fragments genuinely on the page and
+// some not, but the row's status used to be 'found' only if every fragment
+// matched — anything less read identically to zero found.
+
+test('102. a row with some sentences found and some absent is "partial", not "missing"', function () {
+  var brief = 'Row identity text that never appears on the page at all whatsoever, not once. ' +
+    'Genuine sentence that really is live on the page right now, word for word.';
+  var page = '<html><body><main><p>Genuine sentence that really is live on the page right now, word for word.</p></main></body></html>';
+
+  var led = ledgerOf(brief, page, 'new-page');
+  assert.strictEqual(led[0].status, 'partial', JSON.stringify(led));
+  assert.strictEqual(led[0].partsTotal, 2);
+  assert.strictEqual(led[0].partsFound, 1);
+});
+
+test('103. a partial row reports only the genuinely absent fragment as a break, not the whole row', function () {
+  var brief = 'Row identity text that never appears on the page at all whatsoever, not once. ' +
+    'Genuine sentence that really is live on the page right now, word for word.';
+  var page = '<html><body><main><p>Genuine sentence that really is live on the page right now, word for word.</p></main></body></html>';
+
+  var r = comparer.compare(brief, page, { workTypeId: 'new-page' });
+  var breaks = cat(r, 'body');
+  assert.strictEqual(breaks.length, 1, 'only the absent fragment is a break: ' + textOf(breaks));
+  assert.ok(/Row identity text/.test(breaks[0].expected), 'the reported fragment is the missing one, not the found one');
+});
+
+test('104. a row with three absent fragments still counts once against coverage, not three times', function () {
+  var brief = 'Row prefix that pollutes every sentence in this cell. ' +
+    'None of this text appears anywhere on the page at all. ' +
+    'Not one single fragment of this sentence is present either.';
+  var page = '<html><body><main><p>Unrelated content that shares nothing with the brief.</p></main></body></html>';
+
+  var r = comparer.compare(brief, page, { workTypeId: 'new-page' });
+  assert.strictEqual(r.coverage.total, r.coverage.found + r.coverage.missing,
+    'coverage invariant must hold: ' + JSON.stringify(r.coverage));
+  assert.strictEqual(r.coverage.missing, 1, 'one brief row is one missing unit, however many sentences it splits into: ' + JSON.stringify(r.coverage));
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

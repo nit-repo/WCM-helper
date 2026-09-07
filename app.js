@@ -388,14 +388,23 @@
   function renderLedger(c) {
     if (!c.ledger || !c.ledger.length) return '';
 
+    // Misses first, then rows that are only partly on the page, then clean
+    // finds — a partial row is worth a glance and must never fold silently
+    // into "found", which is what it would have read as under a plain
+    // missing/not-missing split.
     var missing = c.ledger.filter(function (e) { return e.status === 'missing'; });
-    var found = c.ledger.filter(function (e) { return e.status !== 'missing'; });
+    var partial = c.ledger.filter(function (e) { return e.status === 'partial'; });
+    var found = c.ledger.filter(function (e) { return e.status !== 'missing' && e.status !== 'partial'; });
 
-    var items = missing.concat(found).map(function (e) {
-      var where = e.status === 'missing'
-        ? 'not found — ' + betweenText(e.between)
-        : 'found in ' + (e.in || 'the page');
-      return '<li class="' + (e.status === 'missing' ? 'break' : 'found') + '">' +
+    var items = missing.concat(partial, found).map(function (e) {
+      var where, cls;
+      if (e.status === 'missing') { where = 'not found — ' + betweenText(e.between); cls = 'break'; }
+      else if (e.status === 'partial') {
+        where = 'partly found in ' + (e.in || 'the page') + ' — ' +
+          (e.partsTotal - e.partsFound) + ' of ' + e.partsTotal + ' sentences missing';
+        cls = 'check';
+      } else { where = 'found in ' + (e.in || 'the page'); cls = 'found'; }
+      return '<li class="' + cls + '">' +
         '<p class="ledger-head"><b>row ' + e.row + '</b>' +
         (e.section ? '<span class="ledger-section">' + esc(e.section) + '</span>' : '') +
         '<span class="ledger-where">' + esc(where) + '</span></p>' +

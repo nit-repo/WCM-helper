@@ -258,7 +258,14 @@
     return { id: type.id, label: type.label, summary: type.summary, score: score, matched: matched, definition: type };
   }
 
-  function classify(text, signals, types, override) {
+  // A brief that hits one weak (weight-1) term and nothing else used to
+  // read as just as certain as one that hit a structural giveaway — a real
+  // rollout-tracking sheet scored content-update, confident:true, off the
+  // word "update" appearing once in a column header. minScore puts a floor
+  // under "confident" using the weight vocabulary config/work-types.json
+  // already documents: a lone weak hit is not enough on its own, the way a
+  // lone structural or strong hit already is.
+  function classify(text, signals, types, override, minScore) {
     var scores = types.map(function (t) { return scoreType(text, signals, t); })
       .sort(function (a, b) { return b.score - a.score || a.label.localeCompare(b.label); });
 
@@ -271,9 +278,11 @@
 
     var top = scores[0];
     var runnerUp = scores[1];
-    // Two ways to be unsure: nothing matched at all, or the runner-up is level
-    // with the winner. Either way say so rather than guess.
-    var confident = top.score > 0 && (!runnerUp || top.score > runnerUp.score);
+    var bar = minScore == null ? 2 : minScore;
+    // Three ways to be unsure: nothing matched at all, the runner-up is
+    // level with the winner, or the winner's own evidence is too thin to
+    // call certain. Any of the three says so rather than guesses.
+    var confident = top.score >= bar && (!runnerUp || top.score > runnerUp.score);
 
     return { winner: top, alternatives: scores, overridden: false, confident: confident };
   }
@@ -415,6 +424,8 @@
     var cfg = config['work-types'];
     var cmsConfig = cfg.cms || {};
     var types = cfg.workTypes;
+    var minConfidentScore = (cfg.classification && cfg.classification.minConfidentScore != null)
+      ? cfg.classification.minConfidentScore : undefined;
 
     function analyse(rawText, options) {
       options = options || {};
@@ -428,7 +439,7 @@
       signals.targetMarketDeclared = !!(briefModel.targetMarket || options.marketOverride);
 
       var cms = detectCms(text, cmsConfig, signals, options.cmsOverride, briefModel, options.marketOverride);
-      var result = classify(text, signals, types, options.workTypeOverride);
+      var result = classify(text, signals, types, options.workTypeOverride, minConfidentScore);
       var type = result.winner;
       var needs = checkNeeds(text, signals, type.definition);
       var rowQuality = checkRowQuality(briefModel);

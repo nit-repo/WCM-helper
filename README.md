@@ -88,6 +88,10 @@ Where the comparer reads the page content from is shown above the results. If it
 
 **Picking which of several briefs matches a pasted page.** Compare has always assumed one brief goes with one page — `pickBrief(candidates, html)` answers "which one" when there's more than one candidate, and never picks silently. A brief's declared URL Path or target market (resolved to a domain) against the page's own canonical URL is a near-certain signal and decides it outright when exactly one candidate matches; with no declared match, or more than one, every candidate is run through the ordinary coverage calculation above and ranked by how much of itself it finds on the page. A result always names `how` it decided (`declared-url` / `coverage` / `ambiguous` / `none`) and carries every candidate's evidence, so a close call is visible rather than resolved for you — the same shape Fill's closest-match lookup already uses. The multi-brief input in the UI is a follow-up pass; the logic and its tests ship first.
 
+**A localization table can be read either way round, and the tool used to know only one of them.** Every localization brief handled so far was *rows = content fields, columns = markets* — a `Headline` row, a `Body` row, one cell per market. A real KONE sheet is the transpose: *rows = markets, columns = content fields* — one row per country, with its own translated header and body columns. Read against the wrong assumption, every row's first cell is a country name, never `Headline`/`Body`, so nothing was extracted and a fully correct, live-and-matching translation reported as **unreadable**. `Brief.detectOrientation` now reads a tabular brief's shape from evidence rather than a fixed label vocabulary: a column of short, distinct identifiers (a country, a language — under 30 characters, four words or fewer, no sentence punctuation) next to a column that reads as real prose is read as *markets-by-field*, with the header row itself found by which row's own cells read most like column labels rather than assumed to be whichever comes first — real sheets carry stray front matter above the real header. A configured market name corroborates when it's there; it is never required, since most real markets (Bulgaria, Croatia, Germany, ...) aren't and can't practically all be in `config/work-types.json`'s `markets` list. A shape that fits neither known orientation says so, with its reasoning, rather than guessing.
+
+**A row that's two-thirds right must not read as entirely wrong.** Sentence-descent already existed to catch a paragraph split across page elements — but a row's status was `found` only if *every* sentence matched; anything less read identically to zero found. A market's own row-identity text (the country name, prefixed onto the row before the real copy) failing to match while the actual sentences underneath it are genuinely on the page used to report as a total miss. The ledger now has a third status, `partial`, naming exactly what's missing (*"partly found in Bulgaria — 1 of 2 sentences missing"*) rather than folding a mostly-correct row into either a clean pass or a total failure.
+
 ## Fill
 
 Localizing in Tridion means opening each component, reading the English master in the field, and finding that row in a brief that may run to a hundred rows. The finding is the slow part. Paste the English you are looking at and the Fill tab returns the localized text on a Copy button, plus the whole brief as a worklist you can tick down — progress is remembered per brief.
@@ -111,11 +115,13 @@ Word tables and spreadsheets come out **tab-separated**, which is the shape the 
 
 Pasted-from-Word briefs are checked for paste damage — bullets that arrived as literal `●` characters, leftover `mso-list` markup, mixed smart and straight quotes. These are reported as **brief quality** notes above the results, because the brief is what is malformed, not the page.
 
+**A cell holding more than one paragraph now survives the trip out of the spreadsheet.** Excel's Alt+Enter keeps a multi-paragraph cell's line break as a literal character in the cell text, and the tab-separated text `readXlsx` emits used to pass that newline straight through with no quoting at all — so the row-splitter downstream, which only protects a newline from ending a row when it sits inside `"…"` quotes the way a real CSV/Excel export already quotes it, tore the row apart at the blank line. A real 27-row localization sheet came out as 63 rows, every multi-paragraph translation split and misaligned. `readXlsx` now quotes a cell containing a newline, tab or `"` on the way out, the same escaping the row-splitter already expects.
+
 ## Running it
 
 ```
 npm start     # http://localhost:3600
-npm test      # 209 verification cases across the five modules
+npm test      # 223 verification cases across the five modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -144,6 +150,8 @@ Everything lives in `config/work-types.json`: the signals that identify each job
 Assets now live in Adobe DAM whichever CMS serves the page, so a `adobecqms.net` or `/content/dam/` link never counts as evidence — a Tridion brief full of AEM DAM links is still a Tridion brief.
 
 **Every call shows its working.** Each classification carries the signals that produced it and their weights, so you can check the tool rather than trust it. The same brief always analyses identically. When nothing clearly identifies a brief, it says so instead of guessing, and the work type and CMS can both be set by hand.
+
+**A confident call needs real evidence, not just a positive score.** A country-by-country rollout-tracking sheet — no content brief at all — used to classify as `content-update`, confident, off a single weight-1 hit: the word "update" appearing once in a column header, with every other playbook scoring 0. Beating the runner-up isn't enough on its own any more; the winning score also has to clear `classification.minConfidentScore` in `config/work-types.json` (2, by default) — a lone weak (weight-1) signal is not enough, the way a lone structural or strong signal already was.
 
 ## The page names its own components
 
@@ -196,11 +204,11 @@ compare.js              read the page → read the brief → diff → group by c
 filler.js               find the row from its English master → carry the markup across
 readers.js              .docx / .xlsx / .csv → text, with no dependencies
 config/work-types.json  the six playbooks, the compare settings, the market list
-test/brief.test.js      18 cases, the shared parse alone
-test/engine.test.js     51 cases, fixtures are real briefs
-test/compare.test.js    105 cases, deviations planted one per category,
+test/brief.test.js      22 cases, the shared parse alone
+test/engine.test.js     53 cases, fixtures are real briefs
+test/compare.test.js    112 cases, deviations planted one per category,
                         plus an excerpt of a real KONE page as a fixture
-test/readers.test.js    9 cases, run against real ZIP bytes
+test/readers.test.js    10 cases, run against real ZIP bytes
 test/filler.test.js     26 cases, including markup that must never be guessed
 serve.js                local static server
 ```

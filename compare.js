@@ -586,16 +586,70 @@
     return null;
   }
 
-  function readBrief(text, workTypeId) {
+  var SECTION_ROLE_RE = /header|title|headline/i;
+  var BODY_ROLE_RE = /\bbody\b|text|paragraph|description|content|copy/i;
+
+  // A cell can hold more than one paragraph pasted into one spreadsheet cell
+  // (Alt+Enter), the same shape a quoted multi-line .xlsx cell now produces
+  // once readXlsx quotes it correctly. Splitting on the blank line between
+  // paragraphs — rather than assuming one column is one paragraph — means
+  // this reads correctly whether the sheet keeps each paragraph in its own
+  // column or folds several into one cell.
+  function paragraphsOf(text) {
+    return String(text).split(/\n\s*\n+/).map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+
+  // Each row of a markets-by-field table is one market's own copy — a
+  // header text and a body text, scoped to that market. The raw tab-join of
+  // the whole row is never used as an expectation: that pollutes the body
+  // text with the row's own identity columns (the country name, the
+  // language name), which is exactly what made a genuinely correct
+  // translation report as "not found on the page".
+  function readMarketsByField(rows, shape) {
+    var expect = { mode: 'markets-by-field', metadata: {}, sections: [], body: [], images: [], links: [], shapeNote: shape.reason };
+    var header = shape.headerCells;
+    var unclassified = [];
+
+    var roles = header.map(function (label, i) {
+      if (i === 0) return 'identity';
+      if (SECTION_ROLE_RE.test(label)) return 'section';
+      if (BODY_ROLE_RE.test(label)) return 'body';
+      unclassified.push(label);
+      return null;
+    });
+    if (unclassified.length) expect.unclassifiedColumns = unclassified;
+
+    shape.dataRows.forEach(function (rowIndex) {
+      var cells = rows[rowIndex];
+      var market = (cells[0] || '').trim() || null;
+      roles.forEach(function (role, i) {
+        var v = (cells[i] || '').trim();
+        if (!v || (role !== 'section' && role !== 'body')) return;
+        paragraphsOf(v).forEach(function (p) {
+          expect[role === 'section' ? 'sections' : 'body'].push(want(p, market, rowIndex + 1));
+        });
+      });
+    });
+
+    return expect;
+  }
+
+  function readBrief(text, workTypeId, config) {
     text = String(text == null ? '' : text);
     var expect = { mode: null, metadata: {}, sections: [], body: [], images: [], links: [] };
     var i, m;
 
     if (workTypeId === 'localization') {
-      // Localization briefs arrive both ways: a table with an English master
-      // column, or the localized copy as prose. Columns are exact, so use them
-      // when they are there and fall back to prose when they are not.
+      // Localization briefs arrive several ways: a table with one row per
+      // content field and one column per market, a table transposed the
+      // other way — one row per market, one column per field — or the
+      // localized copy as prose. Read the table's own shape rather than
+      // assuming which of the first two it is.
       var rows = splitRows(text);
+      var shape = Brief.detectOrientation(rows, config);
+      if (shape.orientation === 'markets-by-field') {
+        return readMarketsByField(rows, shape);
+      }
       var tabular = rows.filter(function (r) { return r.length >= 3; }).length;
       if (tabular < 2) {
         expect.mode = 'prose';
@@ -922,6 +976,12 @@
           status = 'found';
           pageCount = 1;
           where = locate(normalise(parts[0]));
+        } else if (parts.length && absent.length < parts.length) {
+          // Some sentences are genuinely on the page, some are not — neither
+          // a clean pass nor a total miss. Reported as its own status so it
+          // never reads identically to a row that is 100% absent.
+          status = 'partial';
+          where = locate(normalise(parts.filter(function (p) { return absent.indexOf(p) === -1; })[0]));
         } else {
           status = 'missing';
         }
@@ -938,12 +998,17 @@
     // checked, or where it landed.
     var ledger = cleaned.map(function (w) {
       var g = index[normalise(w.text).toLowerCase()];
-      return {
+      var entry = {
         row: w.row, section: w.section, text: w.text,
         status: g ? g.status : 'missing',
         in: g ? g.in : null,
         between: null
       };
+      // Only meaningful for 'partial' — how many sentences this row split
+      // into and how many of them are genuinely on the page, so a partial
+      // row can say what's actually missing rather than just "partial".
+      if (g && g.status === 'partial') { entry.partsTotal = g.parts.length; entry.partsFound = g.parts.length - g.absent.length; }
+      return entry;
     });
     bracket(ledger);
 
@@ -981,11 +1046,16 @@
         });
         return;
       }
-      g.absent.forEach(function (part) {
+      // Each genuinely absent fragment is still reported on its own — an
+      // author needs to see every one — but a row counts once against
+      // coverage however many fragments it splits into. This was pushing
+      // group.wants.length on every fragment, so a row that split into 3
+      // absent sentences over-counted coverage by 3x.
+      g.absent.forEach(function (part, idx) {
         out.push({
           expected: part,
           note: 'not found on the page' + (where ? ' — ' + where : ''),
-          severity: 'break', fromBrief: true, missing: group.wants.length
+          severity: 'break', fromBrief: true, missing: idx === 0 ? group.wants.length : 0
         });
       });
     });
@@ -1268,7 +1338,7 @@
   // Null when the brief declares neither — it isn't disqualified, it just
   // carries no fast-path evidence and falls to coverage scoring below.
   function declaredSignal(text, workTypeId, marketConfig) {
-    var expect = readBrief(text, workTypeId);
+    var expect = readBrief(text, workTypeId, marketConfig);
     if (expect.metadata.canonical) {
       return { kind: 'url', path: pathOf(expect.metadata.canonical),
         label: 'declares URL Path ' + expect.metadata.canonical };
@@ -1302,7 +1372,7 @@
       }
 
       var page = readPage(html, cfg);
-      var expect = readBrief(briefText, workTypeId);
+      var expect = readBrief(briefText, workTypeId, workTypesConfig);
 
       // The bug this exists to prevent: zero expectations compared against any
       // page yields zero deviations, and five empty categories read exactly
@@ -1347,7 +1417,12 @@
       var briefFailures = 0;
       categories.forEach(function (c) {
         c.deviations.forEach(function (d) {
-          if (d.fromBrief) briefFailures += (d.missing || 1);
+          // A deviation with no missing count at all defaults to 1 — most
+          // deviations never set it. An explicit 0 must stay 0: that's how
+          // a row's second and later absent fragments say "already counted
+          // by the first one", and `d.missing || 1` was silently turning
+          // that 0 back into a 1, over-counting a multi-sentence miss.
+          if (d.fromBrief) briefFailures += (d.missing != null ? d.missing : 1);
         });
       });
       var coverage = {

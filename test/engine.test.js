@@ -696,5 +696,33 @@ test('39. breaks and checks tally by severity', function () {
   assert.ok(a.rowQuality.breaks > 0 && a.rowQuality.checks > 0, JSON.stringify(a.rowQuality));
 });
 
+// ─── Confidence needs a real bar, not just "positive and ahead" ──────────
+// A real KONE rollout-tracking sheet (country-by-country publish status,
+// not a content brief at all) scored content-update, confident: true, off
+// a single weight-1 "update" hit in a column header — every other playbook
+// scored 0, so it cleared the old rule (top.score > 0, no tied runner-up)
+// with the thinnest possible evidence.
+
+var KONE_ROLLOUT_TRACKER = [
+  'Frontline\tCountry\tComms representative\tContent to be published\tkone.com update status',
+  'John Smith\tFinland\tJane Doe\tSee attached\tIn progress',
+  'John Smith\tSweden\tJane Doe\tSee attached\tDone'
+].join('\n');
+
+test('40. a rollout-tracking sheet is not confidently content-update off one incidental "update" hit', function () {
+  var a = engine.analyse(KONE_ROLLOUT_TRACKER);
+
+  assert.strictEqual(a.workType.score, 1, 'the only hit is the lone weak "update" term: ' + JSON.stringify(a.workType.matched));
+  assert.ok(!a.workType.confident,
+    'a lone weak hit must not read as certain: ' + JSON.stringify(a.workType.alternatives));
+});
+
+test('41. every existing confident classification still clears the new bar', function () {
+  [PLAIN_REDIRECTS, DENMARK_TAKEDOWN, AU_KEYWORDS, UK_IE_REMOVAL, CYPRUS_PARAGRAPH].forEach(function (brief) {
+    var a = engine.analyse(brief);
+    assert.ok(a.workType.confident, brief.slice(0, 40) + '... lost confidence: ' + JSON.stringify(a.workType));
+  });
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

@@ -158,6 +158,17 @@
     return n - 1;
   }
 
+  // A cell holding more than one paragraph (Excel's Alt+Enter) carries a
+  // literal newline in its own text — and splitRows() only protects a
+  // newline from ending a row when it sits inside "…" quotes, the way a
+  // real CSV/Excel export already quotes it. This is that same quoting,
+  // applied on the way out of the spreadsheet rather than assumed already
+  // done: without it, a multi-paragraph cell tears its row apart the moment
+  // splitRows reads this function's own output back in.
+  function quoteIfNeeded(v) {
+    return /[\n\t"]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }
+
   function readXlsx(bytes) {
     var entries = listEntries(bytes);
     var sheetName = Object.keys(entries).filter(function (n) {
@@ -194,7 +205,7 @@
             while (cells.length < at) cells.push('');
             cells[at] = value;
           }
-          rows.push(cells.join('\t'));
+          rows.push(cells.map(quoteIfNeeded).join('\t'));
         }
         return rows.join('\n').trim();
       });

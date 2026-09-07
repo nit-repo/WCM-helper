@@ -184,5 +184,54 @@ test('18. marketOf returns null for a name the brief never declared', function (
   assert.strictEqual(Brief.marketOf(m, ''), null);
 });
 
+// ─── Table shape ─────────────────────────────────────────────────────────
+// Every localization brief handled so far is "rows = fields, columns =
+// markets". A real KONE sheet is the transpose: "rows = markets, columns =
+// fields" — country name in column 1, translated header and body text
+// alongside it. None of its markets (Bulgaria, Croatia, Germany) are in
+// config's markets.list, so this must be read from the table's shape, not
+// a name lookup.
+
+var TRANSLATIONS = [
+  'Country\tLanguages\tkone.com section header translated\tOption 1 text translated\tOption 2 text translated',
+  'Bulgaria\tBulgarian\tДостъп до данни съгласно EU Data Act\tАко желаете да поискате достъп до данните си съгласно Регламента на ЕС за данните, можете да го направите.\tМоже да подадете искане чрез нашия портал за контакт.',
+  'Croatia\tCroatian\tPristup podacima prema EU Data Actu\tAko želite zatražiti pristup svojim podacima, možete to učiniti.\tZahtjev možete podnijeti putem našeg kontakt portala.',
+  'Germany\tGerman\tDatenzugriff gemäß EU-Datengesetz\tWenn Sie Zugang zu Ihren Daten beantragen möchten, können Sie dies tun.\tSie können eine Anfrage über unser Kontaktportal stellen.'
+].join('\n');
+
+test('19. a Translations-shaped sheet is read as markets-by-field, with no configured market names', function () {
+  var shape = Brief.detectOrientation(Brief.splitRows(TRANSLATIONS), config);
+
+  assert.strictEqual(shape.orientation, 'markets-by-field', shape.reason);
+  assert.strictEqual(shape.evidence.namedMarketRows, 0, 'none of these markets are configured: ' + JSON.stringify(shape.evidence));
+  assert.deepStrictEqual(shape.dataRows, [1, 2, 3]);
+});
+
+test('20. the classic fields-by-market shape still wins when it applies', function () {
+  var text = 'Meta title\tKONE\tKONE Portugal\nHeadline\tUpgrades\tModernizações\nBody\tFast\tRápida';
+  var shape = Brief.detectOrientation(Brief.splitRows(text), config);
+
+  assert.strictEqual(shape.orientation, 'fields-by-market', shape.reason);
+});
+
+test('21. a shape that fits neither is reported unknown, with a reason, never guessed', function () {
+  var redirects = 'https://www.kone.dk/old/\thttps://www.kone.dk/new/\nhttps://www.kone.dk/old2/\thttps://www.kone.dk/new2/';
+  var shape = Brief.detectOrientation(Brief.splitRows(redirects), config);
+
+  assert.strictEqual(shape.orientation, 'unknown');
+  assert.ok(shape.reason);
+});
+
+test('22. a rollout-tracking sheet (short identifiers, no prose column) is unknown, not misread as a market table', function () {
+  var rollout = [
+    'Frontline\tCountry\tComms representative\tContent to be published\tkone.com update status',
+    'John Smith\tFinland\tJane Doe\tSee attached\tIn progress',
+    'John Smith\tSweden\tJane Doe\tSee attached\tDone'
+  ].join('\n');
+  var shape = Brief.detectOrientation(Brief.splitRows(rollout), config);
+
+  assert.strictEqual(shape.orientation, 'unknown', shape.reason);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
