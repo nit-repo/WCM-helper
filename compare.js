@@ -325,13 +325,9 @@
     return mod.label + (mod.ofType > 1 ? ' #' + mod.ordinal : '');
   }
 
-  function locationOf(mod, fieldPath) {
-    return moduleLabel(mod) + (fieldPath ? ' \u00b7 ' + fieldPath : '');
-  }
-
   function placeOf(mod, fieldPath) {
     return {
-      where: locationOf(mod, fieldPath),
+      where: moduleLabel(mod) + (fieldPath ? ' \u00b7 ' + fieldPath : ''),
       anchor: mod.id ? '#' + mod.id : null,
       componentId: mod.componentId || null,
       moduleHeading: mod.heading || null
