@@ -174,12 +174,21 @@
     };
   }
 
-  function marketColumn(model, marketName) {
-    if (!marketName) return -1;
-    var hit = model.markets.filter(function (m) {
+  // The market object itself (name, domain, column) by name — engine.js's
+  // detectCms and compare.js's brief-picking both need the domain, which a
+  // column index alone can't give them. marketColumn below is the same
+  // lookup with only the column kept, for the one caller (filler.js) that
+  // only ever wanted that.
+  function marketOf(model, marketName) {
+    if (!marketName) return null;
+    return model.markets.filter(function (m) {
       return m.name.toLowerCase() === String(marketName).toLowerCase();
-    })[0];
-    return hit ? hit.column : -1;
+    })[0] || null;
+  }
+
+  function marketColumn(model, marketName) {
+    var m = marketOf(model, marketName);
+    return m ? m.column : -1;
   }
 
   // engine.js's signal regexes are written against whole lines. Reconstituting
@@ -195,6 +204,7 @@
     want: want,
     parse: parse,
     marketColumn: marketColumn,
+    marketOf: marketOf,
     linesOf: linesOf
   };
 }));

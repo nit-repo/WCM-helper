@@ -175,6 +175,7 @@
     el.output.innerHTML = [
       renderType(a),
       renderNeeds(a),
+      renderRowQuality(a),
       renderSteps(a),
       renderMissing(a)
     ].join('');
@@ -211,6 +212,31 @@
     })).join('');
 
     return section('2 · What this needs', '<ul class="needs">' + rows + '</ul>');
+  }
+
+  // Not one of the four things Analyse advertises up front — it only ever
+  // has something to say on a multi-market brief, so it renders nothing at
+  // all (not an empty "checked, all clean" card) on every other one. Reuses
+  // the same sev-tag/dev-note/dev-line vocabulary as the Compare tab's
+  // deviations, so a break or a check reads the same way in both places.
+  function renderRowQuality(a) {
+    if (!a.rowQuality || !a.rowQuality.applicable) return '';
+    var findings = a.rowQuality.findings;
+    if (!findings.length) {
+      return section('Row quality', '<p class="clean">No deviations.</p>');
+    }
+    var items = findings.map(function (f) {
+      var check = f.severity === 'check';
+      var tag = '<span class="sev-tag ' + (check ? 'check">check' : 'break">break') + '</span>';
+      var head = esc(f.market) + ' · row ' + f.row + (f.section ? ' — ' + esc(f.section) : '');
+      var lines = '<p class="dev-note">' + tag + head + '</p><p class="dev-where">' + esc(f.note) + '</p>';
+      if (f.english) lines += '<p class="dev-line"><b>English</b><span>' + esc(f.english) + '</span></p>';
+      if (f.found) lines += '<p class="dev-line"><b>Found</b><span>' + esc(f.found) + '</span></p>';
+      return '<li class="' + (check ? 'check' : 'break') + '">' + lines + '</li>';
+    }).join('');
+    var breaks = a.rowQuality.breaks;
+    return '<section class="card' + (breaks ? ' dirty' : '') + '"><h3>Row quality — ' +
+      findings.length + '</h3><ul class="devs">' + items + '</ul></section>';
   }
 
   function renderSteps(a) {

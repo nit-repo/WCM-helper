@@ -161,5 +161,28 @@ test('15. the same brief parses identically twice', function () {
   assert.deepStrictEqual(a, b);
 });
 
+// ─── marketOf ────────────────────────────────────────────────────────────
+
+test('16. marketOf returns the market object, domain included, by name', function () {
+  var m = Brief.parse(MULTI_MARKET, config);
+  var spain = Brief.marketOf(m, 'SPAIN');
+
+  assert.ok(spain, 'expected a match for SPAIN');
+  assert.strictEqual(spain.domain, 'kone.es');
+});
+
+test('17. marketOf is case-insensitive, same as marketColumn already was', function () {
+  var m = Brief.parse(MULTI_MARKET, config);
+
+  assert.strictEqual(Brief.marketOf(m, 'spain').domain, 'kone.es');
+});
+
+test('18. marketOf returns null for a name the brief never declared', function () {
+  var m = Brief.parse(MULTI_MARKET, config);
+
+  assert.strictEqual(Brief.marketOf(m, 'DENMARK'), null);
+  assert.strictEqual(Brief.marketOf(m, ''), null);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

@@ -1251,5 +1251,132 @@ test('89. a page with no accordion-trigger elements behaves exactly as before', 
   assert.deepStrictEqual(page.triggerHeadings, [], 'no accordions on this fixture');
 });
 
+// ─── Picking which brief matches a pasted page ───────────────────────────
+// Compare has always assumed one brief matches one page. pickBrief ranks
+// several candidates against one page: a declared URL Path or market is a
+// near-certain pick; with no declared match, or more than one, content
+// coverage decides — and a close call is reported as ambiguous rather than
+// silently resolved, the same shape filler.js's find() already uses.
+
+var UNRELATED_BRIEF = [
+  'Meta Title: Something Else Entirely | KONE',
+  'Meta Description: Nothing to do with the safety page.',
+  'Meta Keywords: unrelated',
+  'URL Path: https://www.kone.in/blog/something-else',
+  'A Completely Different Topic[1.1]',
+  'This paragraph has nothing in common with the safety page at all, not one sentence.'
+].join('\n');
+
+test('90. a declared URL Path that matches the page is picked outright, even with an unrelated candidate present', function () {
+  var picked = comparer.pickBrief([
+    { id: 'safety', label: 'Safety brief', text: BRIEF, workTypeId: 'new-page' },
+    { id: 'other', label: 'Unrelated brief', text: UNRELATED_BRIEF, workTypeId: 'new-page' }
+  ], CLEAN);
+
+  assert.strictEqual(picked.how, 'declared-url');
+  assert.strictEqual(picked.picked.id, 'safety');
+  assert.ok(/URL Path/.test(picked.reason), picked.reason);
+});
+
+var SPAIN_PAGE = '<html><head><link rel="canonical" href="https://www.kone.es/pagina-de-ejemplo"></head>' +
+  '<body><main><h1>Hola</h1></main></body></html>';
+var SPAIN_BRIEF = [
+  'Level 2\tSPAIN',
+  'H1 header\tEnglish\tSPAIN\tITALY\tPORTUGAL',
+  'H1\tHello\tHola\tCiao\tOla'
+].join('\n');
+
+test('91. a localization brief\'s declared market resolves to a domain that matches the page\'s host', function () {
+  var picked = comparer.pickBrief([
+    { id: 'es', label: 'Spain brief', text: SPAIN_BRIEF, workTypeId: 'localization' }
+  ], SPAIN_PAGE);
+
+  assert.strictEqual(picked.how, 'declared-url');
+  assert.strictEqual(picked.candidates[0].declared.kind, 'market');
+  assert.strictEqual(picked.candidates[0].declared.domain, 'kone.es');
+});
+
+test('92. two candidates both declaring a URL that matches the page fall back to content coverage', function () {
+  var sameUrlOtherContent = [
+    'Meta Title: Different Title, Same Path | KONE',
+    'URL Path: https://www.kone.in/blog/lift-safety-features',
+    'A Heading That Is Not On The Page[1.1]',
+    'None of this paragraph appears anywhere on the clean safety-features fixture page at all.'
+  ].join('\n');
+
+  var picked = comparer.pickBrief([
+    { id: 'safety', label: 'Safety brief', text: BRIEF, workTypeId: 'new-page' },
+    { id: 'decoy', label: 'Same-path decoy', text: sameUrlOtherContent, workTypeId: 'new-page' }
+  ], CLEAN);
+
+  assert.strictEqual(picked.how, 'coverage', 'both declare the same URL, so a declared match can\'t decide it: ' + JSON.stringify(picked));
+  assert.strictEqual(picked.picked.id, 'safety');
+});
+
+var NEW_PAGE_MATCH = [
+  'Safety Features[1.1]',
+  'Emergency braking systems automatically activate if the elevator exceeds its designated speed or detects an abnormal condition.'
+].join('\n');
+var NEW_PAGE_MISS = [
+  'Totally Different Heading[1.1]',
+  'This paragraph is nowhere close to anything on the page and never will be found there at all, not even close.'
+].join('\n');
+var NO_CANONICAL_PAGE =
+  '<html><body><main><h1>Safety Features</h1><p>Emergency braking systems automatically activate if the ' +
+  'elevator exceeds its designated speed or detects an abnormal condition.</p></main></body></html>';
+
+test('93. no candidate declares a URL or market — picked by content coverage alone', function () {
+  var picked = comparer.pickBrief([
+    { id: 'good', label: 'Matching brief', text: NEW_PAGE_MATCH, workTypeId: 'new-page' },
+    { id: 'bad', label: 'Unrelated brief', text: NEW_PAGE_MISS, workTypeId: 'new-page' }
+  ], NO_CANONICAL_PAGE);
+
+  assert.strictEqual(picked.how, 'coverage');
+  assert.strictEqual(picked.picked.id, 'good');
+  assert.strictEqual(picked.candidates.filter(function (c) { return c.id === 'good'; })[0].coverage, 1);
+});
+
+test('94. coverage scores with no clear winner report ambiguous, every candidate\'s score visible', function () {
+  var picked = comparer.pickBrief([
+    { id: 'a', label: 'Brief A', text: NEW_PAGE_MISS, workTypeId: 'new-page' },
+    { id: 'b', label: 'Brief B', text: NEW_PAGE_MISS, workTypeId: 'new-page' }
+  ], NO_CANONICAL_PAGE);
+
+  assert.strictEqual(picked.how, 'ambiguous');
+  assert.strictEqual(picked.picked, null);
+  assert.strictEqual(picked.candidates.length, 2);
+});
+
+test('95. no candidates given returns how: none', function () {
+  var picked = comparer.pickBrief([], CLEAN);
+
+  assert.strictEqual(picked.how, 'none');
+  assert.strictEqual(picked.picked, null);
+  assert.deepStrictEqual(picked.candidates, []);
+});
+
+test('96. a candidate brief compare.js can\'t even read scores 0 and never wins over a real candidate', function () {
+  var unreadable = 'nothing usable in here at all, no labels, no structure';
+  var picked = comparer.pickBrief([
+    { id: 'good', label: 'Matching brief', text: NEW_PAGE_MATCH, workTypeId: 'new-page' },
+    { id: 'empty', label: 'Unreadable brief', text: unreadable, workTypeId: 'new-page' }
+  ], NO_CANONICAL_PAGE);
+
+  assert.strictEqual(picked.how, 'coverage');
+  assert.strictEqual(picked.picked.id, 'good');
+  assert.strictEqual(picked.candidates.filter(function (c) { return c.id === 'empty'; })[0].coverage, 0);
+});
+
+test('97. a candidate whose work type Compare does not support scores 0, same as an unreadable one', function () {
+  var picked = comparer.pickBrief([
+    { id: 'good', label: 'Matching brief', text: NEW_PAGE_MATCH, workTypeId: 'new-page' },
+    { id: 'redirect', label: 'Redirect brief', text: 'https://a.example/\thttps://b.example/', workTypeId: 'redirect' }
+  ], NO_CANONICAL_PAGE);
+
+  assert.strictEqual(picked.how, 'coverage');
+  assert.strictEqual(picked.picked.id, 'good');
+  assert.strictEqual(picked.candidates.filter(function (c) { return c.id === 'redirect'; })[0].coverage, 0);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

@@ -196,7 +196,7 @@
       }
 
       var targetName = marketOverride || (briefModel && briefModel.targetMarket);
-      var target = targetName && markets.filter(function (m) { return m.name === targetName; })[0];
+      var target = targetName && Brief.marketOf(briefModel, targetName);
       if (target) {
         var targetCms = cmsForUrl('https://' + target.domain, cmsConfig);
         var trimmedReason = targetCms.reason.replace(/\.$/, '');
@@ -292,6 +292,123 @@
     return { have: have, missing: missing };
   }
 
+  // ─── ROW QUALITY ─────────────────────────────────────────────────────────
+  // checkNeeds asks whether something exists anywhere in the brief. It has no
+  // concept of a row being half-translated, a number changing between the
+  // English master and a translation, or a cell that never got filled in —
+  // real defects a presence check cannot see. This is a judgement pass over
+  // brief.js's own row/market facts, so it lives here rather than in brief.js
+  // (which deliberately stays fact-only) or a new module (it is pure
+  // composition over what brief.js already computes).
+
+  // A market's own comparison text needs only a light fold — nbsp and curly
+  // quotes arrive as literal characters in a pasted brief, not entities.
+  // Deliberately its own small copy rather than an import from filler.js or
+  // compare.js: the same call was made for those two ("a load-order
+  // dependency between two modules that are otherwise independent is a worse
+  // trade than eight duplicated lines") and applies here too — engine.js has
+  // never depended on either.
+  function normaliseCell(s) {
+    return String(s == null ? '' : s)
+      .replace(/[‘’‛]/g, "'")
+      .replace(/[“”]/g, '"')
+      .replace(/ /g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  var NUMBER_RE = /\d+(?:[.,]\d+)?/g;
+  function numbersIn(text) { return String(text || '').match(NUMBER_RE) || []; }
+
+  // Only meaningful on a localization-shaped brief — two or more market
+  // columns found. A single-market brief has nothing to compare a cell
+  // against, so this is never run on one; checkRowQuality below says so
+  // explicitly rather than returning an empty (and therefore "clean")
+  // findings list, the same reasoning as never reporting a comparison that
+  // never happened as if it had passed.
+  function rowQualityFindings(model) {
+    var out = [];
+    model.rows.forEach(function (row) {
+      if (row.row === model.headerRow) return;
+      var master = model.masterColumn !== -1 ? (row.cells[model.masterColumn] || '').trim() : '';
+      var perMarket = model.markets.map(function (m) {
+        return { market: m.name, value: (row.cells[m.column] || '').trim() };
+      });
+      var filled = perMarket.filter(function (p) { return p.value; });
+      var empty = perMarket.filter(function (p) { return !p.value; });
+
+      // A market cell identical to the English master. Sometimes deliberate
+      // — product and brand names often stay as-is — so this is offered for
+      // a human to judge, never asserted as a mistake.
+      filled.forEach(function (p) {
+        if (master && normaliseCell(p.value) === normaliseCell(master)) {
+          out.push({
+            type: 'untranslated', severity: 'check', row: row.row, section: row.section,
+            market: p.market, english: master, found: p.value,
+            note: p.market + ' reads identical to the English master — translated, or deliberately kept as-is?'
+          });
+        }
+      });
+
+      // Ragged, two shapes, both narrow on purpose. A row where every market
+      // legitimately carries the same shared value (an image URL, a
+      // component id) and there is no English master must stay silent —
+      // widening either rule below to fire on that shape is what would turn
+      // this into noise.
+      if (master && filled.length && empty.length) {
+        // The English master asks every market to carry this row; not all
+        // of them do. Unambiguous.
+        out.push({
+          type: 'ragged', severity: 'break', row: row.row, section: row.section,
+          market: empty.map(function (p) { return p.market; }).join(', '), english: master, found: null,
+          note: 'the English master has content here but ' +
+            empty.map(function (p) { return p.market; }).join(', ') + ' carries nothing for this row'
+        });
+      }
+      if (!master && filled.length >= 2) {
+        // No English master to justify this row, and the markets don't even
+        // agree with each other — the shape a translated cell makes when it
+        // lands one row down from where it belonged.
+        var distinct = {};
+        filled.forEach(function (p) { distinct[normaliseCell(p.value)] = true; });
+        if (Object.keys(distinct).length > 1) {
+          out.push({
+            type: 'ragged', severity: 'check', row: row.row, section: row.section,
+            market: filled.map(function (p) { return p.market; }).join(', '), english: null, found: null,
+            note: 'no English master on this row, and the market columns don\'t agree with each other — check this landed on the right row'
+          });
+        }
+      }
+
+      // The numbers in a market's cell against the numbers in the master —
+      // the confirmed real shape: an English master reading "70%" with every
+      // translated column reading "74%" for one section, while a different
+      // section correctly read 70% throughout.
+      if (master) {
+        var masterNums = numbersIn(master);
+        filled.forEach(function (p) {
+          var marketNums = numbersIn(p.value);
+          if (marketNums.length && masterNums.join(',') !== marketNums.join(',')) {
+            out.push({
+              type: 'number-mismatch', severity: 'break', row: row.row, section: row.section,
+              market: p.market, english: master, found: p.value,
+              note: p.market + ' carries ' + marketNums.join(', ') + ' where the English master carries ' + masterNums.join(', ')
+            });
+          }
+        });
+      }
+    });
+    return out;
+  }
+
+  function checkRowQuality(model) {
+    var applicable = !!(model.markets && model.markets.length >= 2);
+    var findings = applicable ? rowQualityFindings(model) : [];
+    var breaks = 0, checks = 0;
+    findings.forEach(function (f) { if (f.severity === 'check') checks++; else breaks++; });
+    return { applicable: applicable, findings: findings, breaks: breaks, checks: checks };
+  }
+
   // ─── PUBLIC ──────────────────────────────────────────────────────────────
 
   function create(config) {
@@ -314,6 +431,7 @@
       var result = classify(text, signals, types, options.workTypeOverride);
       var type = result.winner;
       var needs = checkNeeds(text, signals, type.definition);
+      var rowQuality = checkRowQuality(briefModel);
 
       var steps = (type.definition.steps || {})[cms.value] || [];
 
@@ -333,6 +451,7 @@
           })
         },
         needs: needs,
+        rowQuality: rowQuality,
         steps: steps.map(function (text, i) { return { n: i + 1, text: text }; }),
         questions: needs.missing.map(function (n) { return n.question; }),
         urls: { site: signals._urls.site, dam: signals._urls.dam },

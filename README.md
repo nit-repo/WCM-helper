@@ -17,6 +17,14 @@ Paste a work brief. Get back four things:
 
 Nothing else. A two-line redirect request gets two questions at most — not a checklist about components, assets, markets and approvers that belong to a different kind of job.
 
+**A fifth thing, on a multi-market brief only: row quality.** `checkNeeds` only ever asked whether something existed anywhere in the brief — never whether a row was actually filled in correctly. Confirmed against a real Spain/Italy/Portugal brief: the English master read "70%" and every translated column read "74%" for one section, while a different section correctly read 70% throughout, and nothing before this caught it. Three checks run over every row once a brief declares two or more market columns:
+
+- **number mismatch** (break) — the numbers in a market's cell differ from the numbers in the English master's, naming both.
+- **ragged** — the English master has content on a row a market left empty (break, unambiguous); or no master exists on a row and the market columns don't even agree with each other (check) — the shape a translated cell makes landing one row down from where it belonged. A row with no master where every market legitimately shares the same value (an image URL, say) stays silent on purpose.
+- **untranslated** (check) — a market's cell reads identical to the master. Sometimes deliberate for brand and product names, so it's offered for a glance, never asserted as wrong.
+
+A single-market brief is never checked for this, and says so rather than rendering as if it were checked and found clean.
+
 ## Compare
 
 Paste the same brief plus the built page's source (or upload the `.html`), and the comparer answers one question first — **is everything the brief asked for actually on the page?**
@@ -78,6 +86,8 @@ Lazy-loaded images resolve to the asset rather than the loading placeholder, whi
 
 Where the comparer reads the page content from is shown above the results. If it says "body minus nav, header and footer" and the Body Text group fills with menu labels, add the template's content wrapper class to `compare.contentSelectors` in `config/work-types.json`.
 
+**Picking which of several briefs matches a pasted page.** Compare has always assumed one brief goes with one page — `pickBrief(candidates, html)` answers "which one" when there's more than one candidate, and never picks silently. A brief's declared URL Path or target market (resolved to a domain) against the page's own canonical URL is a near-certain signal and decides it outright when exactly one candidate matches; with no declared match, or more than one, every candidate is run through the ordinary coverage calculation above and ranked by how much of itself it finds on the page. A result always names `how` it decided (`declared-url` / `coverage` / `ambiguous` / `none`) and carries every candidate's evidence, so a close call is visible rather than resolved for you — the same shape Fill's closest-match lookup already uses. The multi-brief input in the UI is a follow-up pass; the logic and its tests ship first.
+
 ## Fill
 
 Localizing in Tridion means opening each component, reading the English master in the field, and finding that row in a brief that may run to a hundred rows. The finding is the slow part. Paste the English you are looking at and the Fill tab returns the localized text on a Copy button, plus the whole brief as a worklist you can tick down — progress is remembered per brief.
@@ -105,7 +115,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 190 verification cases across the five modules
+npm test      # 209 verification cases across the five modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -186,9 +196,9 @@ compare.js              read the page → read the brief → diff → group by c
 filler.js               find the row from its English master → carry the markup across
 readers.js              .docx / .xlsx / .csv → text, with no dependencies
 config/work-types.json  the six playbooks, the compare settings, the market list
-test/brief.test.js      15 cases, the shared parse alone
-test/engine.test.js     43 cases, fixtures are real briefs
-test/compare.test.js    97 cases, deviations planted one per category,
+test/brief.test.js      18 cases, the shared parse alone
+test/engine.test.js     51 cases, fixtures are real briefs
+test/compare.test.js    105 cases, deviations planted one per category,
                         plus an excerpt of a real KONE page as a fixture
 test/readers.test.js    9 cases, run against real ZIP bytes
 test/filler.test.js     26 cases, including markup that must never be guessed

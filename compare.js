@@ -88,6 +88,17 @@
 
   function samePath(a, b) { return pathOf(a) === pathOf(b); }
 
+  // pathOf() above deliberately discards the host — that is what makes a
+  // preview host and a live host the same page for path comparison. Picking
+  // a brief needs the opposite: a localization brief declares a market, not
+  // a path, so its evidence is the host a market's domain resolves to.
+  function pageHost(url) {
+    var s = String(url == null ? '' : url).trim().replace(/^https?:\/\//i, '');
+    var slash = s.indexOf('/');
+    var host = slash === -1 ? s : s.slice(0, slash);
+    return host.toLowerCase().replace(/^www\./, '');
+  }
+
   // ─── ASSET IDENTITY ──────────────────────────────────────────────────────
   // A brief names an asset ("KONE_Feat_Handrail_B_Landscape-004"); the page
   // carries a DAM or Scene7 embed URL that may be cropped, renamed with a
@@ -1245,9 +1256,36 @@
     };
   }
 
+  // ─── PICKING A BRIEF ─────────────────────────────────────────────────────
+  // Compare has always assumed one brief matches one page. This answers
+  // "which of several candidate briefs actually goes with this page" —
+  // a ranking step that runs before the ordinary compare() above, not a new
+  // mode of it: compare()'s one-brief-one-page contract is untouched.
+
+  // What a brief itself declares about which page it targets: an explicit
+  // URL Path if it has one (new-page/content-update briefs), else a
+  // declared target market resolved to a domain (localization briefs).
+  // Null when the brief declares neither — it isn't disqualified, it just
+  // carries no fast-path evidence and falls to coverage scoring below.
+  function declaredSignal(text, workTypeId, marketConfig) {
+    var expect = readBrief(text, workTypeId);
+    if (expect.metadata.canonical) {
+      return { kind: 'url', path: pathOf(expect.metadata.canonical),
+        label: 'declares URL Path ' + expect.metadata.canonical };
+    }
+    var model = Brief.parse(text, marketConfig);
+    var market = model.targetMarket && Brief.marketOf(model, model.targetMarket);
+    if (market) {
+      return { kind: 'market', domain: market.domain.toLowerCase(),
+        label: 'declares market ' + model.targetMarket + ' (' + market.domain + ')' };
+    }
+    return null;
+  }
+
   function create(config) {
     var cfg = (config && config['work-types'] && config['work-types'].compare) || {};
     var supported = cfg.workTypes || ['new-page', 'localization', 'content-update', 'keyword-update'];
+    var workTypesConfig = (config && config['work-types']) || {};
 
     function compare(briefText, html, options) {
       options = options || {};
@@ -1363,8 +1401,81 @@
       };
     }
 
+    // candidates: [{id, label, text, workTypeId}] — workTypeId supplied by
+    // the caller, which already classifies each brief via engine.analyse()
+    // before calling compare() today; this stays engine-agnostic, the same
+    // boundary compare.js already keeps.
+    //
+    // Never picks silently, the same shape filler.js's find() already
+    // established: how names which signal decided, candidates always carry
+    // every candidate's evidence, picked is null whenever it isn't sure.
+    // "Confident" reuses engine.js's classify() rule — the winner beats the
+    // runner-up outright, or there is no runner-up — rather than inventing
+    // a margin to defend later.
+    function pickBrief(candidates, html) {
+      var page = readPage(html, cfg);
+      var pagePath = pathOf(page.canonical || '');
+      var host = pageHost(page.canonical);
+
+      var declared = candidates.map(function (c) {
+        var sig = declaredSignal(c.text, c.workTypeId, workTypesConfig);
+        var matches = !!sig && !!page.canonical &&
+          (sig.kind === 'url' ? sig.path === pagePath : host === sig.domain);
+        return { candidate: c, signal: sig, matches: matches };
+      });
+      var urlHits = declared.filter(function (d) { return d.matches; });
+
+      if (urlHits.length === 1) {
+        return {
+          how: 'declared-url', picked: urlHits[0].candidate,
+          reason: urlHits[0].candidate.label + ' ' + urlHits[0].signal.label + ', which matches the page.',
+          candidates: declared.map(function (d) {
+            return { id: d.candidate.id, label: d.candidate.label, declared: d.signal, matches: d.matches, coverage: null };
+          })
+        };
+      }
+
+      // No declared match, or more than one — content coverage decides.
+      // Both of compare()'s early-return shapes (unsupported work type,
+      // unreadable brief) carry no coverage field at all, which scores 0
+      // here — exactly right: a candidate this can't even read loses the
+      // ranking on its own.
+      var scored = candidates.map(function (c) {
+        var result = compare(c.text, html, { workTypeId: c.workTypeId });
+        var score = (result.coverage && result.coverage.total) ? result.coverage.found / result.coverage.total : 0;
+        return {
+          candidate: c, score: score,
+          declared: (declared.filter(function (d) { return d.candidate === c; })[0] || {}).signal || null
+        };
+      }).sort(function (a, b) { return b.score - a.score; });
+
+      if (!scored.length) return { how: 'none', picked: null, reason: 'No candidate briefs given.', candidates: [] };
+
+      var top = scored[0], runnerUp = scored[1];
+      var confident = top.score > 0 && (!runnerUp || top.score > runnerUp.score);
+      var candOut = scored.map(function (s) {
+        return { id: s.candidate.id, label: s.candidate.label, declared: s.declared, matches: false, coverage: s.score };
+      });
+
+      if (confident) {
+        return {
+          how: 'coverage', picked: top.candidate,
+          reason: top.candidate.label + ' covers ' + Math.round(top.score * 100) + '% of the page, ahead of the rest.',
+          candidates: candOut
+        };
+      }
+      return {
+        how: 'ambiguous', picked: null,
+        reason: urlHits.length > 1
+          ? urlHits.length + ' briefs all declare a URL that matches this page, and content coverage does not separate them either.'
+          : 'No brief declares a URL or market that matches this page, and content coverage does not separate them clearly.',
+        candidates: candOut
+      };
+    }
+
     return {
       compare: compare,
+      pickBrief: pickBrief,
       readPage: function (h) { return readPage(h, cfg); },
       readBrief: readBrief,
       // Exposed so a test can assert a location without a defect to hang it

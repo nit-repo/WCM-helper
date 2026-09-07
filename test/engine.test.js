@@ -602,5 +602,99 @@ test('31. a market override resolves the same ambiguous brief', function () {
   assert.ok(/ITALY market column/.test(a.cms.reason), a.cms.reason);
 });
 
+// ─── Row quality ─────────────────────────────────────────────────────────
+// checkNeeds only asks whether something exists anywhere in the brief. This
+// is the pass that reads each row: a market cell identical to the master, a
+// number that changed on the way to a translation, a row half-filled or
+// filled with nothing to justify it. Confirmed against a real Spain/Italy/
+// Portugal brief: the English master read "70%" and every translated column
+// read "74%" for one section, while a different section correctly read 70%
+// throughout — nothing before this pass could tell those two apart.
+
+var MULTI_MARKET_QUALITY = [
+  'H1 header\tEnglish\tSPAIN\tITALY\tPORTUGAL',
+  'Proof point',
+  'Body\tUp to 70% energy savings\tHasta un 74% de ahorro energético\tFino al 74% di risparmio energetico\tAté 74% de poupança energética',
+  'Sustainability',
+  'Body\tUp to 70% water savings\tHasta un 70% de ahorro de agua\tFino al 70% di risparmio idrico\tAté 70% de poupança de água',
+  'Value highlight',
+  'Body\tSmart modernisations for every building\tModernizaciones inteligentes para cada edificio\tModernizzazioni intelligenti per ogni edificio\t',
+  'Image link',
+  'Body\t\thttps://kone-aem.adobecqms.net/assets/hero.jpg\thttps://kone-aem.adobecqms.net/assets/hero-shifted.jpg\thttps://kone-aem.adobecqms.net/assets/hero.jpg',
+  'Shared asset',
+  'Body\t\thttps://kone-aem.adobecqms.net/assets/shared.jpg\thttps://kone-aem.adobecqms.net/assets/shared.jpg\thttps://kone-aem.adobecqms.net/assets/shared.jpg',
+  'Brand name',
+  'Body\tKONE MonoSpace 100 DX\tKONE MonoSpace 100 DX\tModernizzazioni KONE MonoSpace 100 DX\tKONE MonoSpace 100 DX'
+].join('\n');
+
+function findingsOf(text, type) {
+  var a = engine.analyse(text, { workTypeOverride: 'localization' });
+  return a.rowQuality.findings.filter(function (f) { return f.type === type; });
+}
+
+test('32. a single-market brief is never checked for row quality', function () {
+  var a = engine.analyse(SLOVENIA_LOCALIZATION, { workTypeOverride: 'localization' });
+
+  assert.strictEqual(a.rowQuality.applicable, false,
+    'a two-column brief has nothing to compare a cell against');
+  assert.deepStrictEqual(a.rowQuality.findings, []);
+});
+
+test('33. the English master read 70% and every translated column read 74% — flagged, not a wording change', function () {
+  var mismatches = findingsOf(MULTI_MARKET_QUALITY, 'number-mismatch');
+  var spain = mismatches.filter(function (f) { return f.market === 'SPAIN' && f.section === 'Proof point'; })[0];
+
+  assert.ok(spain, 'expected a number-mismatch for SPAIN in Proof point: ' + JSON.stringify(mismatches));
+  assert.strictEqual(spain.severity, 'break');
+  assert.ok(/70/.test(spain.english) && /74/.test(spain.found), JSON.stringify(spain));
+});
+
+test('34. a section where every market correctly reads 70% throughout is silent', function () {
+  var mismatches = findingsOf(MULTI_MARKET_QUALITY, 'number-mismatch');
+  var sustainability = mismatches.filter(function (f) { return f.section === 'Sustainability'; });
+
+  assert.strictEqual(sustainability.length, 0, JSON.stringify(sustainability));
+});
+
+test('35. a row half-translated — master filled, one market empty — is ragged and a break', function () {
+  var ragged = findingsOf(MULTI_MARKET_QUALITY, 'ragged').filter(function (f) { return f.severity === 'break'; });
+
+  assert.strictEqual(ragged.length, 1, JSON.stringify(ragged));
+  assert.strictEqual(ragged[0].section, 'Value highlight');
+  assert.ok(/PORTUGAL/.test(ragged[0].market), JSON.stringify(ragged[0]));
+});
+
+test('36. no English master, and the markets don\'t agree with each other — ragged, but only a check', function () {
+  var ragged = findingsOf(MULTI_MARKET_QUALITY, 'ragged').filter(function (f) { return f.severity === 'check'; });
+
+  assert.strictEqual(ragged.length, 1, JSON.stringify(ragged));
+  assert.strictEqual(ragged[0].section, 'Image link');
+});
+
+test('37. no English master, but every market carries the identical shared value — silent', function () {
+  var ragged = findingsOf(MULTI_MARKET_QUALITY, 'ragged').filter(function (f) { return f.section === 'Shared asset'; });
+
+  assert.strictEqual(ragged.length, 0, 'a shared image URL with no master must not be flagged: ' + JSON.stringify(ragged));
+});
+
+test('38. a market cell identical to the English master is offered as a check, never asserted wrong', function () {
+  var untranslated = findingsOf(MULTI_MARKET_QUALITY, 'untranslated');
+  var markets = untranslated.map(function (f) { return f.market; });
+
+  assert.ok(markets.indexOf('SPAIN') !== -1 && markets.indexOf('PORTUGAL') !== -1, JSON.stringify(untranslated));
+  assert.ok(markets.indexOf('ITALY') === -1, 'ITALY translated the sentence around the brand name, so it must not fire: ' + JSON.stringify(untranslated));
+  untranslated.forEach(function (f) { assert.strictEqual(f.severity, 'check'); });
+});
+
+test('39. breaks and checks tally by severity', function () {
+  var a = engine.analyse(MULTI_MARKET_QUALITY, { workTypeOverride: 'localization' });
+  var breaks = a.rowQuality.findings.filter(function (f) { return f.severity === 'break'; }).length;
+  var checks = a.rowQuality.findings.filter(function (f) { return f.severity === 'check'; }).length;
+
+  assert.strictEqual(a.rowQuality.breaks, breaks);
+  assert.strictEqual(a.rowQuality.checks, checks);
+  assert.ok(a.rowQuality.breaks > 0 && a.rowQuality.checks > 0, JSON.stringify(a.rowQuality));
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
