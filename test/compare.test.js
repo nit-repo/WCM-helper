@@ -1252,6 +1252,53 @@ test('89. a page with no accordion-trigger elements behaves exactly as before', 
   assert.deepStrictEqual(page.triggerHeadings, [], 'no accordions on this fixture');
 });
 
+// ─── Naming the canonical Tridion component from CSS alone ───────────────
+// A CMS preview page's Component Field markers name the exact component and
+// field; a live production page has neither, only the CSS classes a
+// template renders. tridionComponents (config/work-types.json, documented in
+// tridion-component-taxonomy.md) maps a live section's class combination to
+// the same component name a marker would have given, so a locator on a live
+// page can still say "Accordion" instead of only the CSS-derived "FAQ".
+
+test('90. a CSS-only module resolves its canonical Tridion component from class names', function () {
+  var faq = comparer.readPage(FAQ_PAGE).modules.filter(function (m) { return m.name === 'module-faq'; })[0];
+
+  assert.ok(faq, 'the FAQ module is missing from the fixture');
+  assert.strictEqual(faq.component, 'Accordion');
+  assert.strictEqual(faq.fields.length, 0, 'this fixture carries no Component Field markers');
+});
+
+test('91. a module\'s own field markers always win over the CSS component mapping', function () {
+  var faq = siPage().modules.filter(function (m) { return m.name === 'module-faq'; })[0];
+
+  // The same CSS classes would map to "Accordion" on a markerless page, but
+  // this module already has exact field paths — the coarser CSS-derived
+  // name must never displace them.
+  assert.strictEqual(faq.component, 'Accordion', 'the CSS mapping still resolves the type');
+  assert.ok(faq.fields.length > 0, 'this fixture does carry markers');
+  assert.strictEqual(comparer.placeIn(faq, null).where, 'FAQ', 'no CSS suffix when markers are present');
+});
+
+test('92. a live-page finding is placed with its canonical component name, not just the CSS label', function () {
+  var faq = comparer.readPage(FAQ_PAGE).modules.filter(function (m) { return m.name === 'module-faq'; })[0];
+
+  assert.strictEqual(comparer.placeIn(faq, null).where, 'FAQ · Accordion');
+});
+
+var HERO_ONLY_PAGE = '<html lang="en"><body><main>' +
+  '<section class="banner hero-banner" id="item-9001">' +
+  '<h1>Space-saving lifts for modern buildings</h1>' +
+  '<p class="intro">A compact machine-room-less elevator built for tight shafts.</p>' +
+  '</section>' +
+  '</main></body></html>';
+
+test('93. the body ledger names the canonical component on a live page too', function () {
+  var led = ledgerOf('A compact machine-room-less elevator built for tight shafts.', HERO_ONLY_PAGE, 'new-page');
+
+  assert.strictEqual(led[0].status, 'found');
+  assert.strictEqual(led[0].in, 'Hero banner · HeroBanner');
+});
+
 // ─── Picking which brief matches a pasted page ───────────────────────────
 // Compare has always assumed one brief matches one page. pickBrief ranks
 // several candidates against one page: a declared URL Path or market is a
@@ -1268,7 +1315,7 @@ var UNRELATED_BRIEF = [
   'This paragraph has nothing in common with the safety page at all, not one sentence.'
 ].join('\n');
 
-test('90. a declared URL Path that matches the page is picked outright, even with an unrelated candidate present', function () {
+test('94. a declared URL Path that matches the page is picked outright, even with an unrelated candidate present', function () {
   var picked = comparer.pickBrief([
     { id: 'safety', label: 'Safety brief', text: BRIEF, workTypeId: 'new-page' },
     { id: 'other', label: 'Unrelated brief', text: UNRELATED_BRIEF, workTypeId: 'new-page' }
@@ -1287,7 +1334,7 @@ var SPAIN_BRIEF = [
   'H1\tHello\tHola\tCiao\tOla'
 ].join('\n');
 
-test('91. a localization brief\'s declared market resolves to a domain that matches the page\'s host', function () {
+test('95. a localization brief\'s declared market resolves to a domain that matches the page\'s host', function () {
   var picked = comparer.pickBrief([
     { id: 'es', label: 'Spain brief', text: SPAIN_BRIEF, workTypeId: 'localization' }
   ], SPAIN_PAGE);
@@ -1297,7 +1344,7 @@ test('91. a localization brief\'s declared market resolves to a domain that matc
   assert.strictEqual(picked.candidates[0].declared.domain, 'kone.es');
 });
 
-test('92. two candidates both declaring a URL that matches the page fall back to content coverage', function () {
+test('96. two candidates both declaring a URL that matches the page fall back to content coverage', function () {
   var sameUrlOtherContent = [
     'Meta Title: Different Title, Same Path | KONE',
     'URL Path: https://www.kone.in/blog/lift-safety-features',
@@ -1326,7 +1373,7 @@ var NO_CANONICAL_PAGE =
   '<html><body><main><h1>Safety Features</h1><p>Emergency braking systems automatically activate if the ' +
   'elevator exceeds its designated speed or detects an abnormal condition.</p></main></body></html>';
 
-test('93. no candidate declares a URL or market — picked by content coverage alone', function () {
+test('97. no candidate declares a URL or market — picked by content coverage alone', function () {
   var picked = comparer.pickBrief([
     { id: 'good', label: 'Matching brief', text: NEW_PAGE_MATCH, workTypeId: 'new-page' },
     { id: 'bad', label: 'Unrelated brief', text: NEW_PAGE_MISS, workTypeId: 'new-page' }
@@ -1337,7 +1384,7 @@ test('93. no candidate declares a URL or market — picked by content coverage a
   assert.strictEqual(picked.candidates.filter(function (c) { return c.id === 'good'; })[0].coverage, 1);
 });
 
-test('94. coverage scores with no clear winner report ambiguous, every candidate\'s score visible', function () {
+test('98. coverage scores with no clear winner report ambiguous, every candidate\'s score visible', function () {
   var picked = comparer.pickBrief([
     { id: 'a', label: 'Brief A', text: NEW_PAGE_MISS, workTypeId: 'new-page' },
     { id: 'b', label: 'Brief B', text: NEW_PAGE_MISS, workTypeId: 'new-page' }
@@ -1348,7 +1395,7 @@ test('94. coverage scores with no clear winner report ambiguous, every candidate
   assert.strictEqual(picked.candidates.length, 2);
 });
 
-test('95. no candidates given returns how: none', function () {
+test('99. no candidates given returns how: none', function () {
   var picked = comparer.pickBrief([], CLEAN);
 
   assert.strictEqual(picked.how, 'none');
@@ -1356,7 +1403,7 @@ test('95. no candidates given returns how: none', function () {
   assert.deepStrictEqual(picked.candidates, []);
 });
 
-test('96. a candidate brief compare.js can\'t even read scores 0 and never wins over a real candidate', function () {
+test('100. a candidate brief compare.js can\'t even read scores 0 and never wins over a real candidate', function () {
   var unreadable = 'nothing usable in here at all, no labels, no structure';
   var picked = comparer.pickBrief([
     { id: 'good', label: 'Matching brief', text: NEW_PAGE_MATCH, workTypeId: 'new-page' },
@@ -1368,7 +1415,7 @@ test('96. a candidate brief compare.js can\'t even read scores 0 and never wins 
   assert.strictEqual(picked.candidates.filter(function (c) { return c.id === 'empty'; })[0].coverage, 0);
 });
 
-test('97. a candidate whose work type Compare does not support scores 0, same as an unreadable one', function () {
+test('101. a candidate whose work type Compare does not support scores 0, same as an unreadable one', function () {
   var picked = comparer.pickBrief([
     { id: 'good', label: 'Matching brief', text: NEW_PAGE_MATCH, workTypeId: 'new-page' },
     { id: 'redirect', label: 'Redirect brief', text: 'https://a.example/\thttps://b.example/', workTypeId: 'redirect' }
@@ -1394,14 +1441,14 @@ var TRANSLATIONS = [
   'Germany\tGerman\tDatenzugriff gemäß EU-Datengesetz\tWenn Sie Zugang zu Ihren Daten beantragen möchten, können Sie dies tun.\tSie können eine Anfrage über unser Kontaktportal stellen.'
 ].join('\n');
 
-test('98. a Translations-shaped brief is readable, not "unreadable"', function () {
+test('102. a Translations-shaped brief is readable, not "unreadable"', function () {
   var expect = comparer.readBrief(TRANSLATIONS, 'localization', config['work-types']);
 
   assert.strictEqual(expect.mode, 'markets-by-field');
   assert.ok(expect.sections.length >= 3 && expect.body.length >= 3, JSON.stringify(expect));
 });
 
-test('99. each market row is scoped to that market, not tab-joined into one blob', function () {
+test('103. each market row is scoped to that market, not tab-joined into one blob', function () {
   var expect = comparer.readBrief(TRANSLATIONS, 'localization', config['work-types']);
   var bg = expect.sections.filter(function (w) { return w.section === 'Bulgaria'; })[0];
 
@@ -1412,7 +1459,7 @@ test('99. each market row is scoped to that market, not tab-joined into one blob
     'the market identity column must never leak into the body text: ' + JSON.stringify(bgBody));
 });
 
-test('100. a page carrying the Bulgarian translation verbatim reports it found', function () {
+test('104. a page carrying the Bulgarian translation verbatim reports it found', function () {
   var page = '<html><body><main><h2>Достъп до данни съгласно EU Data Act</h2>' +
     '<p>Ако желаете да поискате достъп до данните си съгласно Регламента на ЕС за данните, можете да го направите.</p>' +
     '<p>Може да подадете искане чрез нашия портал за контакт.</p></main></body></html>';
@@ -1425,7 +1472,7 @@ test('100. a page carrying the Bulgarian translation verbatim reports it found',
   assert.strictEqual(bgBreaks.length, 0, 'Bulgaria\'s own copy must not be reported missing: ' + textOf(cat(r, 'body')));
 });
 
-test('101. stray front matter above the real header is not read as the header, or as a data row', function () {
+test('105. stray front matter above the real header is not read as the header, or as a data row', function () {
   var withFrontMatter = [
     '46\t\t\tOption 1 text in English\tOption 2 text in English\tconfirm',
     'EU Country\tEnglish\tEU Data Act data access\tIf you wish to request access, contact us at eudataact@kone.com.'
@@ -1447,7 +1494,7 @@ test('101. stray front matter above the real header is not read as the header, o
 // some not, but the row's status used to be 'found' only if every fragment
 // matched — anything less read identically to zero found.
 
-test('102. a row with some sentences found and some absent is "partial", not "missing"', function () {
+test('106. a row with some sentences found and some absent is "partial", not "missing"', function () {
   var brief = 'Row identity text that never appears on the page at all whatsoever, not once. ' +
     'Genuine sentence that really is live on the page right now, word for word.';
   var page = '<html><body><main><p>Genuine sentence that really is live on the page right now, word for word.</p></main></body></html>';
@@ -1458,7 +1505,7 @@ test('102. a row with some sentences found and some absent is "partial", not "mi
   assert.strictEqual(led[0].partsFound, 1);
 });
 
-test('103. a partial row reports only the genuinely absent fragment as a break, not the whole row', function () {
+test('107. a partial row reports only the genuinely absent fragment as a break, not the whole row', function () {
   var brief = 'Row identity text that never appears on the page at all whatsoever, not once. ' +
     'Genuine sentence that really is live on the page right now, word for word.';
   var page = '<html><body><main><p>Genuine sentence that really is live on the page right now, word for word.</p></main></body></html>';
@@ -1469,7 +1516,7 @@ test('103. a partial row reports only the genuinely absent fragment as a break, 
   assert.ok(/Row identity text/.test(breaks[0].expected), 'the reported fragment is the missing one, not the found one');
 });
 
-test('104. a row with three absent fragments still counts once against coverage, not three times', function () {
+test('108. a row with three absent fragments still counts once against coverage, not three times', function () {
   var brief = 'Row prefix that pollutes every sentence in this cell. ' +
     'None of this text appears anywhere on the page at all. ' +
     'Not one single fragment of this sentence is present either.';

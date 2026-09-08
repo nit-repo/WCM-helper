@@ -285,6 +285,25 @@
     return m ? m[1] : null;
   }
 
+  // The CSS classes a live production page renders are the only structural
+  // signal it carries — the Component Presentation/Field comments a CMS
+  // preview page has are stripped before publish. tridionComponents (see
+  // tridion-component-taxonomy.md) maps a set of classes co-occurring on a
+  // section to the canonical Tridion component type that renders them, so a
+  // locator can still say "Accordion" rather than only the CSS-derived label.
+  // The most specific match wins (most classes required), so a broad key
+  // like "accordion" never shadows a narrower "module module-faq" match.
+  function tridionComponentOf(tokens, cfg) {
+    var map = (cfg && cfg.tridionComponents) || {};
+    var best = null, bestCount = 0;
+    Object.keys(map).forEach(function (key) {
+      var need = key.split(/\s+/).filter(function (t) { return t; });
+      var allPresent = need.every(function (t) { return tokens.indexOf(t) !== -1; });
+      if (allPresent && need.length > bestCount) { best = map[key]; bestCount = need.length; }
+    });
+    return best;
+  }
+
   function modulesIn(regionHtml, cfg) {
     var prefix = (cfg && cfg.modulePrefix) || 'module-';
     var extra = (cfg && cfg.moduleClasses) || ['hero-banner'];
@@ -305,6 +324,10 @@
         // on the real page carry none at all. It is a reference, never a name.
         id: attr(m[0], 'id') || null,
         componentId: componentIdIn(inner),
+        // The canonical Tridion component type, from CSS alone. Distinct
+        // from componentId (this page's per-instance CME id, only present
+        // with markers) — this is the type, derivable even without markers.
+        component: tridionComponentOf(tokens, cfg),
         heading: firstHeading(inner),
         start: m.index,
         end: end,
@@ -336,9 +359,19 @@
     return mod.label + (mod.ofType > 1 ? ' #' + mod.ordinal : '');
   }
 
+  // A module's own field markers, when it has any, already give the exact
+  // slot a finding sits in \u2014 that always wins. Only when there are none (a
+  // live page, stripped of markers) does the CSS-derived component name
+  // stand in, and only then: a page that already has a precise field path
+  // never needs the coarser fallback.
+  function componentSuffix(mod) {
+    return (!mod.fields || !mod.fields.length) && mod.component ? mod.component : null;
+  }
+
   function placeOf(mod, fieldPath) {
+    var suffix = fieldPath || componentSuffix(mod);
     return {
-      where: moduleLabel(mod) + (fieldPath ? ' \u00b7 ' + fieldPath : ''),
+      where: moduleLabel(mod) + (suffix ? ' \u00b7 ' + suffix : ''),
       anchor: mod.id ? '#' + mod.id : null,
       componentId: mod.componentId || null,
       moduleHeading: mod.heading || null
@@ -947,7 +980,8 @@
   function bodyMatches(expect, page) {
     var pageText = normalise(page.text);
     var mods = (page.modules || []).map(function (m) {
-      return { label: moduleLabel(m), text: normalise(m.text) };
+      var suffix = componentSuffix(m);
+      return { label: moduleLabel(m) + (suffix ? ' · ' + suffix : ''), text: normalise(m.text) };
     });
     function locate(needle) {
       var hit = mods.filter(function (m) { return m.text.indexOf(needle) !== -1; })[0];

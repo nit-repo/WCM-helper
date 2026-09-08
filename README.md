@@ -55,6 +55,8 @@ Localization briefs arrive as a tab-separated table or as prose, and both work �
 
 Every finding is either a **break** — a real defect — or a **check**, something expected to fire on correct pages that a human should glance at. Breaks sort first, and the tally at the top reads "*2 to fix, 1 to check by eye*". The distinction exists because a comparer that cries wolf gets ignored.
 
+**Findings are placed by their Tridion component, not just a CSS label.** A CMS preview page's `<!-- Start Component Field -->` comments already name the exact component and field a piece of content lives in ("*FAQ · Accordion/items[1]/title*"). A live production page has none of those comments — they're stripped before publish — so a `tridionComponents` mapping (in `config/work-types.json`, documented in full in `tridion-component-taxonomy.md`) reads the section's CSS classes and names the same component anyway ("*FAQ · Accordion*"). Field markers, when a page has them, always win over the CSS guess.
+
 It works on the four jobs that produce a page to read — new page, localization, content update, keyword update. Redirect and removal are checked by following the URL, so the Compare tab says so rather than inventing findings.
 
 Two limits worth stating plainly:

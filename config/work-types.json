@@ -53,7 +53,21 @@
       "volver arriba",
       "torna su"
     ],
-    "note": "Which element wraps the main content decides whether the body report is signal or nav labels. These are the standard fallbacks; if a KONE template uses its own wrapper, add its class here (leading dot) ahead of the fallbacks. Redirect and removal are absent on purpose: they are verified by following the URL, not by reading markup. assetVariantPattern strips crop and size suffixes so a DAM variant still resolves to the source asset; widen it if a template uses other suffixes. accordionTriggers lists the class(es) used on an FAQ/accordion question button — an AEM template can render a question as plain button text with no heading tag at all, and this is how the structure check still recognises it as one."
+    "tridionComponents": {
+      "hero-banner-wrapper": "HeroBanner",
+      "banner hero-banner": "HeroBanner",
+      "module module-faq": "Accordion",
+      "accordion": "Accordion",
+      "module-content-blocks": "ContentBlocks",
+      "module-product-specification-carousel": "ProductSpecificationCarousel",
+      "module-product-teaser": "ProductTeaser",
+      "module-campaign-highlights": "CampaignHighlight",
+      "content content-river": "ContentRiver",
+      "cta-list": "MultiCTAModule",
+      "value-highlights": "ValueHighlight",
+      "product-specification__item": "ProductSpecificationItem"
+    },
+    "note": "Which element wraps the main content decides whether the body report is signal or nav labels. These are the standard fallbacks; if a KONE template uses its own wrapper, add its class here (leading dot) ahead of the fallbacks. Redirect and removal are absent on purpose: they are verified by following the URL, not by reading markup. assetVariantPattern strips crop and size suffixes so a DAM variant still resolves to the source asset; widen it if a template uses other suffixes. accordionTriggers lists the class(es) used on an FAQ/accordion question button — an AEM template can render a question as plain button text with no heading tag at all, and this is how the structure check still recognises it as one. tridionComponents maps a live page's CSS class combination (all listed classes must be present on the section, order does not matter) to the canonical Tridion component type it renders — see tridion-component-taxonomy.md. Used only when a module carries no Component Field markers of its own (a CMS preview page's markers always win); it is how a locator on a live production page can still say 'Accordion' instead of just the CSS-derived label 'FAQ'."
   },
 
   "workTypes": [
