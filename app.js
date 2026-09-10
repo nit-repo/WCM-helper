@@ -36,6 +36,26 @@
     marketSelect: document.getElementById('market-select')
   };
 
+  // ─── BOOKMARKLET HANDOFF ─────────────────────────────────────────────────
+  // A bookmarklet run on a KONE page captures its outerHTML and opens a new
+  // tab here, carrying the HTML across via window.name — the standard
+  // no-backend technique for a cross-origin handoff (see bookmarklet.html).
+  // Read once, then cleared immediately either way: window.name persists
+  // across any later navigation in this tab, so leaving a captured page's
+  // markup sitting in it would be a real leak if the tab is ever reused for
+  // something unrelated. On every normal page load window.name doesn't
+  // carry the prefix, so this is a no-op next to the existing paste/upload
+  // flow into el.html.
+  (function bookmarkletHandoff() {
+    var PREFIX = 'WCMH1:';
+    var name = window.name;
+    window.name = '';
+    if (typeof name !== 'string' || name.indexOf(PREFIX) !== 0) return;
+    el.html.value = name.slice(PREFIX.length);
+    setMode('compare');
+    toast('Page loaded from bookmarklet — paste your brief and Compare.');
+  })();
+
   var SAMPLE = [
     'https://www.kone.dk/dxexperiments.aspx\tx\thttps://www.kone.dk/',
     'https://www.kone.dk/searchresults.aspx\tx\thttps://www.kone.dk/',
@@ -405,7 +425,7 @@
         cls = 'check';
       } else { where = 'found in ' + (e.in || 'the page'); cls = 'found'; }
       return '<li class="' + cls + '">' +
-        '<p class="ledger-head"><b>row ' + e.row + '</b>' +
+        '<p class="ledger-head"><span class="chip-num">' + e.row + '</span>' +
         (e.section ? '<span class="ledger-section">' + esc(e.section) + '</span>' : '') +
         '<span class="ledger-where">' + esc(where) + '</span></p>' +
         '<p class="ledger-text">' + esc(e.text) + '</p></li>';

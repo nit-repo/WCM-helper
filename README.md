@@ -61,7 +61,7 @@ It works on the four jobs that produce a page to read — new page, localization
 
 Two limits worth stating plainly:
 
-- **The tool cannot fetch the page.** A static browser app is blocked by CORS from reading a live KONE URL, which is why the HTML is pasted or uploaded. It follows that it cannot tell you an image is *broken* — only that the brief named an asset the page does not carry.
+- **The tool cannot fetch the page.** A static browser app is blocked by CORS from reading a live KONE URL, which is why the HTML is pasted or uploaded. It follows that it cannot tell you an image is *broken* — only that the brief named an asset the page does not carry. The [bookmarklet](bookmarklet.html) is the alternative to doing that by hand: it runs inside the KONE page itself, in your own already-authenticated browser tab — including CMS preview pages behind login that no fetch could reach anyway — and sends the page's markup here in one click, no View Source or copy-paste.
 - **Body text is compared verbatim after normalising.** Whitespace, `&nbsp;` and curly quotes are folded, then the match must be exact. A reworded sentence is reported; whether the rewording was deliberate is a judgement left to you.
 
 **URLs are compared as paths.** `preview.kone.in/services/index.aspx` and `www.kone.in/services/` are the same page, so the scheme, host, `.aspx`/`.html` extension, directory `index`, and trailing slash are all dropped before comparing — the query string is kept, because it can be meaningful. An environment difference is never reported; a genuinely different path still is.
