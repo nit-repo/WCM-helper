@@ -117,51 +117,45 @@
   window.addEventListener('resize', moveIndicator);
   moveIndicator();
 
-  // ─── BOOKMARKLET HANDOFF ─────────────────────────────────────────────────
-  // Two ways a page arrives from the bookmarklet, in the order the
-  // bookmarklet tries them (see bookmarklet.html):
+  // ─── BOOKMARKLET CAPTURE ─────────────────────────────────────────────────
+  // The bookmarklet never opens or navigates anything: it sends the page it
+  // is sitting on into THIS tab, so the brief already pasted here stays put.
+  // Two channels arrive here, and both land in acceptCapture:
   //
-  //   1. postMessage back into THIS tab, when the page was opened from the
-  //      launcher below and so has us as its window.opener. The preferred
-  //      path by far: the brief already pasted here stays put, where
-  //      landing in a fresh tab would lose it and make you paste it twice.
-  //   2. window.name on a newly-opened tab, when there is no opener —
-  //      clicking the bookmarklet cold, with no WCM Helper tab waiting.
+  //   1. postMessage from a page opened by the launcher below, which made
+  //      this window its opener. The only channel that can cross origins,
+  //      which is why the page has to be opened from Compare.
+  //   2. BroadcastChannel, origin-scoped, so it only carries anything when
+  //      the tool and the page happen to share an origin.
   //
-  // Captured markup is only ever read as data — parsed with string and
-  // regex passes, escaped before it reaches the DOM — never executed or
-  // assigned to innerHTML, so an unexpected message can't do more than
-  // fill a textarea.
+  // The guard is window identity, not a one-shot flag: a WindowProxy stays
+  // the same object across navigations in its tab, so you can click around
+  // the site and capture whenever, and capture the same tab again after an
+  // edit — while a message from a window this tab never opened is ignored.
+  //
+  // Captured markup is only ever read as data — string and regex passes,
+  // escaped before it reaches the DOM — never executed or assigned to
+  // innerHTML, so the worst an unexpected message could do is fill a
+  // textarea.
+  var launched = null;
 
-  // Path 2. Read once, then cleared immediately either way: window.name
-  // persists across any later navigation in this tab, so leaving a
-  // captured page's markup sitting in it would be a real leak if the tab
-  // is ever reused for something unrelated. On every normal page load the
-  // prefix isn't there, so this is a no-op.
-  (function bookmarkletHandoff() {
-    var PREFIX = 'WCMH1:';
-    var name = window.name;
-    window.name = '';
-    if (typeof name !== 'string' || name.indexOf(PREFIX) !== 0) return;
-    el.html.value = name.slice(PREFIX.length);
-    setMode('compare');
-    toast('Page loaded from bookmarklet — paste your brief and Compare.');
-  })();
-
-  // Path 1. Only accepted while a launch from this tab is outstanding, so
-  // an unsolicited message from a page we never opened is ignored.
-  var awaitingCapture = false;
-
-  window.addEventListener('message', function (e) {
-    var data = e.data;
-    if (!awaitingCapture) return;
+  function acceptCapture(data) {
     if (!data || data.type !== 'WCM_PAGE_CAPTURE' || typeof data.html !== 'string') return;
-
-    awaitingCapture = false;
     el.html.value = data.html;
     setMode('compare');
     toast('Captured ' + shortHost(data.url) + ' — brief kept, ready to Compare.');
+  }
+
+  window.addEventListener('message', function (e) {
+    if (!launched || e.source !== launched) return;
+    acceptCapture(e.data);
   });
+
+  try {
+    new BroadcastChannel('wcm_helper').addEventListener('message', function (e) {
+      acceptCapture(e.data);
+    });
+  } catch (e) { /* no BroadcastChannel: the opener channel above still works */ }
 
   function shortHost(url) {
     try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return 'the page'; }
@@ -262,7 +256,7 @@
 
     var w = window.open(url, '_blank');
     if (!w) { toast('Pop-up blocked — allow pop-ups for this site.'); return; }
-    awaitingCapture = true;
+    launched = w;
     toast('Opened it. Click the bookmarklet on that tab to send it back.');
   });
 
