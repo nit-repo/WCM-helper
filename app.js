@@ -26,6 +26,8 @@
     htmlUpload: document.getElementById('html-upload-btn'),
     htmlClear: document.getElementById('html-clear-btn'),
     htmlFile: document.getElementById('html-file'),
+    pageUrl: document.getElementById('page-url'),
+    launch: document.getElementById('launch-btn'),
     briefUpload: document.getElementById('brief-upload-btn'),
     briefFile: document.getElementById('brief-file'),
     tabFill: document.getElementById('tab-fill'),
@@ -37,15 +39,26 @@
   };
 
   // ─── BOOKMARKLET HANDOFF ─────────────────────────────────────────────────
-  // A bookmarklet run on a KONE page captures its outerHTML and opens a new
-  // tab here, carrying the HTML across via window.name — the standard
-  // no-backend technique for a cross-origin handoff (see bookmarklet.html).
-  // Read once, then cleared immediately either way: window.name persists
-  // across any later navigation in this tab, so leaving a captured page's
-  // markup sitting in it would be a real leak if the tab is ever reused for
-  // something unrelated. On every normal page load window.name doesn't
-  // carry the prefix, so this is a no-op next to the existing paste/upload
-  // flow into el.html.
+  // Two ways a page arrives from the bookmarklet, in the order the
+  // bookmarklet tries them (see bookmarklet.html):
+  //
+  //   1. postMessage back into THIS tab, when the page was opened from the
+  //      launcher below and so has us as its window.opener. The preferred
+  //      path by far: the brief already pasted here stays put, where
+  //      landing in a fresh tab would lose it and make you paste it twice.
+  //   2. window.name on a newly-opened tab, when there is no opener —
+  //      clicking the bookmarklet cold, with no WCM Helper tab waiting.
+  //
+  // Captured markup is only ever read as data — parsed with string and
+  // regex passes, escaped before it reaches the DOM — never executed or
+  // assigned to innerHTML, so an unexpected message can't do more than
+  // fill a textarea.
+
+  // Path 2. Read once, then cleared immediately either way: window.name
+  // persists across any later navigation in this tab, so leaving a
+  // captured page's markup sitting in it would be a real leak if the tab
+  // is ever reused for something unrelated. On every normal page load the
+  // prefix isn't there, so this is a no-op.
   (function bookmarkletHandoff() {
     var PREFIX = 'WCMH1:';
     var name = window.name;
@@ -55,6 +68,25 @@
     setMode('compare');
     toast('Page loaded from bookmarklet — paste your brief and Compare.');
   })();
+
+  // Path 1. Only accepted while a launch from this tab is outstanding, so
+  // an unsolicited message from a page we never opened is ignored.
+  var awaitingCapture = false;
+
+  window.addEventListener('message', function (e) {
+    var data = e.data;
+    if (!awaitingCapture) return;
+    if (!data || data.type !== 'WCM_PAGE_CAPTURE' || typeof data.html !== 'string') return;
+
+    awaitingCapture = false;
+    el.html.value = data.html;
+    setMode('compare');
+    toast('Captured ' + shortHost(data.url) + ' — brief kept, ready to Compare.');
+  });
+
+  function shortHost(url) {
+    try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return 'the page'; }
+  }
 
   var SAMPLE = [
     'https://www.kone.dk/dxexperiments.aspx\tx\thttps://www.kone.dk/',
@@ -141,6 +173,20 @@
     else if (state.mode === 'fill') runFill();
   });
   el.compareBtn.addEventListener('click', runCompare);
+  // Opening the page from here is what makes this tab its window.opener,
+  // which is what lets the bookmarklet report back into this tab instead of
+  // starting a fresh one and stranding the brief.
+  el.launch.addEventListener('click', function () {
+    var url = el.pageUrl.value.trim();
+    if (!url) { toast('Paste the page URL first.'); return; }
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+
+    var w = window.open(url, '_blank');
+    if (!w) { toast('Pop-up blocked — allow pop-ups for this site.'); return; }
+    awaitingCapture = true;
+    toast('Opened it. Click the bookmarklet on that tab to send it back.');
+  });
+
   el.htmlUpload.addEventListener('click', function () { el.htmlFile.click(); });
   el.htmlClear.addEventListener('click', function () { el.html.value = ''; });
   el.htmlFile.addEventListener('change', function (e) {
