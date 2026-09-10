@@ -81,7 +81,7 @@
 
     /* Full-bleed: the tool fills the window. Nav rail on the left, work
        area taking the rest. */
-    .layout { display: flex; min-height: 100vh; align-items: stretch; }
+    .layout { display: flex; height: 100vh; align-items: stretch; overflow: hidden; }
 
     .sidebar {
       flex: none; width: 236px;
@@ -101,7 +101,7 @@
       font-size: 11px; margin: 6px 0 0; color: var(--white); opacity: 0.7;
     }
 
-    .workspace { flex: 1; min-width: 0; }
+    .workspace { flex: 1; min-width: 0; height: 100vh; overflow: hidden; }
 
     @media (max-width: 900px) {
       .layout { flex-direction: column; }
@@ -125,13 +125,35 @@
     main {
       display: grid;
       grid-template-columns: minmax(340px, 5fr) minmax(420px, 7fr);
-      align-items: start;
-      min-height: 100vh;
+      align-items: stretch;
+      height: 100vh;
     }
-    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
 
-    .pane-input { padding: 28px 32px; border-right: 1px solid var(--hairline); }
-    .pane-output { padding: 28px 32px; background: #FCFCFC; }
+    /* Each pane scrolls on its own: reading a long comparison never drags
+       the brief and the page HTML off the top of the window. */
+    .pane-input {
+      padding: 28px 32px; border-right: 1px solid var(--hairline);
+      height: 100vh; overflow-y: auto; overscroll-behavior: contain;
+    }
+    .pane-output {
+      padding: 28px 32px; background: #FCFCFC;
+      height: 100vh; overflow-y: auto; overscroll-behavior: contain;
+      scroll-behavior: smooth;
+    }
+
+    /* A slim, on-brand scrollbar rather than the platform default. */
+    .pane-input::-webkit-scrollbar, .pane-output::-webkit-scrollbar { width: 10px; }
+    .pane-input::-webkit-scrollbar-thumb, .pane-output::-webkit-scrollbar-thumb {
+      background: var(--black-20); border-radius: var(--radius-sm);
+      border: 3px solid transparent; background-clip: content-box;
+    }
+    .pane-input::-webkit-scrollbar-thumb:hover, .pane-output::-webkit-scrollbar-thumb:hover { background-color: var(--black-40); background-clip: content-box; }
+
+    @media (max-width: 900px) {
+      .layout, .workspace { height: auto; overflow: visible; }
+      main { grid-template-columns: 1fr; height: auto; }
+      .pane-input, .pane-output { height: auto; overflow: visible; }
+    }
 
     h2.pane-title {
       font-family: var(--font-secondary); text-transform: uppercase; letter-spacing: 0.06em;
@@ -168,11 +190,47 @@
     .empty-state ol { padding-left: 18px; }
     .empty-state code { background: var(--sand); padding: 1px 6px; border-radius: 4px; font-size: 13px; }
 
+    /* ─── Motion ──────────────────────────────────────────────────────
+       Sections roll up into place as they render and as they are scrolled
+       to. The reveal class is only ever added by JS, so with scripting or
+       an IntersectionObserver missing the content is simply there rather
+       than stuck invisible. Honours prefers-reduced-motion. */
+    @keyframes roll-in {
+      from { opacity: 0; transform: perspective(900px) rotateX(-7deg) translateY(20px); }
+      to   { opacity: 1; transform: none; }
+    }
+    @keyframes sweep {
+      from { transform: scaleX(0); }
+      to   { transform: scaleX(1); }
+    }
+
+    #output .reveal { opacity: 0; will-change: opacity, transform; }
+    #output .reveal.in-view {
+      animation: roll-in 560ms cubic-bezier(.16, .84, .44, 1) both;
+      animation-delay: calc(var(--i, 0) * 65ms);
+    }
+    /* A hairline that sweeps across a card's top edge as it lands. */
+    #output .reveal.in-view.card::before {
+      content: ''; position: absolute; inset: -1px auto auto -1px; height: 2px; right: -1px;
+      background: var(--kone-blue); transform-origin: left center;
+      animation: sweep 620ms cubic-bezier(.16, .84, .44, 1) both;
+      animation-delay: calc(var(--i, 0) * 65ms + 120ms);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #output .reveal, #output .reveal.in-view { opacity: 1; animation: none; }
+      #output .reveal.in-view.card::before { animation: none; display: none; }
+      .pane-output { scroll-behavior: auto; }
+    }
+
     /* Flat: a hairline and white space, never a shadow. */
     section.card {
       background: var(--white); border: 1px solid var(--hairline); border-radius: var(--radius-md);
       padding: 16px 20px; margin-bottom: 16px;
+      position: relative; overflow: hidden;
+      transition: border-color 180ms ease;
     }
+    section.card:hover { border-color: var(--blue-20); }
     section.card > h3 {
       margin: 0 0 12px;
       font-family: var(--font-secondary); text-transform: uppercase; letter-spacing: 0.06em;
@@ -212,15 +270,29 @@
 
     /* ---- Tabs: the sidebar nav rail. One solid rounded item for the
        active mode, plain text for the rest. ---- */
-    .tabs { display: flex; flex-direction: column; gap: 4px; }
+    .tabs { display: flex; flex-direction: column; gap: 4px; position: relative; }
+
+    /* The blue block behind the active item, animated between positions.
+       Sits under the labels; the buttons themselves stay transparent. */
+    .tab-indicator {
+      position: absolute; left: 0; top: 0; height: 0; width: 0;
+      background: var(--kone-blue); border-radius: var(--radius-md);
+      transform: translateY(0); opacity: 0; pointer-events: none;
+      transition: transform 380ms cubic-bezier(.16, .84, .44, 1),
+                  height 380ms cubic-bezier(.16, .84, .44, 1),
+                  opacity 200ms ease;
+    }
+    @media (prefers-reduced-motion: reduce) { .tab-indicator { transition: none; } }
     .tab {
       font-family: var(--font-primary); font-size: 14px; font-weight: 500; cursor: pointer;
       padding: 11px 14px; text-align: left; width: 100%;
       border: none; border-radius: var(--radius-md);
       background: transparent; color: rgba(255,255,255,0.72);
+      position: relative; z-index: 1;
+      transition: color 180ms ease;
     }
     .tab:hover:not([aria-selected="true"]) { background: rgba(255,255,255,0.10); color: var(--white); }
-    .tab[aria-selected="true"] { background: var(--kone-blue); color: var(--white); font-weight: 600; }
+    .tab[aria-selected="true"] { color: var(--white); font-weight: 600; }
 
     @media (max-width: 900px) {
       .tabs { flex-direction: row; flex-wrap: wrap; }
@@ -368,6 +440,7 @@
       <p>Analyse a brief, or compare it against the page that got built</p>
     </div>
     <nav class="tabs" role="tablist">
+      <span class="tab-indicator" aria-hidden="true"></span>
       <button class="tab" id="tab-analyse" role="tab" aria-selected="true" type="button">Analyse</button>
       <button class="tab" id="tab-compare" role="tab" aria-selected="false" type="button">Compare</button>
       <button class="tab" id="tab-fill" role="tab" aria-selected="false" type="button">Fill</button>

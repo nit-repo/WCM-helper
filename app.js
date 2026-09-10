@@ -35,8 +35,87 @@
     fillBtn: document.getElementById('fill-btn'),
     english: document.getElementById('english'),
     marketOverride: document.getElementById('market-override'),
-    marketSelect: document.getElementById('market-select')
+    marketSelect: document.getElementById('market-select'),
+    tabIndicator: document.querySelector('.tab-indicator')
   };
+
+  // ─── MOTION ──────────────────────────────────────────────────────────────
+  // Results roll into place as they render, and again as they are scrolled
+  // to. Driven from a MutationObserver on the output pane rather than a
+  // call at each of the eleven render paths, so a render added later can
+  // never forget to animate.
+  //
+  // Nothing is hidden until JS has decided it can un-hide it: the .reveal
+  // class is only added when an IntersectionObserver exists to take it
+  // back off again. Without one, the output renders plainly.
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var seen = ('IntersectionObserver' in window) && new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (!entry.isIntersecting) return;
+      entry.target.classList.add('in-view');
+      seen.unobserve(entry.target);
+    });
+  }, { root: null, rootMargin: '0px 0px -6% 0px', threshold: 0.03 });
+
+  function armReveal() {
+    if (!seen || reduceMotion) return;
+    // Only the top-level blocks animate. Animating every nested row would
+    // read as noise rather than sequence.
+    var blocks = el.output.children;
+    for (var i = 0; i < blocks.length; i++) {
+      var block = blocks[i];
+      if (block.classList.contains('reveal')) continue;
+      block.classList.add('reveal');
+      // Capped: the twentieth card must not sit waiting well over a second.
+      block.style.setProperty('--i', Math.min(i, 12));
+      seen.observe(block);
+    }
+    countUp();
+  }
+
+  // The headline figure counts up to itself. Short, eased, and it always
+  // lands on the real number — the final frame is assigned from data-to
+  // rather than accumulated, so rounding can never leave it a digit out.
+  function countUp() {
+    var els = el.output.querySelectorAll('.tick-up');
+    Array.prototype.forEach.call(els, function (node) {
+      var to = parseInt(node.getAttribute('data-to'), 10);
+      if (isNaN(to) || reduceMotion) return;
+      if (node.getAttribute('data-done')) return;
+      node.setAttribute('data-done', '1');
+
+      var DURATION = 620;
+      var started = null;
+      function frame(now) {
+        if (started === null) started = now;
+        var t = Math.min((now - started) / DURATION, 1);
+        var eased = 1 - Math.pow(1 - t, 3);
+        node.textContent = t === 1 ? to : Math.round(to * eased);
+        if (t < 1) requestAnimationFrame(frame);
+      }
+      node.textContent = '0';
+      requestAnimationFrame(frame);
+    });
+  }
+
+  if (window.MutationObserver) {
+    new MutationObserver(armReveal).observe(el.output, { childList: true });
+  }
+
+  // The blue block behind the active nav item travels to it rather than
+  // blinking across. Measured from the button itself, so it stays correct
+  // when the rail reflows to a row on a narrow window.
+  function moveIndicator() {
+    var active = document.querySelector('.tab[aria-selected="true"]');
+    if (!el.tabIndicator || !active) return;
+    el.tabIndicator.style.height = active.offsetHeight + 'px';
+    el.tabIndicator.style.transform = 'translate(' + active.offsetLeft + 'px,' + active.offsetTop + 'px)';
+    el.tabIndicator.style.width = active.offsetWidth + 'px';
+    el.tabIndicator.style.opacity = '1';
+  }
+  window.addEventListener('resize', moveIndicator);
+  moveIndicator();
 
   // ─── BOOKMARKLET HANDOFF ─────────────────────────────────────────────────
   // Two ways a page arrives from the bookmarklet, in the order the
@@ -213,6 +292,8 @@
     el.compareInput.hidden = mode !== 'compare';
     el.fillInput.hidden = mode !== 'fill';
     el.copy.hidden = mode !== 'analyse';
+
+    moveIndicator();
 
     el.output.innerHTML = '';
     if (mode === 'compare') renderCompareEmpty();
@@ -397,7 +478,8 @@
     var coverage = cov.complete
       ? '<p class="coverage ok">All ' + cov.total + ' item' + (cov.total === 1 ? '' : 's') +
         ' from the brief are on the page.</p>'
-      : '<p class="coverage short">' + cov.found + ' of ' + cov.total +
+      : '<p class="coverage short"><span class="tick-up" data-to="' + cov.found + '">' + cov.found +
+        '</span> of ' + cov.total +
         ' items from the brief are on the page — <b>' + cov.missing + '</b> missing.</p>';
 
     var suspect = result.suspectParse
