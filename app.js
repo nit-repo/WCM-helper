@@ -560,6 +560,10 @@
           (e.partsTotal - e.partsFound) + ' of ' + e.partsTotal + ' sentences missing';
         cls = 'check';
       } else { where = 'found in ' + (e.in || 'the page'); cls = 'found'; }
+      // A link knows better than this function where it landed — "found as
+      // 'KONE elevator modernisation'" says more than "found in the page" —
+      // so an entry carrying its own line wins.
+      if (e.where) where = e.where;
       return '<li class="' + cls + '">' +
         '<p class="ledger-head"><span class="chip-num">' + e.row + '</span>' +
         (e.section ? '<span class="ledger-section">' + esc(e.section) + '</span>' : '') +
@@ -567,9 +571,11 @@
         '<p class="ledger-text">' + esc(e.text) + '</p></li>';
     }).join('');
 
+    var hit = c.ledger.length - missing.length - partial.length;
     return '<details class="ledger"><summary>' + c.ledger.length +
-      ' item' + (c.ledger.length === 1 ? '' : 's') + ' from the brief, row by row</summary>' +
-      '<ul class="ledger-rows">' + items + '</ul></details>';
+      ' item' + (c.ledger.length === 1 ? '' : 's') + ' from the brief, row by row — ' +
+      hit + ' matched, ' + (missing.length + partial.length) + ' not' +
+      '</summary><ul class="ledger-rows">' + items + '</ul></details>';
   }
 
   function renderCategory(c) {

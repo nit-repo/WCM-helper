@@ -1528,5 +1528,178 @@ test('108. a row with three absent fragments still counts once against coverage,
   assert.strictEqual(r.coverage.missing, 1, 'one brief row is one missing unit, however many sentences it splits into: ' + JSON.stringify(r.coverage));
 });
 
+// ─── Brief front matter ──────────────────────────────────────────────────
+// A real kone.com.au blog brief: tab-separated rows, a label wrapped across
+// two lines by the paste, and bullet rows carrying four keywords and three
+// internal links. Every one of them used to fall through the body catch-all
+// and report as missing page copy, while all five metadata fields read "not
+// defined in the brief" on a page that matched the brief exactly.
+
+var BLOG_BRIEF = [
+  'Please publish blog under Modernisation tab: https://www.kone.com.au/blogs/',
+  '',
+  'Blog Topic /Title\tHow Long Do Elevators Last? Lifespan, Signs of Ageing and When to Modernise',
+  'Cover Image',
+  'Image Link',
+  'Page Title/',
+  'Title Tag \tHow Long Do Elevators Last? Lifespan and Signs of Ageing',
+  'Meta Description/',
+  'Meta Tag\tHow long do elevators last? Usually 15 to 25 years. Here are the signs your lift is ageing.',
+  'Keywords\t\u25CF\thow long do elevators last',
+  '\u25CF\thow long do lifts last',
+  '\u25CF\televator lifespan',
+  'Internal Links\t\u25CF\thttps://www.kone.com.au/existing-buildings/elevator-modernisation/',
+  '\u25CF\thttps://www.kone.com.au/blogs/time-to-modernise-your-elevator.aspx',
+  '',
+  'How Long Do Elevators Last? Lifespan, Signs of Ageing and When to Modernise',
+  'Most lifts are designed for somewhere between 15 and 25 years of service, which is the short answer.'
+].join('\n');
+
+var BLOG_PAGE = '<html lang="en"><head>' +
+  '<title>How Long Do Elevators Last? Lifespan and Signs of Ageing - KONE Australia</title>' +
+  '<meta property="og:title" content="How Long Do Elevators Last? Lifespan and Signs of Ageing ">' +
+  '<meta name="description" content="How long do elevators last? Usually 15 to 25 years. Here are the signs your lift is ageing. ">' +
+  '<meta name="keywords" content="how long do elevators last,how long do lifts last,elevator lifespan">' +
+  '</head><body><main>' +
+  '<h1>How Long Do Elevators Last? Lifespan, Signs of Ageing and When to Modernise</h1>' +
+  '<p>Most lifts are designed for somewhere between 15 and 25 years of service, which is the short answer.</p>' +
+  '<p>See <a href="https://www.kone.com.au/existing-buildings/elevator-modernisation/">KONE elevator modernisation</a> ' +
+  'and <a href="/blogs/time-to-modernise-your-elevator.aspx">whether it is time to modernise your lift</a>.</p>' +
+  '</main></body></html>';
+
+test('109. tab-separated front-matter labels populate the metadata the brief actually defines', function () {
+  var expect = comparer.readBrief(BLOG_BRIEF, 'new-page', config['work-types']);
+  assert.strictEqual(expect.metadata.title, 'How Long Do Elevators Last? Lifespan and Signs of Ageing',
+    'Page Title/Title Tag is the meta title: ' + JSON.stringify(expect.metadata));
+  assert.ok(/^How long do elevators last\? Usually 15 to 25 years/.test(expect.metadata.description),
+    'Meta Description/Meta Tag is the description: ' + JSON.stringify(expect.metadata));
+});
+
+test('110. a label wrapped across two lines by the paste is rejoined, not lost', function () {
+  // "Page Title/" sits alone on its row and "Title Tag" carries the value on
+  // the next — which is how a spreadsheet cell arrives once it has wrapped.
+  var expect = comparer.readBrief(BLOG_BRIEF, 'new-page', config['work-types']);
+  assert.ok(expect.metadata.title, 'the wrapped label must still resolve to a field');
+});
+
+test('111. bullet rows attach to the label above them, not to the body copy', function () {
+  var expect = comparer.readBrief(BLOG_BRIEF, 'new-page', config['work-types']);
+  assert.strictEqual(expect.metadata.keywords,
+    'how long do elevators last, how long do lifts last, elevator lifespan',
+    'four keyword bullets are one keywords value: ' + JSON.stringify(expect.metadata.keywords));
+  assert.strictEqual(expect.links.length, 2, 'each internal-link bullet is its own link: ' + textOf(expect.links));
+});
+
+test('112. no front-matter row ever reaches the body expectations', function () {
+  var expect = comparer.readBrief(BLOG_BRIEF, 'new-page', config['work-types']);
+  var leaked = expect.body.filter(function (w) {
+    return /Blog Topic|Title Tag|Meta Tag|Internal Links|Keywords|Please publish/i.test(w.text);
+  });
+  assert.strictEqual(leaked.length, 0, 'front matter must not be read as page copy: ' + textOf(leaked));
+});
+
+test('113. Blog Topic/Title is the H1 the page must carry, not the meta title', function () {
+  var expect = comparer.readBrief(BLOG_BRIEF, 'new-page', config['work-types']);
+  assert.strictEqual(expect.sections.length, 1, 'the topic is a heading expectation: ' + textOf(expect.sections));
+  assert.ok(/When to Modernise$/.test(expect.sections[0].text),
+    'the topic keeps its own wording, which differs from the meta title: ' + expect.sections[0].text);
+  assert.notStrictEqual(expect.metadata.title, expect.sections[0].text);
+});
+
+test('114. a prose line carrying a colon is not eaten as a declaration', function () {
+  var brief = 'In this article: how long lifts last, how they age, and when modernisation is the answer here.\n' +
+    'A second paragraph of real copy that is long enough to count as a body expectation on its own.';
+  var expect = comparer.readBrief(brief, 'new-page', config['work-types']);
+  assert.strictEqual(expect.body.length, 2, 'both prose lines are body copy: ' + textOf(expect.body));
+});
+
+test('115. a label the vocabulary does not know is reported, never silently dropped', function () {
+  var r = comparer.compare(BLOG_BRIEF, BLOG_PAGE, { workTypeId: 'new-page' });
+  var expect = comparer.readBrief(BLOG_BRIEF, 'new-page', config['work-types']);
+  assert.ok(expect.frontMatter.length >= 1, 'the instruction row is kept: ' + textOf(expect.frontMatter));
+  var meta = r.categories.filter(function (c) { return c.id === 'metadata'; })[0];
+  assert.ok(/Please publish blog under Modernisation tab/.test(meta.note || ''),
+    'the unread label is named on the metadata block: ' + meta.note);
+});
+
+test('116. the real blog brief compares clean against the page built from it', function () {
+  var r = comparer.compare(BLOG_BRIEF, BLOG_PAGE, { workTypeId: 'new-page' });
+  assert.strictEqual(cat(r, 'metadata').length, 0, 'metadata: ' + textOf(cat(r, 'metadata')));
+  assert.strictEqual(cat(r, 'structure').length, 0, 'structure: ' + textOf(cat(r, 'structure')));
+  assert.strictEqual(cat(r, 'body').length, 0, 'body: ' + textOf(cat(r, 'body')));
+  assert.strictEqual(cat(r, 'links').length, 0, 'links: ' + textOf(cat(r, 'links')));
+});
+
+test('117. the colon-form front matter of the original labelled brief is unchanged', function () {
+  var expect = comparer.readBrief(BRIEF, 'new-page', config['work-types']);
+  assert.strictEqual(expect.metadata.title, 'Lift Safety Features | KONE India');
+  assert.strictEqual(expect.metadata.canonical, 'https://www.kone.in/blog/lift-safety-features');
+  assert.strictEqual(expect.metadata.keywords, 'elevator safety, high rise lifts');
+});
+
+// ─── Sentence boundaries, keyword lists and href-only links ──────────────
+
+test('118. a URL is not four sentences', function () {
+  var brief = 'Internal Links: https://www.kone.com.au/blogs/time-to-modernise-your-elevator.aspx and one more.';
+  var page = '<html><body><main><p>Nothing related at all.</p></main></body></html>';
+  var r = comparer.compare(brief, page, { workTypeId: 'new-page' });
+  var breaks = cat(r, 'body');
+  var torn = breaks.filter(function (d) { return /^(https:\/\/www\.|kone\.|com\.|au\/)/.test(d.expected); });
+  assert.strictEqual(torn.length, 0, 'a URL must never be split at its dots: ' + textOf(breaks));
+});
+
+test('119. ordinary prose still splits into sentences', function () {
+  var brief = 'This first sentence is genuinely on the page word for word. ' +
+    'This second sentence is nowhere on the page at all, not once.';
+  var page = '<html><body><main><p>This first sentence is genuinely on the page word for word.</p></main></body></html>';
+  var led = ledgerOf(brief, page, 'new-page');
+  assert.strictEqual(led[0].status, 'partial', 'one of the two sentences is present: ' + textOf(led));
+});
+
+test('120. keywords match whatever separator each side uses', function () {
+  var brief = 'Meta Keywords: lift safety, high rise lifts, elevator maintenance';
+  var page = '<html><head><title>t</title><meta name="keywords" content="elevator maintenance,lift safety,high rise lifts">' +
+    '</head><body><main><h1>Lift safety</h1><p>Body copy that is long enough to be read as an expectation here.</p></main></body></html>';
+  assert.strictEqual(cat(comparer.compare(brief, page, { workTypeId: 'new-page' }), 'metadata').length, 0,
+    'separator and order are not defects');
+});
+
+test('121. a keyword the page is actually missing is still a break', function () {
+  var brief = 'Meta Keywords: lift safety, high rise lifts, elevator maintenance';
+  var page = '<html><head><title>t</title><meta name="keywords" content="lift safety,high rise lifts">' +
+    '</head><body><main><h1>Lift safety</h1><p>Body copy that is long enough to be read as an expectation here.</p></main></body></html>';
+  var devs = cat(comparer.compare(brief, page, { workTypeId: 'new-page' }), 'metadata');
+  assert.strictEqual(devs.length, 1, 'a genuinely absent keyword is reported: ' + textOf(devs));
+});
+
+test('122. a brief declaring a bare URL matches the anchor that points there', function () {
+  var r = comparer.compare(BLOG_BRIEF, BLOG_PAGE, { workTypeId: 'new-page' });
+  assert.strictEqual(cat(r, 'links').length, 0,
+    'both internal links are on the page under their own anchor text: ' + textOf(cat(r, 'links')));
+});
+
+test('123. the links block carries a ledger of every link the brief asked for', function () {
+  var r = comparer.compare(BLOG_BRIEF, BLOG_PAGE, { workTypeId: 'new-page' });
+  var led = r.categories.filter(function (c) { return c.id === 'links'; })[0].ledger;
+  assert.strictEqual(led.length, 2, 'one entry per declared link: ' + textOf(led));
+  assert.ok(led.every(function (e) { return e.status === 'found'; }), textOf(led));
+  assert.ok(/KONE elevator modernisation/.test(led[0].where),
+    'the ledger names the anchor the link was found under: ' + led[0].where);
+});
+
+test('124. a declared link the page does not carry is in the ledger as a miss', function () {
+  // The extra bullet belongs inside the Internal Links block: appended
+  // after the copy it would be page copy, not a declared link.
+  var brief = BLOG_BRIEF.replace(
+    '\u25CF\thttps://www.kone.com.au/blogs/time-to-modernise-your-elevator.aspx',
+    '\u25CF\thttps://www.kone.com.au/blogs/time-to-modernise-your-elevator.aspx\n\u25CF\thttps://www.kone.com.au/blogs/nowhere-at-all.aspx');
+  var r = comparer.compare(brief, BLOG_PAGE, { workTypeId: 'new-page' });
+  var led = r.categories.filter(function (c) { return c.id === 'links'; })[0].ledger;
+  var miss = led.filter(function (e) { return e.status === 'missing'; });
+  assert.strictEqual(miss.length, 1, 'the absent link is in the ledger: ' + textOf(led));
+  assert.ok(/nowhere-at-all/.test(miss[0].text), textOf(miss));
+  assert.strictEqual(cat(r, 'links').length, 1, 'and it is still a deviation: ' + textOf(cat(r, 'links')));
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

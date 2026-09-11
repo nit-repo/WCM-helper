@@ -67,7 +67,17 @@
       "value-highlights": "ValueHighlight",
       "product-specification__item": "ProductSpecificationItem"
     },
-    "note": "Which element wraps the main content decides whether the body report is signal or nav labels. These are the standard fallbacks; if a KONE template uses its own wrapper, add its class here (leading dot) ahead of the fallbacks. Redirect and removal are absent on purpose: they are verified by following the URL, not by reading markup. assetVariantPattern strips crop and size suffixes so a DAM variant still resolves to the source asset; widen it if a template uses other suffixes. accordionTriggers lists the class(es) used on an FAQ/accordion question button — an AEM template can render a question as plain button text with no heading tag at all, and this is how the structure check still recognises it as one. tridionComponents maps a live page's CSS class combination (all listed classes must be present on the section, order does not matter) to the canonical Tridion component type it renders — see tridion-component-taxonomy.md. Used only when a module carries no Component Field markers of its own (a CMS preview page's markers always win); it is how a locator on a live production page can still say 'Accordion' instead of just the CSS-derived label 'FAQ'."
+    "briefLabels": {
+      "title": ["meta title", "page title", "title tag", "page title/title tag", "seo title"],
+      "pageName": ["page name", "window title"],
+      "description": ["meta description", "meta tag", "meta description/meta tag"],
+      "keywords": ["meta keywords", "keywords"],
+      "canonical": ["url path", "url", "page url"],
+      "topic": ["blog topic", "blog topic/title", "topic", "h1"],
+      "image": ["cover image", "image link", "hero image"],
+      "links": ["internal links", "links"]
+    },
+    "note": "Which element wraps the main content decides whether the body report is signal or nav labels. These are the standard fallbacks; if a KONE template uses its own wrapper, add its class here (leading dot) ahead of the fallbacks. Redirect and removal are absent on purpose: they are verified by following the URL, not by reading markup. assetVariantPattern strips crop and size suffixes so a DAM variant still resolves to the source asset; widen it if a template uses other suffixes. accordionTriggers lists the class(es) used on an FAQ/accordion question button — an AEM template can render a question as plain button text with no heading tag at all, and this is how the structure check still recognises it as one. tridionComponents maps a live page's CSS class combination (all listed classes must be present on the section, order does not matter) to the canonical Tridion component type it renders — see tridion-component-taxonomy.md. Used only when a module carries no Component Field markers of its own (a CMS preview page's markers always win); it is how a locator on a live production page can still say 'Accordion' instead of just the CSS-derived label 'FAQ'. briefLabels is the vocabulary a labelled brief's front matter is read with: every spelling a KONE brief uses for the same field, matched case-insensitively against the whole label first and then each half of a slashed one, so 'Blog Topic/Title' resolves to the H1 rather than to the meta title. Add a spelling here when a brief uses one the tool does not recognise \u2014 an unrecognised label is never silently dropped, it is reported on the Metadata block."
   },
 
   "workTypes": [

@@ -54,6 +54,16 @@
 
   function same(a, b) { return normalise(a) === normalise(b); }
 
+  // Keywords are a set, not a sentence. A brief writes them one per bullet and
+  // the page renders them comma-joined with no spaces, so comparing the two as
+  // strings called a correct list a difference. Separator and order noise is
+  // not a defect; a missing or extra keyword still is.
+  function termsOf(v) {
+    return normalise(v).split(',').map(function (t) { return t.trim(); })
+      .filter(Boolean).sort().join('|');
+  }
+  function sameList(a, b) { return termsOf(a) === termsOf(b); }
+
   // ─── ROWS AND CELLS ──────────────────────────────────────────────────────
   // Quote-aware splitting, section grouping and provenance moved to brief.js
   // once engine.js and filler.js turned out to need the exact same parse —
@@ -602,10 +612,127 @@
   // a new-page brief is labelled lines and numbered sections, a localization
   // brief is a table whose third column is the copy that must appear.
 
-  function labelled(text, label) {
-    var re = new RegExp('^\\s*' + label + '\\s*[:\\t]\\s*(.+)$', 'im');
-    var m = re.exec(text);
-    return m ? m[1].trim() : null;
+  // A labelled brief opens with front matter — the rows that say what the page
+  // is rather than what it says. Reading them by their exact spelling stopped
+  // working the moment a real brief arrived: it wrote "Page Title/" wrapped
+  // onto "Title Tag", "Meta Description/Meta Tag", and "Keywords" with its
+  // four values on bullet rows underneath. None of it matched, so every
+  // metadata field read "not defined in the brief" on a page that matched the
+  // brief exactly, and the front matter fell through to the body catch-all
+  // below and reported as eleven missing paragraphs.
+
+  var BULLET_RE = /^[\u2022\u25CF\u25AA\u00B7*\u2013\u2014-]$/;
+
+  var DEFAULT_BRIEF_LABELS = {
+    title: ['meta title', 'page title', 'title tag', 'page title/title tag', 'seo title'],
+    pageName: ['page name', 'window title'],
+    description: ['meta description', 'meta tag', 'meta description/meta tag'],
+    keywords: ['meta keywords', 'keywords'],
+    canonical: ['url path', 'url', 'page url'],
+    topic: ['blog topic', 'blog topic/title', 'topic', 'h1'],
+    image: ['cover image', 'image link', 'hero image'],
+    links: ['internal links', 'links']
+  };
+
+  function labelKey(raw) {
+    return normalise(raw).toLowerCase()
+      .replace(/\s*\/\s*/g, '/')
+      .replace(/[:\s]+$/, '')
+      .trim();
+  }
+
+  // The whole label is tested before either half of a slashed one, and that
+  // order carries weight: "Blog Topic /Title" has to resolve to the H1, not
+  // to the meta title, and in the brief that surfaced this the two are
+  // deliberately different sentences.
+  function fieldFor(label, labels) {
+    var key = labelKey(label);
+    if (!key) return null;
+    var tries = [key].concat(key.split('/').map(function (p) { return p.trim(); }));
+    for (var t = 0; t < tries.length; t++) {
+      for (var field in labels) {
+        if (labels.hasOwnProperty(field) && labels[field].indexOf(tries[t]) !== -1) return field;
+      }
+    }
+    return null;
+  }
+
+  // Label-shaped, not prose: short, few words, and not ending in sentence
+  // punctuation. Deliberately generous on length so an instruction line
+  // ("Please publish blog under Modernisation tab") is recognised as a
+  // declaration and kept out of the body copy.
+  function labelShaped(s) {
+    var v = String(s == null ? '' : s).trim();
+    return v.length > 0 && v.length <= 60 && v.split(/\s+/).length <= 8 && !/[.!?]$/.test(v);
+  }
+
+  function frontMatter(rows, labels) {
+    var fields = [], pending = '', i = 0;
+
+    function push(label, values, row) {
+      fields.push({ label: String(label).trim(), field: fieldFor(label, labels), values: values, row: row });
+    }
+
+    for (; i < rows.length; i++) {
+      var cells = rows[i];
+      var filled = cells.filter(function (c) { return c.trim() !== ''; });
+      if (!filled.length) continue;
+
+      // The copy block's own two idioms — a numbered section marker and an
+      // AEM asset line — are short enough to read as labels. They are not:
+      // they belong to the loop below, and a brief that opens straight into
+      // "FAQs[8.0]" has no front matter at all.
+      var joined = cells.join('\t').trim();
+      if (/\[\d+\.\d+\]\s*$/.test(joined) || /^(?:HERO\s*:\s*)?AEM Assets\s*[-\u2013]/i.test(joined)) break;
+
+      // A bullet row carries one more value for the row above it — how a
+      // brief writes four keywords or three internal links.
+      if (BULLET_RE.test(filled[0].trim()) && fields.length) {
+        fields[fields.length - 1].values = fields[fields.length - 1].values.concat(
+          filled.slice(1).map(function (c) { return c.trim(); }).filter(Boolean));
+        continue;
+      }
+
+      var head = (cells[0] || '').trim();
+      var values = cells.slice(1).map(function (c) { return c.trim(); })
+        .filter(function (c) { return c && !BULLET_RE.test(c); });
+
+      // Colon form in a single cell. Only a known label, a URL, or a value
+      // short enough not to be prose counts — without that guard a line like
+      // "In this article: how long lifts last, how they age, and when ..."
+      // would be eaten as a declaration. 60 is the same bar brief.js already
+      // uses to tell a section heading from a sentence.
+      if (cells.length === 1 && head.indexOf(':') !== -1) {
+        var at = head.indexOf(':');
+        var lab = head.slice(0, at).trim(), val = head.slice(at + 1).trim();
+        if (labelShaped(lab) &&
+            (fieldFor(pending + lab, labels) || /^https?:\/\//i.test(val) || val.length <= 60)) {
+          push(pending + lab, val ? [val] : [], i + 1);
+          pending = '';
+          continue;
+        }
+        break;
+      }
+
+      // A pasted label can wrap: "Page Title/" on its own row, "Title Tag"
+      // carrying the value on the next. Hold the first half for the second.
+      if (cells.length === 1 && !values.length && labelShaped(head) && /\/$/.test(head)) {
+        pending = head;
+        continue;
+      }
+
+      if (labelShaped(pending + head)) {
+        push(pending + head, values, i + 1);
+        pending = '';
+        continue;
+      }
+
+      break;
+    }
+
+    // The first row that is none of those ends the front matter for good.
+    // Everything below it is copy, read exactly as it always was.
+    return { fields: fields, copyFrom: i };
   }
 
   function localisedRow(rows, label) {
@@ -639,7 +766,7 @@
   // language name), which is exactly what made a genuinely correct
   // translation report as "not found on the page".
   function readMarketsByField(rows, shape) {
-    var expect = { mode: 'markets-by-field', metadata: {}, sections: [], body: [], images: [], links: [], shapeNote: shape.reason };
+    var expect = { mode: 'markets-by-field', metadata: {}, sections: [], body: [], images: [], links: [], frontMatter: [], shapeNote: shape.reason };
     var header = shape.headerCells;
     var unclassified = [];
 
@@ -669,7 +796,7 @@
 
   function readBrief(text, workTypeId, config) {
     text = String(text == null ? '' : text);
-    var expect = { mode: null, metadata: {}, sections: [], body: [], images: [], links: [] };
+    var expect = { mode: null, metadata: {}, sections: [], body: [], images: [], links: [], frontMatter: [] };
     var i, m;
 
     if (workTypeId === 'localization') {
@@ -755,17 +882,39 @@
 
     // new-page, and content-update briefs that carry replacement copy
     expect.mode = 'labelled';
-    expect.metadata.title = labelled(text, 'Meta Title');
-    expect.metadata.pageName = labelled(text, 'Page Name');
-    expect.metadata.description = labelled(text, 'Meta Description');
-    expect.metadata.keywords = labelled(text, 'Meta Keywords');
-    expect.metadata.canonical = labelled(text, 'URL Path');
+    var briefRows = splitRows(text);
+    var labels = (config && config.compare && config.compare.briefLabels) || DEFAULT_BRIEF_LABELS;
+    var front = frontMatter(briefRows, labels);
 
-    var lines = splitRows(text).map(function (r) { return r.join('\t'); });
-    for (i = 0; i < lines.length; i++) {
+    front.fields.forEach(function (f) {
+      var value = f.values.join(', ');
+      if (f.field === 'title' || f.field === 'pageName' ||
+          f.field === 'description' || f.field === 'canonical') {
+        if (value) expect.metadata[f.field] = value;
+      } else if (f.field === 'keywords') {
+        if (value) expect.metadata.keywords = value;
+      } else if (f.field === 'topic') {
+        // The H1 the page has to carry as a heading, which is a different
+        // assertion from the same words appearing somewhere in the copy.
+        if (value) expect.sections.push(want(value, null, f.row));
+      } else if (f.field === 'image') {
+        f.values.forEach(function (v) { expect.images.push(want(v, null, f.row)); });
+      } else if (f.field === 'links') {
+        f.values.forEach(function (v) {
+          expect.links.push({ text: v, href: /^(https?:\/\/|\/)/.test(v) ? v : null, section: null, row: f.row });
+        });
+      } else {
+        // A label the vocabulary does not know is never silently dropped: it
+        // is kept out of the body copy, and named on the Metadata block so an
+        // author can see the tool read the row and made nothing of it.
+        expect.frontMatter.push({ label: f.label, value: value || null, row: f.row });
+      }
+    });
+
+    var lines = briefRows.map(function (r) { return r.join('\t'); });
+    for (i = front.copyFrom; i < lines.length; i++) {
       var line = lines[i].trim();
       if (!line) continue;
-      if (/^(meta title|meta description|meta keywords|url path)\s*:/i.test(line)) continue;
 
       m = /^(.*?)\s*\[\d+\.\d+\]\s*$/.exec(line);
       if (m && m[1]) { expect.sections.push(want(m[1].trim(), null, i + 1)); continue; }
@@ -796,12 +945,23 @@
   // string however well it is normalised. Only descend to sentences when the
   // whole paragraph fails, so a fragment can never match by accident.
 
+  // A terminator only ends a sentence when whitespace or the end of the text
+  // follows it. Without that check every dot inside a URL was a sentence
+  // boundary, and one brief row holding three internal links reported as four
+  // missing paragraphs — "https://www.", "kone.", "com.", "au/blogs/x.".
   function sentencesOf(text) {
-    var out = [], m, re = /[^.!?]+[.!?]*/g;
-    while ((m = re.exec(text)) !== null) {
-      var s = m[0].trim();
-      if (s.length >= 25) out.push(s);
+    var s = String(text == null ? '' : text), out = [], start = 0;
+    for (var i = 0; i < s.length; i++) {
+      var ch = s.charAt(i);
+      if (ch !== '.' && ch !== '!' && ch !== '?') continue;
+      var next = s.charAt(i + 1);
+      if (next && !/\s/.test(next)) continue;
+      var part = s.slice(start, i + 1).trim();
+      if (part.length >= 25) out.push(part);
+      start = i + 1;
     }
+    var tail = s.slice(start).trim();
+    if (tail.length >= 25) out.push(tail);
     return out;
   }
 
@@ -903,7 +1063,7 @@
       { field: 'Meta description', source: null,
         want: expect.metadata.description, got: page.description, matches: same },
       { field: 'Meta keywords', source: null,
-        want: expect.metadata.keywords, got: page.keywords, matches: same }
+        want: expect.metadata.keywords, got: page.keywords, matches: sameList }
     ].map(function (row) {
       var want = row.want, got = row.got, state;
       var against = row.compareAgainst !== undefined ? row.compareAgainst : got;
@@ -1180,21 +1340,41 @@
     return out;
   }
 
-  function linkDeviations(expect, page, cfg) {
-    var out = [];
-    // Each page link answers for one brief row only. Two CTAs sharing a label
-    // used to both resolve against the first anchor on the page.
-    var claimed = [];
+  // Every link the brief asks for, matched or not, in the brief's own order —
+  // the same passing side of the comparison the body text has had since the
+  // ledger was added. A links block that said "No deviations" could not show
+  // that three internal links had actually been found, or where they landed.
+
+  function linkMatches(expect, page) {
+    var out = [], ledger = [], claimed = [];
+
     expect.links.forEach(function (want) {
+      // A brief that declares a bare URL has no anchor text to match on, and
+      // the page's own anchor reads "KONE elevator modernisation". Matching
+      // those by label reported three present links as missing; a want with
+      // no label of its own is matched by where it points instead.
+      var hrefOnly = !!want.href && same(want.text, want.href);
       var byText = page.links.filter(function (l, idx) {
-        return claimed.indexOf(idx) === -1 && same(l.text, want.text);
+        return claimed.indexOf(idx) === -1 &&
+          (hrefOnly ? samePath(l.href, want.href) : same(l.text, want.text));
       })[0];
       if (byText) claimed.push(page.links.indexOf(byText));
+
+      var entry = {
+        row: want.row, section: want.section,
+        text: want.text + (want.href && !hrefOnly ? ' → ' + want.href : ''),
+        status: byText ? 'found' : 'missing', in: null, where: null, between: null
+      };
+      ledger.push(entry);
+
       if (!byText) {
         // The anchor may be on the page but held back as a placeholder. That
         // is one defect, and it is already reported below — saying the link is
         // also missing would report the same anchor twice.
         var asPlaceholder = (page.placeholderLinks || []).filter(function (l) { return same(l.text, want.text); })[0];
+        entry.where = asPlaceholder
+          ? 'on the page, but as a placeholder that goes nowhere'
+          : 'no anchor on the page ' + (hrefOnly ? 'points here' : 'carries this label');
         if (!asPlaceholder) {
           var where = whereFrom([want]);
           out.push({
@@ -1205,10 +1385,24 @@
         }
         return;
       }
-      if (want.href && !samePath(byText.href, want.href)) {
+
+      entry.in = byText.text || byText.href;
+      entry.where = hrefOnly
+        ? 'found as “' + byText.text + '”'
+        : 'found, pointing at ' + (byText.href || 'nothing');
+
+      if (want.href && !hrefOnly && !samePath(byText.href, want.href)) {
+        entry.status = 'missing';
+        entry.where = 'found, but pointing at ' + byText.href;
         out.push({ expected: want.text + ' → ' + want.href, found: byText.href, note: 'points somewhere else', severity: 'break', fromBrief: true });
       }
     });
+
+    return { deviations: out, ledger: ledger };
+  }
+
+  function linkDeviations(expect, page, cfg, linkMatch) {
+    var out = (linkMatch || linkMatches(expect, page)).deviations.slice();
     page.links.forEach(function (l) {
       if (/^https?:\/\/[^/]*author|\/content\//i.test(l.href)) {
         out.push(at({
@@ -1328,13 +1522,15 @@
   // after it in the other.
   function buildCategories(expect, page, cfg) {
     var bodyMatch = bodyMatches(expect, page);
+    var linkMatch = linkMatches(expect, page);
     return [
       { id: 'metadata', label: 'Metadata', deviations: ordered(metadataDeviations(expect, page)) },
       { id: 'structure', label: 'Structure', deviations: ordered(structureDeviations(expect, page)) },
       { id: 'body', label: 'Body Text', ledger: bodyMatch.ledger,
         deviations: ordered(bodyDeviations(expect, page, bodyMatch)) },
       { id: 'images', label: 'Images', deviations: ordered(imageDeviations(expect, page, cfg.assetVariantPattern)) },
-      { id: 'links', label: 'Hyperlinks / CTAs', deviations: ordered(linkDeviations(expect, page, cfg)) }
+      { id: 'links', label: 'Hyperlinks / CTAs', ledger: linkMatch.ledger,
+        deviations: ordered(linkDeviations(expect, page, cfg, linkMatch)) }
     ];
   }
 
@@ -1343,7 +1539,7 @@
   // read and a brief that was read wrongly should still surface these.
 
   function pageOnlyCategories(page, cfg) {
-    var expect = { mode: null, metadata: {}, sections: [], body: [], images: [], links: [] };
+    var expect = { mode: null, metadata: {}, sections: [], body: [], images: [], links: [], frontMatter: [] };
     var categories = buildCategories(expect, page, cfg);
     var breaks = 0, checks = 0;
     categories.forEach(function (c) {
@@ -1479,6 +1675,16 @@
       if (!defined.length) {
         categories[0].note = 'The brief defines no metadata, so none of it was checked — this is not a pass. ' +
           'What the page carries is listed below for reference.';
+      }
+      // A front-matter row whose label the tool does not recognise is kept out
+      // of the body copy, which means it is also never compared against
+      // anything. Saying so is the difference between a row that was checked
+      // and a row that was quietly ignored.
+      if (expect.frontMatter && expect.frontMatter.length) {
+        var unread = expect.frontMatter.map(function (f) { return f.label; }).join(', ');
+        categories[0].note = (categories[0].note ? categories[0].note + ' ' : '') +
+          'The brief also declares ' + unread + ' — not a field this tool knows how to check, so ' +
+          (expect.frontMatter.length === 1 ? 'it was' : 'they were') + ' read as front matter and left alone.';
       }
 
       var breaks = 0, checks = 0;
