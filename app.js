@@ -58,15 +58,24 @@
     });
   }, { root: null, rootMargin: '0px 0px -6% 0px', threshold: 0.03 });
 
-  function armReveal() {
+  // Both panes roll their blocks in the same way. The output pane is driven
+  // by the MutationObserver below, since its content is re-rendered; the
+  // input pane is static markup, so it is armed explicitly at boot and
+  // again on each mode switch.
+  function armReveal(container, replay) {
     if (!seen || reduceMotion) return;
     // Only the top-level blocks animate. Animating every nested row would
     // read as noise rather than sequence.
-    var blocks = el.output.children;
+    var blocks = container.children;
     for (var i = 0; i < blocks.length; i++) {
       var block = blocks[i];
-      if (block.classList.contains('reveal')) continue;
-      block.classList.add('reveal');
+      if (block.classList.contains('reveal')) {
+        // Replaying: let a block that has already landed roll in again.
+        if (!replay) continue;
+        block.classList.remove('in-view');
+      } else {
+        block.classList.add('reveal');
+      }
       // Capped: the twentieth card must not sit waiting well over a second.
       block.style.setProperty('--i', Math.min(i, 12));
       seen.observe(block);
@@ -100,8 +109,12 @@
   }
 
   if (window.MutationObserver) {
-    new MutationObserver(armReveal).observe(el.output, { childList: true });
+    new MutationObserver(function () { armReveal(el.output); })
+      .observe(el.output, { childList: true });
   }
+
+  var paneInput = document.querySelector('.pane-input');
+  armReveal(paneInput);
 
   // The blue block behind the active nav item travels to it rather than
   // blinking across. Measured from the button itself, so it stays correct
@@ -288,6 +301,7 @@
     el.copy.hidden = mode !== 'analyse';
 
     moveIndicator();
+    armReveal(paneInput, true);
 
     el.output.innerHTML = '';
     if (mode === 'compare') renderCompareEmpty();

@@ -134,6 +134,7 @@
     .pane-input {
       padding: 28px 32px; border-right: 1px solid var(--hairline);
       height: 100vh; overflow-y: auto; overscroll-behavior: contain;
+      scroll-behavior: smooth;
     }
     .pane-output {
       padding: 28px 32px; background: #FCFCFC;
@@ -153,11 +154,6 @@
       .layout, .workspace { height: auto; overflow: visible; }
       main { grid-template-columns: 1fr; height: auto; }
       .pane-input, .pane-output { height: auto; overflow: visible; }
-    }
-
-    h2.pane-title {
-      font-family: var(--font-secondary); text-transform: uppercase; letter-spacing: 0.06em;
-      font-size: 12px; font-weight: 400; color: var(--kone-blue); margin: 0 0 12px;
     }
 
     textarea#brief {
@@ -180,6 +176,8 @@
     .launch-row button { white-space: nowrap; }
 
     .override { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--hairline); }
+    /* First group inside a card sits flush: the card edge is the divider. */
+    section.card > h3 + .override { margin-top: 0; padding-top: 0; border-top: none; }
     .override label { font-size: 13px; color: var(--black-60); display: block; margin-bottom: 6px; }
     select {
       font: inherit; font-size: 14px; padding: 8px 10px; width: 100%;
@@ -204,13 +202,13 @@
       to   { transform: scaleX(1); }
     }
 
-    #output .reveal { opacity: 0; will-change: opacity, transform; }
-    #output .reveal.in-view {
+    .reveal { opacity: 0; will-change: opacity, transform; }
+    .reveal.in-view {
       animation: roll-in 560ms cubic-bezier(.16, .84, .44, 1) both;
       animation-delay: calc(var(--i, 0) * 65ms);
     }
     /* A hairline that sweeps across a card's top edge as it lands. */
-    #output .reveal.in-view.card::before {
+    .reveal.in-view.card::before {
       content: ''; position: absolute; inset: -1px auto auto -1px; height: 2px; right: -1px;
       background: var(--kone-blue); transform-origin: left center;
       animation: sweep 620ms cubic-bezier(.16, .84, .44, 1) both;
@@ -218,9 +216,9 @@
     }
 
     @media (prefers-reduced-motion: reduce) {
-      #output .reveal, #output .reveal.in-view { opacity: 1; animation: none; }
-      #output .reveal.in-view.card::before { animation: none; display: none; }
-      .pane-output { scroll-behavior: auto; }
+      .reveal, .reveal.in-view { opacity: 1; animation: none; }
+      .reveal.in-view.card::before { animation: none; display: none; }
+      .pane-input, .pane-output { scroll-behavior: auto; }
     }
 
     /* Flat: a hairline and white space, never a shadow. */
@@ -450,7 +448,8 @@
   <div class="workspace">
   <main>
     <div class="pane-input">
-      <h2 class="pane-title">Brief</h2>
+      <section class="card">
+      <h3>Brief</h3>
       <textarea id="brief" placeholder="Paste the brief here — a ticket, an email, a spreadsheet of URLs, a page of copy."></textarea>
 
       <div class="input-actions">
@@ -463,16 +462,10 @@
         <button id="clear-btn" class="btn-ghost" type="button">Clear</button>
         <button id="copy-btn" class="btn-ghost" type="button" disabled>Copy questions</button>
       </div>
+      </section>
 
-      <div class="override">
-        <label for="type-select">Work type — override if the call is wrong</label>
-        <select id="type-select">
-          <option value="">Let the analyser decide</option>
-        </select>
-      </div>
-
-      <div id="compare-input" hidden>
-        <p class="field-label">Page</p>
+      <section class="card" id="compare-input" hidden>
+        <h3>Page</h3>
         <div class="launch-row">
           <input type="url" id="page-url" placeholder="https://www.kone.co.uk/… — opening it here lets the bookmarklet report back">
           <button id="launch-btn" class="btn-primary" type="button">Open page</button>
@@ -485,12 +478,21 @@
           <input type="file" id="html-file" accept=".html,.htm,.txt" hidden>
         </div>
         <p class="hint">Nothing leaves the browser. The tool cannot fetch the page itself, so paste or upload it — or <a href="bookmarklet.html">install the bookmarklet</a>: open the page above, click the bookmarklet on it, and it lands here without touching this tab or the brief.</p>
-      </div>
+      </section>
 
-      <div id="fill-input" hidden>
-        <p class="field-label">English master from the component</p>
+      <section class="card" id="fill-input" hidden>
+        <h3>English master from the component</h3>
         <textarea id="english" placeholder="Paste the English text sitting in the Tridion component field. Markup is fine — paste the source if the field is rich text."></textarea>
         <p class="hint">The tool cannot read or write Tridion fields. It finds the row and hands you the localized text; you paste it.</p>
+      </section>
+
+      <section class="card" id="settings-card">
+      <h3>Settings</h3>
+      <div class="override">
+        <label for="type-select">Work type — override if the call is wrong</label>
+        <select id="type-select">
+          <option value="">Let the analyser decide</option>
+        </select>
       </div>
 
       <div class="override" id="market-override" hidden>
@@ -507,6 +509,7 @@
           <option value="Tridion">Tridion</option>
         </select>
       </div>
+      </section>
     </div>
 
     <div class="pane-output" id="output"></div>
