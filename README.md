@@ -123,10 +123,14 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 223 verification cases across the five modules
+npm test      # 243 verification cases across the five modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
+
+**Which build am I looking at?** The sidebar says, under the wordmark — `BUILD 2026-09-11A`. It is worth knowing, because a deployed page that looks current can still be running older code: the shell comes from `index.html` and the behaviour comes from six separate `.js` files, and a browser can hold an old copy of any one of them. So every script is referenced with the version on its URL (`<script src="compare.js?v=2026-09-11a">`) — a changed query is a different URL, which no cache can satisfy from the old entry — and `app.js` reads that same value back out of its own `src` to display it. One string to bump, in `index.html`, and what the sidebar shows is necessarily the file that ran. `vercel.json` sets `Cache-Control: public, max-age=0, must-revalidate` for the one file the query strings cannot protect, `index.html` itself.
+
+**On Vercel, use the branch alias.** A URL like `wcm-helper-<hash>-<team>.vercel.app` is a *per-deployment* URL, frozen to the commit that built it — it will never show anything newer however many times it is reloaded. The alias that follows the newest build on a branch is the `-git-<branch>-` one, which is the link the Vercel bot posts on the pull request. If the two ever disagree, the sidebar stamp settles it.
 
 ## The six playbooks
 

@@ -6,6 +6,19 @@
 (function () {
   'use strict';
 
+  // Which build is actually running. index.html carries the version on every
+  // script URL to bust the cache; reading it back out of this file's own src
+  // means there is one string to bump rather than two to keep in step, and
+  // what the sidebar shows is necessarily the file the browser executed.
+  // Captured now, not later: document.currentScript is only set while the
+  // script is running synchronously.
+  var BUILD = (function () {
+    var tag = document.currentScript || document.querySelector('script[src*="app.js"]');
+    var m = tag && /[?&]v=([^&]*)/.exec(tag.src || '');
+    return m && m[1] ? decodeURIComponent(m[1]) : 'dev';
+  }());
+  function buildTag() { return BUILD; }
+
   var state = { engine: null, comparer: null, filler: null, analysis: null, mode: 'analyse', market: null };
 
   var el = {
@@ -182,7 +195,12 @@
 
   // ─── BOOT ────────────────────────────────────────────────────────────────
 
-  fetch('config/work-types.json')
+  // Stamped before anything else can fail: a build that cannot load its
+  // playbooks is exactly when knowing which build it is matters most.
+  var buildEl = document.getElementById('build-tag');
+  if (buildEl) buildEl.textContent = 'Build ' + buildTag();
+
+  fetch('config/work-types.json?v=' + buildTag())
     .then(function (r) {
       if (!r.ok) throw new Error('config/work-types.json returned ' + r.status);
       return r.json();
