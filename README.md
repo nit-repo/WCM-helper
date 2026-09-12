@@ -94,6 +94,22 @@ Where the comparer reads the page content from is shown above the results. If it
 
 **A row that's two-thirds right must not read as entirely wrong.** Sentence-descent already existed to catch a paragraph split across page elements — but a row's status was `found` only if *every* sentence matched; anything less read identically to zero found. A market's own row-identity text (the country name, prefixed onto the row before the real copy) failing to match while the actual sentences underneath it are genuinely on the page used to report as a total miss. The ledger now has a third status, `partial`, naming exactly what's missing (*"partly found in Bulgaria — 1 of 2 sentences missing"*) rather than folding a mostly-correct row into either a clean pass or a total failure.
 
+## Brief
+
+The other direction: paste a built page and get back the brief that describes it. For re-briefing a page into another market, for handing a translator a source of truth, or simply for a page whose brief was never kept.
+
+It reads the page's own metadata, section headings, copy, assets and internal links, and writes them out in the order the page renders them — in the same format Compare reads, so the draft lands in the **Brief** box ready to edit and compare. Headings become `[n.m]` markers, assets become `AEM Assets - <name>`, and only links on the page's own host are briefed.
+
+**It never invents.** A field the page does not carry produces no row at all, rather than an empty one — an empty `Keywords` row would read as *"the brief asked for nothing here"*, which is a different claim from *"the page defines nothing here"*. An asset whose name cannot be read out of its URL is reported in the results pane rather than guessed at. Headings the template stamps in with `display:none` are skipped, and a link into the CME is never briefed: that is a defect the comparer reports on the page itself, and briefing it would ask the next page to reproduce the bug.
+
+**Page → Brief → Compare is a round trip, and it is the test.** Generate a brief from a page, compare it back against that same page, and nothing the generator wrote should fail to match. Two fixtures assert exactly that. What the round trip does *not* have to explain is the page's own defects — a missing H1, a field published empty, a CME link — which exist whether or not anyone wrote a brief, and are excluded by `fromBrief`.
+
+Writing the generator turned up three faults in extraction that had been quietly costing Compare matches on real pages, all now fixed and covered:
+
+- **A percent-encoded filename never matched its own name.** A brief writing `Graphic 1` resolved to `graphic1`; the page's own `Graphic%201.jpg` resolved to `graphic201`. Every asset with a space in its name, on every AEM page.
+- **A Scene7 rendition preset was read as part of the asset name.** `Monospace100_img_3-1:669x475` is one asset delivered at one size, not an asset called `Monospace100_img_3-1:669x475`.
+- **`&reg;` was not decoded** while `&trade;` was, so a brief writing `KONE MonoSpace®` never matched a page rendering the entity. `&copy;`, `&deg;`, `&hellip;` and hex numeric entities were missing too.
+
 ## Fill
 
 Localizing in Tridion means opening each component, reading the English master in the field, and finding that row in a brief that may run to a hundred rows. The finding is the slow part. Paste the English you are looking at and the Fill tab returns the localized text on a Copy button, plus the whole brief as a worklist you can tick down — progress is remembered per brief.
@@ -123,7 +139,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 243 verification cases across the five modules
+npm test      # 255 verification cases across the five modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.

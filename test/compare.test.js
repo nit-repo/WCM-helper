@@ -1701,5 +1701,127 @@ test('124. a declared link the page does not carry is in the ledger as a miss', 
   assert.strictEqual(cat(r, 'links').length, 1, 'and it is still a deviation: ' + textOf(cat(r, 'links')));
 });
 
+// ─── Brief from a built page ─────────────────────────────────────────────
+// The inverse of readBrief, and the round trip is the real test: generate a
+// brief from a page, compare it back against that same page, and nothing the
+// generator wrote should fail to match. Deviations the comparer finds in the
+// page itself (a missing H1, a field published empty, a CME link) are not the
+// generator's business and are excluded by fromBrief.
+
+var SI_HTML = fs.readFileSync(
+  path.join(__dirname, 'fixtures', 'kone-si-monospace-100dx.html'), 'utf8');
+
+function fromBriefDeviations(result) {
+  var out = [];
+  result.categories.forEach(function (c) {
+    c.deviations.forEach(function (d) { if (d.fromBrief) out.push(c.id + ': ' + d.note); });
+  });
+  return out;
+}
+
+test('125. a brief generated from a page compares clean against that same page', function () {
+  var drafted = comparer.briefFrom(SI_HTML);
+  var r = comparer.compare(drafted.text, SI_HTML, { workTypeId: 'new-page' });
+  var failures = fromBriefDeviations(r);
+  assert.strictEqual(failures.length, 0, 'the round trip must close: ' + JSON.stringify(failures));
+  assert.ok(r.coverage.complete, 'and every generated expectation must be found: ' + JSON.stringify(r.coverage));
+});
+
+test('126. the round trip closes on a live page with no head and no metadata too', function () {
+  var drafted = comparer.briefFrom(FAQ_PAGE);
+  var r = comparer.compare(drafted.text, FAQ_PAGE, { workTypeId: 'new-page' });
+  assert.strictEqual(fromBriefDeviations(r).length, 0, JSON.stringify(fromBriefDeviations(r)));
+});
+
+test('127. a field the page does not carry produces no row at all', function () {
+  // An empty row would read as "the brief asked for nothing here", which is a
+  // different claim from "the page defines nothing here".
+  var drafted = comparer.briefFrom(FAQ_PAGE);
+  assert.strictEqual(drafted.notes.fields.length, 0, textOf(drafted.notes.fields));
+  assert.ok(!/Meta Keywords/.test(drafted.text), 'no empty Keywords row: ' + drafted.text.slice(0, 200));
+});
+
+test('128. a heading nobody can see never reaches the brief', function () {
+  var drafted = comparer.briefFrom(SI_HTML);
+  assert.ok(drafted.notes.hiddenHeadings > 0, 'this fixture has hidden headings to skip');
+  var windowTitle = comparer.readPage(SI_HTML).pageName;
+  assert.ok(drafted.text.indexOf(windowTitle + '[') === -1,
+    'the display:none H2s carrying the window title must not be briefed');
+});
+
+test('129. only links on the page\'s own host are briefed, and never a CME link', function () {
+  var drafted = comparer.briefFrom(SI_HTML);
+  assert.ok(drafted.text.indexOf('/ui/editor/item') === -1,
+    'a link into the CMS editor is a defect on this page, not something to brief');
+  assert.ok(drafted.text.indexOf('facebook.com') === -1, 'off-host links are chrome');
+});
+
+test('130. an emitted asset name resolves to the same identity as the page\'s own src', function () {
+  // The brief names an asset the way a person writes it; the page carries a
+  // delivery URL. Both have to land on one identity or images never match.
+  var page = comparer.readPage(SI_HTML);
+  var drafted = comparer.briefFrom(SI_HTML);
+  var named = /AEM Assets - (.+)/.exec(drafted.text);
+  assert.ok(named, 'the fixture has assets to name');
+  assert.strictEqual(comparer.assetIdentity(named[1]), comparer.assetIdentity(page.images[0].src));
+});
+
+test('131. section markers nest h3 under the h1 or h2 above them', function () {
+  var html = '<html><head><title>t</title></head><body><main>' +
+    '<h1>Top</h1><p>One</p><h3>Under top</h3><h2>Second</h2><h3>Under second</h3>' +
+    '</main></body></html>';
+  var text = comparer.briefFrom(html).text;
+  assert.ok(/Top\[1\.1\]/.test(text), text);
+  assert.ok(/Under top\[1\.2\]/.test(text), text);
+  assert.ok(/Second\[2\.1\]/.test(text), text);
+  assert.ok(/Under second\[2\.2\]/.test(text), text);
+});
+
+test('132. copy comes back in the order the page renders it', function () {
+  var html = '<html><head><title>t</title></head><body><main>' +
+    '<h1>First heading here</h1><p>First paragraph of the page copy.</p>' +
+    '<h2>Second heading here</h2><p>Second paragraph of the page copy.</p>' +
+    '</main></body></html>';
+  var lines = comparer.briefFrom(html).text.split('\n').filter(Boolean);
+  var order = lines.filter(function (l) { return !/\t/.test(l); });
+  assert.deepStrictEqual(order, [
+    'First heading here[1.1]', 'First paragraph of the page copy.',
+    'Second heading here[2.1]', 'Second paragraph of the page copy.'
+  ], JSON.stringify(order));
+});
+
+// ─── The shared extraction fixes the generator exposed ───────────────────
+
+test('133. an asset whose filename is percent-encoded still matches its own name', function () {
+  // "Graphic 1" resolved to graphic1 while the page's "Graphic%201.jpg"
+  // resolved to graphic201, so the two never matched on any AEM page.
+  assert.strictEqual(
+    comparer.assetIdentity('https://assets.kone.com/x/as/Graphic%201.jpg?smartcrop=3x2&width=453'),
+    comparer.assetIdentity('Graphic 1'));
+});
+
+test('134. a Scene7 rendition preset is delivery, not identity', function () {
+  assert.strictEqual(
+    comparer.assetIdentity('https://s7g10.scene7.com/is/image/kone/Monospace100_img_3-1:669x475'),
+    comparer.assetIdentity('Monospace100_img_3-1'));
+});
+
+test('135. the registered mark matches whether written or entity-encoded', function () {
+  assert.strictEqual(comparer.normalise('KONE MonoSpace&reg; 100 DX'), 'KONE MonoSpace\u00AE 100 DX');
+  assert.strictEqual(comparer.normalise('caf&#xe9;'), 'caf\u00e9');
+});
+
+test('136. page.paragraphs reads body copy in place, with its offset', function () {
+  var page = comparer.readPage(SI_HTML);
+  assert.ok(page.paragraphs.length > 0, 'the fixture has copy');
+  page.paragraphs.forEach(function (p) {
+    assert.ok(p.text, 'no empty paragraphs');
+    assert.ok(typeof p.at === 'number', 'each carries its offset');
+  });
+  var offsets = page.paragraphs.map(function (p) { return p.at; });
+  assert.deepStrictEqual(offsets.slice().sort(function (a, b) { return a - b; }), offsets,
+    'in document order');
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

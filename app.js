@@ -46,6 +46,8 @@
     tabFill: document.getElementById('tab-fill'),
     fillInput: document.getElementById('fill-input'),
     fillBtn: document.getElementById('fill-btn'),
+    tabBrief: document.getElementById('tab-brief'),
+    briefgenBtn: document.getElementById('briefgen-btn'),
     english: document.getElementById('english'),
     marketOverride: document.getElementById('market-override'),
     marketSelect: document.getElementById('market-select'),
@@ -220,6 +222,7 @@
       el.analyse.disabled = false;
       el.compareBtn.disabled = false;
       el.fillBtn.disabled = false;
+      el.briefgenBtn.disabled = false;
     })
     .catch(function (e) {
       el.output.innerHTML = '<div class="empty-state"><p><strong>Could not load the playbooks.</strong></p>' +
@@ -270,6 +273,8 @@
   el.tabCompare.addEventListener('click', function () { setMode('compare'); });
   el.tabFill.addEventListener('click', function () { setMode('fill'); });
   el.fillBtn.addEventListener('click', runFill);
+  el.tabBrief.addEventListener('click', function () { setMode('brief'); });
+  el.briefgenBtn.addEventListener('click', runBriefGen);
   el.marketSelect.addEventListener('change', function () {
     state.market = el.marketSelect.value;
     if (state.mode === 'analyse' && state.analysis) run();
@@ -310,11 +315,16 @@
     el.tabAnalyse.setAttribute('aria-selected', String(mode === 'analyse'));
     el.tabCompare.setAttribute('aria-selected', String(mode === 'compare'));
     el.tabFill.setAttribute('aria-selected', String(mode === 'fill'));
+    el.tabBrief.setAttribute('aria-selected', String(mode === 'brief'));
 
     el.analyse.hidden = mode !== 'analyse';
     el.compareBtn.hidden = mode !== 'compare';
     el.fillBtn.hidden = mode !== 'fill';
-    el.compareInput.hidden = mode !== 'compare';
+    el.briefgenBtn.hidden = mode !== 'brief';
+    // Brief mode reads the page and writes into the brief box, so it needs
+    // the page card on screen too — and the brief box is its output, which is
+    // what makes the draft editable and Compare ready to run straight after.
+    el.compareInput.hidden = mode !== 'compare' && mode !== 'brief';
     el.fillInput.hidden = mode !== 'fill';
     el.copy.hidden = mode !== 'analyse';
 
@@ -324,6 +334,7 @@
     el.output.innerHTML = '';
     if (mode === 'compare') renderCompareEmpty();
     else if (mode === 'fill') runFill(true);
+    else if (mode === 'brief') renderBriefGenEmpty();
     else renderEmpty();
   }
 
@@ -633,6 +644,78 @@
     var breaks = c.deviations.filter(function (d) { return d.severity !== 'check'; }).length;
     return '<section class="card' + (breaks ? ' dirty' : '') + '"><h3>' + esc(c.label) + ' — ' +
       c.deviations.length + '</h3><ul class="devs">' + items + '</ul>' + ledger + rows + '</section>';
+  }
+
+  // ─── BRIEF FROM A PAGE ───────────────────────────────────────────────────
+  // The other direction: read a built page and write the brief that describes
+  // it. The draft lands in the brief box rather than in a read-only panel, so
+  // it can be edited on the spot and Compare has it loaded already.
+
+  function renderBriefGenEmpty() {
+    el.output.innerHTML =
+      '<div class="empty-state"><p>Paste the built page\'s HTML, then hit <strong>Draft brief</strong>. ' +
+      'The page\'s own content comes back as a brief: metadata, section headings, copy, ' +
+      'assets and internal links, in the order the page renders them.</p>' +
+      '<p>The draft lands in the <strong>Brief</strong> box above, so you can edit it and go ' +
+      'straight to Compare.</p>' +
+      '<p>It never invents: a field the page does not carry produces no row at all, and an asset ' +
+      'whose name cannot be read out of its URL is reported here rather than guessed at.</p></div>';
+  }
+
+  function runBriefGen() {
+    var html = el.html.value.trim();
+    if (!html) {
+      el.output.innerHTML = section('Nothing to read',
+        '<p class="note warn">Paste the built page\'s HTML first.</p>');
+      return;
+    }
+
+    var drafted = state.comparer.briefFrom(html);
+    var n = drafted.notes;
+    el.brief.value = drafted.text;
+
+    var counts = [
+      ['Metadata fields', n.fields.length],
+      ['Section headings', n.sections],
+      ['Paragraphs', n.paragraphs],
+      ['Assets', n.images],
+      ['Internal links', n.links]
+    ].map(function (row) {
+      return '<p class="dev-line"><b>' + esc(row[0]) + '</b><span class="tick-up" data-to="' +
+        row[1] + '">' + row[1] + '</span></p>';
+    }).join('');
+
+    // What was read is only half the answer. What the page did not carry, or
+    // what could not be named, belongs on screen too — a brief that quietly
+    // drops a field reads exactly like a page that never had one.
+    var gaps = [];
+    if (n.fields.indexOf('Meta Keywords') === -1) {
+      gaps.push('This page carries no meta keywords, so the brief has no Keywords row — rather than an empty one.');
+    }
+    if (!n.links) {
+      gaps.push('No internal links: the page links nowhere on its own host, or only into the CMS editor, which is never briefed.');
+    }
+    if (n.hiddenHeadings) {
+      gaps.push(n.hiddenHeadings + ' hidden heading' + (n.hiddenHeadings === 1 ? '' : 's') +
+        ' skipped — the template stamps these in with display:none and no reader sees them.');
+    }
+    if (n.unnamedImages.length) {
+      gaps.push(n.unnamedImages.length + ' asset' + (n.unnamedImages.length === 1 ? '' : 's') +
+        ' left out: no name could be read from the URL. ' + esc(n.unnamedImages.slice(0, 3).join(', ')));
+    }
+
+    el.output.innerHTML =
+      section('Drafted from the page',
+        '<p class="coverage short">The draft is in the Brief box — edit it, then switch to Compare.</p>' +
+        counts +
+        '<p class="region-note">Read the page content from: ' + esc(n.regionVia) + '</p>') +
+      (gaps.length
+        ? section('Worth knowing',
+            '<ul class="devs">' + gaps.map(function (g) {
+              return '<li class="check"><p class="dev-note"><span class="sev-tag check">check</span>' + g + '</p></li>';
+            }).join('') + '</ul>')
+        : '');
+    toast('Brief drafted from the page — it is in the Brief box.');
   }
 
   function renderCompareEmpty() {

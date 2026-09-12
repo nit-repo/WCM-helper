@@ -40,6 +40,13 @@
       .replace(/&mdash;/gi, '—')
       .replace(/&ndash;/gi, '–')
       .replace(/&trade;/gi, '™')
+      // &reg; was missing while &trade; was here, so a brief writing the
+      // registered mark never matched a page rendering the entity.
+      .replace(/&reg;/gi, '\u00AE')
+      .replace(/&copy;/gi, '\u00A9')
+      .replace(/&deg;/gi, '\u00B0')
+      .replace(/&hellip;/gi, '\u2026')
+      .replace(/&#x([0-9a-f]+);/gi, function (_, n) { return String.fromCharCode(parseInt(n, 16)); })
       .replace(/&#(\d+);/g, function (_, n) { return String.fromCharCode(+n); });
   }
 
@@ -119,6 +126,15 @@
     var v = String(value == null ? '' : value).trim();
     v = v.replace(/[?#].*$/, '');
     v = v.split('/').pop();
+    // A filename with a space in it arrives percent-encoded in the src and
+    // plain in the brief, so "Graphic 1" resolved to graphic1 while the page's
+    // own "Graphic%201.jpg" resolved to graphic201 and the two never matched.
+    // Malformed encoding is left exactly as it came.
+    try { v = decodeURIComponent(v); } catch (e) { /* not valid encoding: keep as-is */ }
+    // Scene7 names the rendition after the asset, separated by a colon:
+    // "Monospace100_img_1-1:760x428(16-9)". The preset is delivery, not
+    // identity, and a brief names the asset without it.
+    v = v.replace(/:.*$/, '');
     v = v.replace(/\.(jpe?g|png|webp|gif|svg|avif)$/i, '');
     v = v.replace(new RegExp(variantPattern || '[-_](\\d{1,2}|crop|thumb|small|large|mobile|desktop)$', 'i'), '');
     return v.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -545,6 +561,16 @@
       images.push({ src: imageSrc(im[0]), alt: attr(im[0], 'alt'), at: im.index });
     }
 
+    // Body copy at paragraph granularity, with the offset each one sits at.
+    // page.text is the whole region flattened, which is all the comparer ever
+    // needed; a brief generated from the page needs to put each paragraph
+    // under the heading it belongs to, and that takes offsets.
+    var paragraphs = [], pm, pre = /<(p|li)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+    while ((pm = pre.exec(region.html)) !== null) {
+      var para = stripTags(pm[2]);
+      if (para) paragraphs.push({ tag: pm[1].toLowerCase(), text: para, at: pm.index });
+    }
+
     var links = [], placeholders = [], lm, lre = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
     while ((lm = lre.exec(region.html)) !== null) {
       var href = attr('<a ' + lm[1] + '>', 'href');
@@ -592,6 +618,7 @@
       canonical: canonicalHref,
       h1: headings.filter(function (h) { return h.level === 'h1'; }).map(function (h) { return h.text; }),
       headings: headings,
+      paragraphs: paragraphs,
       images: images,
       links: links,
       placeholderLinks: placeholders,
@@ -925,6 +952,126 @@
       if (line.length >= 40) expect.body.push(want(line, null, i + 1));
     }
     return expect;
+  }
+
+  // ─── BRIEF FROM A BUILT PAGE ─────────────────────────────────────────────
+  // The inverse of readBrief: given the markup of a page somebody already
+  // built, write the brief that describes it. Useful for re-briefing a page
+  // into another market, for handing a translator a source of truth, and for
+  // pages where the brief was never kept.
+  //
+  // It emits the vocabulary readBrief parses, which makes the whole thing a
+  // round trip: generate a brief from a page, compare it back against that
+  // same page, and the report should be empty. Where it is not, that is a gap
+  // worth knowing about — so nothing here is trimmed to whatever happens to
+  // compare clean.
+  //
+  // The one rule it never breaks: it does not invent. A field the page does
+  // not carry produces no row at all, rather than an empty one that would
+  // read as "the brief asked for nothing here".
+
+  // What to call an asset in the brief. assetIdentity() is a match key —
+  // lowercased and stripped of punctuation — which is unreadable in a
+  // document, so the name keeps the file's own spelling and only has to
+  // resolve back to the same key.
+  function assetName(src) {
+    var v = String(src == null ? '' : src).trim().replace(/[?#].*$/, '').split('/').pop();
+    try { v = decodeURIComponent(v); } catch (e) { /* not valid encoding: keep as-is */ }
+    return v.replace(/:.*$/, '').replace(/\.(jpe?g|png|webp|gif|svg|avif)$/i, '').trim();
+  }
+
+  function internalLinks(page, cfg) {
+    var host = pageHost(page.canonical || '');
+    var seen = {}, out = [];
+    (page.links || []).forEach(function (l) {
+      var href = String(l.href || '').trim();
+      if (!href) return;
+      // Relative hrefs are this site by definition; absolute ones only count
+      // when they point at the page's own host, so the chrome's social and
+      // partner links never arrive as internal links.
+      var absolute = /^https?:\/\//i.test(href);
+      if (absolute && (!host || pageHost(href) !== host)) return;
+      if (!absolute && href.charAt(0) !== '/') return;
+      // A link into the CME, or an unpublished author path, is a defect the
+      // comparer reports on this very page. Briefing it would be asking the
+      // next page to reproduce the bug.
+      var editor = (cfg && cfg.editorLinkPattern) || '/ui/editor/item\\?item=';
+      if (new RegExp(editor, 'i').test(href)) return;
+      if (/^https?:\/\/[^/]*author|\/content\//i.test(href)) return;
+      var key = pathOf(href);
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      out.push(href);
+    });
+    return out;
+  }
+
+  function briefFrom(html, cfg) {
+    var page = readPage(html, cfg);
+    var lines = [], notes = {
+      fields: [], sections: 0, paragraphs: 0, images: 0,
+      links: 0, hiddenHeadings: 0, unnamedImages: [],
+      regionVia: page.regionVia
+    };
+
+    function field(label, value) {
+      if (value == null || String(value).trim() === '') return;
+      lines.push(label + '\t' + String(value).trim());
+      notes.fields.push(label);
+    }
+
+    field('Page Title/Title Tag', page.metaTitle || page.pageName);
+    field('Page Name', page.pageName);
+    field('Meta Description/Meta Tag', page.description);
+    field('Meta Keywords', page.keywords);
+    field('URL Path', page.canonical);
+
+    var hrefs = internalLinks(page, cfg);
+    notes.links = hrefs.length;
+    hrefs.forEach(function (href, i) {
+      lines.push((i === 0 ? 'Internal Links\t' : '') + '\u25CF\t' + href);
+    });
+    if (hrefs.length) notes.fields.push('Internal Links');
+
+    // Headings, copy and images merged into one stream and read in the order
+    // the page renders them, so every paragraph lands under its own heading.
+    var stream = [];
+    (page.headings || []).forEach(function (h) {
+      // The template stamps the window title into several display:none H2s.
+      // A brief must not ask for a heading nobody can see.
+      if (h.hidden) { notes.hiddenHeadings++; return; }
+      if (h.text) stream.push({ kind: 'heading', level: h.level, text: h.text, at: h.at });
+    });
+    (page.paragraphs || []).forEach(function (p) {
+      stream.push({ kind: 'copy', text: p.text, at: p.at });
+    });
+    (page.images || []).forEach(function (img) {
+      var name = assetName(img.src);
+      // An asset whose name cannot be read out of its src is reported rather
+      // than guessed at — a made-up name in a brief is worse than none.
+      if (!name) { notes.unnamedImages.push(img.src); return; }
+      stream.push({ kind: 'image', text: name, at: img.at });
+    });
+    stream.sort(function (a, b) { return a.at - b.at; });
+
+    var major = 0, minor = 0;
+    if (lines.length) lines.push('');
+    stream.forEach(function (item) {
+      if (item.kind === 'heading') {
+        if (item.level === 'h3') minor++;
+        else { major++; minor = 1; }
+        lines.push(item.text + '[' + major + '.' + minor + ']');
+        notes.sections++;
+      } else if (item.kind === 'image') {
+        lines.push('AEM Assets - ' + item.text);
+        notes.images++;
+      } else {
+        lines.push(item.text);
+        notes.paragraphs++;
+      }
+    });
+
+    return { text: lines.join('\n'), notes: notes };
   }
 
   // A cell that arrived from a broken CSV split carries half a quote pair.
@@ -1793,6 +1940,7 @@
       pickBrief: pickBrief,
       readPage: function (h) { return readPage(h, cfg); },
       readBrief: readBrief,
+      briefFrom: function (h) { return briefFrom(h, cfg); },
       // Exposed so a test can assert a location without a defect to hang it
       // on — the id-less carousel ships no defect on the real page.
       placeIn: placeOf,
