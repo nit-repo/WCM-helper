@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WCM Helper — Bookmarklet</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><g fill='%231450F5'><rect x='1' y='6' width='6' height='20'/><rect x='9' y='6' width='6' height='20'/><rect x='17' y='6' width='6' height='20'/><rect x='25' y='6' width='6' height='20'/></g></svg>">
+
+  <!-- Zero external requests: no CDN, no analytics. Same KONE design
+       system as index.html — flat, solid, sharp; 8px only on cards and
+       controls; ALL-CAPS KONE Information carries the blue. -->
+  <style>
+    @font-face {
+      font-family: 'KONE Information';
+      src: url('assets/fonts/KONE_Information.ttf') format('truetype');
+      font-weight: 400;
+      font-display: swap;
+    }
+
+    :root {
+      --kone-blue: #1450F5;
+      --blue-80: #4373F7;
+      --white: #FFFFFF;
+      --black: #141414;
+      --sand: #F3EEE6;
+      --black-60: #727272;
+      --black-40: #A1A1A1;
+      --black-20: #D0D0D0;
+      --hairline: #E6E6E6;
+      --bg-blue: #F3F6FE;
+      --font-primary: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      --font-secondary: 'KONE Information', Inter, system-ui, Arial, sans-serif;
+      --radius-sm: 4px;
+      --radius-md: 8px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0; min-height: 100vh;
+      background: var(--white); color: var(--black);
+      font-family: var(--font-primary);
+      font-size: 15px; line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .shell { max-width: 820px; }
+
+    header.navbar {
+      background: var(--kone-blue); color: var(--white);
+      padding: 20px 32px; display: flex; align-items: center; gap: 16px;
+    }
+    header.navbar img { height: 22px; width: auto; display: block; }
+    header.navbar h1 { font-size: 18px; margin: 0; font-weight: 400; letter-spacing: -0.005em; }
+    header.navbar p {
+      font-family: var(--font-secondary); text-transform: uppercase; letter-spacing: 0.08em;
+      font-size: 11px; margin: 3px 0 0; opacity: 0.85;
+    }
+
+    main { padding: 32px; }
+
+    p { margin: 0 0 14px; }
+    a { color: var(--kone-blue); }
+
+    ol.steps { list-style: none; padding: 0; margin: 20px 0; }
+    ol.steps > li {
+      display: flex; gap: 14px; align-items: flex-start;
+      padding: 14px 0; border-bottom: 1px solid var(--hairline);
+    }
+    ol.steps > li:last-child { border-bottom: none; }
+    .chip-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      flex: none; width: 24px; height: 24px; border-radius: var(--radius-sm);
+      background: var(--kone-blue); color: var(--white);
+      font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+    }
+    .step-body p { margin: 0; }
+    .step-body p.detail { margin-top: 4px; font-size: 13px; color: var(--black-60); }
+
+    .bookmarklet-row {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      background: var(--sand); border-radius: var(--radius-md);
+      padding: 18px 20px; margin: 20px 0;
+    }
+    a#bookmarklet-link {
+      font-family: var(--font-primary); font-size: 14px; font-weight: 600; text-decoration: none;
+      background: var(--kone-blue); color: var(--white);
+      padding: 9px 18px; border-radius: var(--radius-md);
+      cursor: grab; white-space: nowrap;
+    }
+    a#bookmarklet-link:hover { background: var(--blue-80); }
+    .bookmarklet-row p { margin: 0; font-size: 13px; color: var(--black-60); }
+
+    .note {
+      font-size: 13px; margin: 20px 0 0; padding: 12px 14px;
+      border-radius: var(--radius-md); background: var(--sand);
+    }
+    code {
+      background: var(--sand); padding: 1px 6px; border-radius: var(--radius-sm);
+      font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="shell">
+    <header class="navbar">
+      <img src="assets/brand/kone-logo-white.svg" alt="KONE" width="118" height="22">
+      <div>
+        <h1>Bookmarklet</h1>
+        <p>Send a page to WCM Helper in one click — no View Source, no copy-paste</p>
+      </div>
+    </header>
+
+    <main>
+      <p>This bookmarklet runs inside the KONE page itself, in your own already-logged-in browser tab — including preview pages behind CMS login. Nothing is fetched or sent anywhere else; it reads the page that is already loaded and hands it straight to WCM Helper.</p>
+
+      <ol class="steps">
+        <li>
+          <span class="chip-num">1</span>
+          <div class="step-body">
+            <p>Drag this link to your bookmarks bar:</p>
+            <div class="bookmarklet-row">
+              <a href="#" id="bookmarklet-link" onclick="return false;">Send to WCM Helper</a>
+              <p>Drag, don't click — clicking it here does nothing useful.</p>
+            </div>
+          </div>
+        </li>
+        <li>
+          <span class="chip-num">2</span>
+          <div class="step-body">
+            <p>In WCM Helper's Compare tab, paste the page URL and click <strong>Open page</strong>.</p>
+            <p class="detail">Opening it from there is what lets the page report back into the tab you are already working in, so the brief you pasted stays put.</p>
+          </div>
+        </li>
+        <li>
+          <span class="chip-num">3</span>
+          <div class="step-body">
+            <p>On that page, click the bookmarklet.</p>
+            <p class="detail">The page is sent back to WCM Helper and lands in Compare, brief intact — just click Compare. Nothing opens and nothing navigates: the capture goes into the tab you are already working in.</p>
+          </div>
+        </li>
+      </ol>
+
+      <p class="note">Step 2 is not optional. Opening the page from Compare is what gives the bookmarklet somewhere to send to — a browser gives a page no other way to reach a tab on a different site. Click it on a page opened any other way and it will tell you so rather than quietly opening a tab.</p>
+
+      <p><a href="index.html">&larr; Back to WCM Helper</a></p>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      // The tool origin is baked in from this page's own, so the same
+      // install page works unmodified whether WCM Helper is on localhost
+      // during dev or wherever it is deployed — nothing to keep in sync.
+      // Two delivery channels, both attempted, neither of which opens or
+      // navigates anything. There is deliberately no "no channel worked"
+      // fallback that opens a tab: the capture goes to the tab you are
+      // already working in or it does not go, and the overlay says which.
+      //
+      //   1. window.opener.postMessage — the only channel that can cross
+      //      origins, which is why the page has to be opened from
+      //      Compare's launcher for this to have anywhere to go.
+      //   2. BroadcastChannel — origin-scoped, so it only ever reaches
+      //      tabs on the page's own origin. Included because it costs
+      //      nothing and covers the same-origin case.
+      //
+      // Targeted at the exact tool origin, never '*': this payload is the
+      // page's entire markup, including internal preview URLs and copy
+      // that has not shipped.
+      var origin = location.origin;
+
+      var src = 'javascript:' + encodeURI('(function(){' +
+        'try{' +
+          'var h=document.documentElement.outerHTML;' +
+          'var p={type:"WCM_PAGE_CAPTURE",html:h,url:location.href,title:document.title};' +
+          'var sent=false;' +
+          'if(window.opener&&!window.opener.closed){try{window.opener.postMessage(p,"' + origin + '");sent=true;}catch(e){}}' +
+          'try{var bc=new BroadcastChannel("wcm_helper");bc.postMessage(p);bc.close();}catch(e){}' +
+          'var kb=Math.round(h.length/1024);' +
+          'var u=location.href.length>68?location.href.slice(0,68)+"\u2026":location.href;' +
+          'var esc=function(t){return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");};' +
+          'var accent=sent?"#1450F5":"#A1681D";' +
+          'var inner=\'<div style="background:#FFFFFF;border:1px solid #E6E6E6;border-top:4px solid \'+accent+\';border-radius:8px;padding:24px 28px;max-width:420px;width:88%;box-sizing:border-box;text-align:left;font-family:Inter,system-ui,-apple-system,Arial,sans-serif;color:#141414">\'' +
+            '+\'<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:\'+accent+\';margin-bottom:10px">\'+(sent?"Sent to WCM Helper":"Nowhere to send it")+\'</div>\'' +
+            '+\'<div style="font-size:16px;font-weight:600;margin-bottom:6px;word-break:break-word">\'+esc(document.title||"This page")+\'</div>\'' +
+            '+\'<div style="font-size:12px;color:#727272;margin-bottom:14px;word-break:break-all">\'+esc(u)+\'</div>\'' +
+            '+(sent' +
+              '?\'<div style="font-size:13px;color:#141414">\'+kb+\' KB of markup is now in the Compare tab, with your brief still there.</div>\'' +
+              ':\'<div style="font-size:13px;color:#141414;line-height:1.55">This page was not opened from WCM Helper, so there is no tab to send it to.<br><br>In WCM Helper, go to <b>Compare</b>, paste this URL into <b>Page</b>, click <b>Open page</b>, then click the bookmarklet on the tab that opens.</div>\')' +
+            '+\'</div>\';' +
+          'var prev=document.getElementById("__wcmh__");if(prev)prev.remove();' +
+          'var shown=false;' +
+          'try{' +
+            'var d=document.createElement("dialog");d.id="__wcmh__";' +
+            'd.style.background="rgba(20,20,20,.55)";d.style.border="none";d.style.padding="0";d.style.margin="0";' +
+            'd.style.width="100vw";d.style.height="100vh";d.style.maxWidth="100vw";d.style.maxHeight="100vh";' +
+            'd.style.display="flex";d.style.alignItems="center";d.style.justifyContent="center";' +
+            'd.innerHTML=inner;document.body.appendChild(d);d.showModal();shown=true;' +
+            'setTimeout(function(){try{d.close();}catch(e){}d.remove();},sent?3200:9000);' +
+          '}catch(e){}' +
+          'if(!shown){' +
+            'var o=document.createElement("div");o.id="__wcmh__";' +
+            'o.style.position="fixed";o.style.top="0";o.style.left="0";o.style.right="0";o.style.bottom="0";' +
+            'o.style.background="rgba(20,20,20,.55)";o.style.zIndex="2147483647";' +
+            'o.style.display="flex";o.style.alignItems="center";o.style.justifyContent="center";' +
+            'o.innerHTML=inner;(document.body||document.documentElement).appendChild(o);' +
+            'setTimeout(function(){o.remove();},sent?3200:9000);' +
+          '}' +
+        '}catch(e){alert("Could not capture this page: "+e.message);}' +
+      '})();');
+
+      document.getElementById('bookmarklet-link').setAttribute('href', src);
+    })();
+  </script>
+</body>
+
+</html>
