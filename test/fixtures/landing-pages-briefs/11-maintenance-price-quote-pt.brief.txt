@@ -1,0 +1,11 @@
+Market	Portugal
+Line	SERV
+Copy language	Portuguese, courtesy form (third person singular, o seu / a sua; o senhor or a senhora if a pronoun is needed)
+Target searches	preço manutenção elevador, orçamento manutenção elevadores, contrato manutenção elevadores
+Monthly search volumes	manutenção de elevadores 110, empresas de manutenção de elevadores 70, manutenção de elevadores preços 20, contrato manutenção elevadores 20, quanto custa a manutenção de um elevador 10
+URL Path	https://www.kone.pt/predios-existentes/manutencao/preco-manutencao/
+Sources	https://www.kone.pt/predios-existentes/manutencao/
+●	https://www.kone.pt/predios-existentes/manutencao/remote-service/
+●	https://www.kone.pt/predios-existentes/manutencao/247-connected-services/
+●	https://www.kone.pt/sobre-nos/contacte-nos/
+Verification notes	every figure on this page is published on kone.pt. The three hero statistics and the 80% figure come from the KONE Remote Service page; the two-year figures (60% more proactive activities, 28% fewer visible failures) come from the KONE 24/7 Connected Services page; the phone number and its hours come from the contact page. The page is the destination of the new price and quote ad group of the Portuguese maintenance Search. Since price searches are a small cluster in Portugal, it is also written to work for the generic maintenance ad group. The process steps are a proposed flow, to be aligned with KONE.

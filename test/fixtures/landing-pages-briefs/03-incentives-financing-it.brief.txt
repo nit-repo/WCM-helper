@@ -1,0 +1,8 @@
+Market	Italy
+Line	MOD
+Copy language	Italian, informal tu
+Target searches	bonus ascensore, detrazione ascensore condominio, finanziamento ammodernamento
+Monthly search volumes	bonus ascensore 210, detrazione ascensore 20, detrazione fiscale ascensore 20
+URL Path	https://www.kone.it/edifici-esistenti/ammodernamento-ascensori/finanziamento/
+Sources	https://www.kone.it/edifici-esistenti/ammodernamento-ascensori/finanziamento/
+Verification notes	the financing terms (Sella, 12 to 60 months, zero interest, 48 to 72 hours) come from the KONE financing page, which still shows the validity date of 31 December 2020. KONE to confirm the current conditions before publishing, as the page already flags in the note next to the table. The process steps are a proposed flow, to be aligned with KONE.

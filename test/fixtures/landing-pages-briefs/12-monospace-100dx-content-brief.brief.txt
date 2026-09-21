@@ -1,0 +1,15 @@
+Page Title/Title Tag	KONE MonoSpace 100 DX Residential Elevator
+Meta Description/Meta Tag	A machine-roomless elevator built for residential buildings, saving space with the KONE EcoDisc motor.
+URL Path	https://www.kone.si/kone-monospace-100-dx/
+Internal Links	●	https://www.kone.si/studio/tool/
+●	https://www.kone.si/edifici-esistenti/ascensori-modernizzazione/
+KONE MonoSpace 100 DX[1.0]
+Save valuable space and gain greater design freedom with our machine-roomless elevator, built for residential buildings of every size.
+AEM Assets - kone-monospace-100dx-hero
+Reduce energy costs[2.0]
+With a compact KONE EcoDisc hoisting motor, energy use is reduced and no separate machine room is required anywhere in the building.
+FAQ[3.0]
+What building types suit MonoSpace 100 DX?[3.1]
+MonoSpace 100 DX suits residential buildings of low to medium height, with several configurations available for different traffic needs.
+Is a machine room required?[3.2]
+No, the KONE EcoDisc motor removes the need for a separate machine room, freeing up valuable space in the building.

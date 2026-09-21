@@ -1,0 +1,9 @@
+Market	Italy
+Line	SERV, conquesting
+Copy language	Italian, informal tu
+Target searches	cambiare ditta manutenzione ascensore, manutenzione ascensori qualsiasi marca
+Monthly search volumes	switch searches on long tail (under 10 each), category head manutenzione ascensori 480
+URL Path	https://www.kone.it/edifici-esistenti/nuova-offerta-manutenzione/perche-kone/
+Sources	https://www.kone.it/edifici-esistenti/nuova-offerta-manutenzione/
+●	https://www.kone.it/edifici-esistenti/nuova-offerta-manutenzione/customer-service/
+Verification notes	service claims and phone numbers are as published on kone.it. If KONE can confirm how a contract takeover works in practice (timing, continuity of service), the page can state it explicitly; for now it invites users to ask for every condition in writing. The process steps are a proposed flow, to be aligned with KONE.

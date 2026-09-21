@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "components": {
+    "hero": {
+      "signals": ["hero", "herobanner", "hero banner", "banner", "introduction", "lead"],
+      "fields": ["subtitle", "heading", "body", "image", "cta"]
+    },
+    "content": {
+      "signals": ["content", "contentblocks", "content block", "rich text", "paragraph", "contentriver"],
+      "fields": ["heading", "body"]
+    },
+    "cards": {
+      "signals": ["cards", "card group", "teaser", "highlights", "benefits", "campaignhighlight", "valuehighlight", "productteaser"],
+      "fields": ["heading", "items"],
+      "repeatable": true
+    },
+    "steps": {
+      "signals": ["steps", "process", "how it works", "come funziona", "cómo funciona", "como funciona"],
+      "fields": ["heading", "items"],
+      "repeatable": true,
+      "ordered": true
+    },
+    "table": {
+      "signals": ["specification", "specifications", "table", "specs", "productspecification", "productspecificationcarousel", "productspecificationitem"],
+      "fields": ["heading", "items"],
+      "repeatable": true
+    },
+    "accordion": {
+      "signals": ["faq", "faqs", "question", "answer", "accordion", "domande frequenti", "preguntas frecuentes", "perguntas frequentes"],
+      "fields": ["heading", "items"],
+      "repeatable": true
+    },
+    "cta": {
+      "signals": ["cta", "button", "internal links", "call to action", "multictamodule", "related links"],
+      "fields": ["items"],
+      "repeatable": true
+    },
+    "image": {
+      "signals": ["image", "aem assets", "cover image", "hero image", "asset"],
+      "fields": ["image", "alt", "caption"]
+    }
+  },
+  "chrome": ["navigation", "nav", "header", "footer", "breadcrumb", "breadcrumbs", "cookie", "cookiepopup", "form", "lead form"],
+  "templates": {
+    "landing": ["hero", "cards"],
+    "article": ["content"],
+    "product": ["table"],
+    "faq": ["accordion"]
+  },
+  "note": "Component signal vocabulary for the Fill 'Mock page' view (page-model.js). Kept separate from work-types.json because it is a different consumer's vocabulary — component/template inference, not brief-field or CMS-platform detection. A missing or broken copy of this file is non-fatal: page-model.js carries the same defaults built in, following the DEFAULT_BRIEF_LABELS precedent in compare.js, so a failed fetch never blocks Fill's existing 'find localized text' behaviour."
+}

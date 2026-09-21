@@ -1,0 +1,10 @@
+Market	Portugal
+Line	SERV, conquesting
+Copy language	Portuguese, courtesy form (third person singular, o seu / a sua; o senhor or a senhora if a pronoun is needed)
+Target searches	mudar empresa manutenção elevador, empresas de manutenção de elevadores
+Monthly search volumes	manutenção de elevadores 110, manutenção elevadores 110, empresas de manutenção de elevadores 70, switch searches on long tail
+URL Path	https://www.kone.pt/predios-existentes/manutencao/porque-kone/
+Sources	https://www.kone.pt/predios-existentes/manutencao/
+●	https://www.kone.pt/predios-existentes/manutencao/remote-service/
+●	https://www.kone.pt/predios-existentes/manutencao/247-connected-services/
+Verification notes	all claims are verified on the kone.pt maintenance pages ("qualquer marca ou modelo", "Mude ou atualize o seu contrato existente", 24/7 Connected Services, Remote Service, myKONE). This page serves the competitor-brands ad group of the restructured Portuguese maintenance Search campaign, and it is the lowest priority of the set, since the Portuguese line runs at floor budget. The process steps are a proposed flow, to be aligned with KONE.

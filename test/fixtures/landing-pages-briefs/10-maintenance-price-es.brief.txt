@@ -1,0 +1,10 @@
+Market	Spain
+Line	SERV
+Copy language	Spanish, formal usted
+Target searches	precio mantenimiento ascensor, presupuesto mantenimiento comunidad
+Monthly search volumes	precio mantenimiento ascensor 260, cuánto cuesta el mantenimiento de un ascensor 140, category head mantenimiento ascensores 720
+URL Path	https://www.kone.es/edificios-existentes/nueva-oferta-mantenimiento/precio-mantenimiento/
+Sources	https://www.kone.es/edificios-existentes/nueva-oferta-mantenimiento/
+●	https://www.kone.es/edificios-existentes/nueva-oferta-mantenimiento/remote-service/
+●	https://www.kone.es/edificios-existentes/nueva-oferta-mantenimiento/247-connected-services/
+Verification notes	all statistics (25% in 2 minutes, 30% fewer stoppages, 55% fewer entrapments, 70% more proactive interventions, 40% fewer visible incidents) are KONE service figures as published on kone.es. The process steps are a proposed flow, to be aligned with KONE.
