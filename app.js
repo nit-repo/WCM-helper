@@ -19,7 +19,10 @@
   }());
   function buildTag() { return BUILD; }
 
-  var state = { engine: null, comparer: null, filler: null, analysis: null, mode: 'analyse', market: null };
+  var state = {
+    engine: null, comparer: null, filler: null, pageModel: null, mockPage: null,
+    analysis: null, mode: 'analyse', market: null, fillView: 'lookup'
+  };
 
   var el = {
     brief: document.getElementById('brief'),
@@ -51,7 +54,11 @@
     english: document.getElementById('english'),
     marketOverride: document.getElementById('market-override'),
     marketSelect: document.getElementById('market-select'),
-    tabIndicator: document.querySelector('.tab-indicator')
+    tabIndicator: document.querySelector('.tab-indicator'),
+    fillViewLookup: document.getElementById('fill-view-lookup'),
+    fillViewMock: document.getElementById('fill-view-mock'),
+    fillLookupFields: document.getElementById('fill-lookup-fields'),
+    fillMockFields: document.getElementById('fill-mock-fields')
   };
 
   // ─── MOTION ──────────────────────────────────────────────────────────────
@@ -202,17 +209,30 @@
   var buildEl = document.getElementById('build-tag');
   if (buildEl) buildEl.textContent = 'Build ' + buildTag();
 
-  fetch('config/work-types.json?v=' + buildTag())
-    .then(function (r) {
+  Promise.all([
+    fetch('config/work-types.json?v=' + buildTag()).then(function (r) {
       if (!r.ok) throw new Error('config/work-types.json returned ' + r.status);
       return r.json();
-    })
-    .then(function (workTypes) {
+    }),
+    // The mock-component vocabulary is a nice-to-have, not a dependency:
+    // page-model.js carries the same defaults built in, so a missing or
+    // broken copy of this file must never block Fill's existing "find
+    // localized text" behaviour, which does not need it at all.
+    fetch('config/mock-components.json?v=' + buildTag())
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+  ])
+    .then(function (results) {
+      var workTypes = results[0], mockComponents = results[1];
       state.engine = window.BriefEngine.create({ 'work-types': workTypes });
       state.comparer = window.BriefCompare.create({ 'work-types': workTypes });
       // Unwrapped, unlike engine/compare above — Filler.create passes this
       // straight to Brief.parse, which reads config.markets.list directly.
       state.filler = window.BriefFiller.create(workTypes);
+      var pageModelConfig = { 'work-types': workTypes };
+      if (mockComponents) pageModelConfig['mock-components'] = mockComponents;
+      state.pageModel = window.BriefPageModel.create(pageModelConfig);
+      state.mockPage = window.BriefMockPage.create();
       state.engine.workTypes.forEach(function (t) {
         var o = document.createElement('option');
         o.value = t.id;
@@ -273,6 +293,18 @@
   el.tabCompare.addEventListener('click', function () { setMode('compare'); });
   el.tabFill.addEventListener('click', function () { setMode('fill'); });
   el.fillBtn.addEventListener('click', runFill);
+
+  function setFillView(view) {
+    state.fillView = view;
+    el.fillViewLookup.setAttribute('aria-pressed', String(view === 'lookup'));
+    el.fillViewMock.setAttribute('aria-pressed', String(view === 'mock'));
+    el.fillLookupFields.hidden = view !== 'lookup';
+    el.fillMockFields.hidden = view !== 'mock';
+    el.fillBtn.textContent = view === 'mock' ? 'Build mock page' : 'Find localized text';
+    runFill(true);
+  }
+  el.fillViewLookup.addEventListener('click', function () { setFillView('lookup'); });
+  el.fillViewMock.addEventListener('click', function () { setFillView('mock'); });
   el.tabBrief.addEventListener('click', function () { setMode('brief'); });
   el.briefgenBtn.addEventListener('click', runBriefGen);
   el.marketSelect.addEventListener('change', function () {
@@ -734,6 +766,11 @@
   // ─── FILL ────────────────────────────────────────────────────────────────
 
   function runFill(worklistOnly) {
+    if (state.fillView === 'mock') runFillMock(worklistOnly);
+    else runFillLookup(worklistOnly);
+  }
+
+  function runFillLookup(worklistOnly) {
     var brief = el.brief.value.trim();
     if (!brief) { if (worklistOnly !== true) toast('Load the brief first.'); renderFillEmpty(); return; }
 
@@ -757,6 +794,49 @@
 
     el.output.innerHTML = head + renderWorklist(rows, brief);
     wireWorklist(brief);
+  }
+
+  // Builds a small mock of the page this brief describes, using the same
+  // market selector as Field lookup. page-model.js does the reading and
+  // inference; mock-page.js only draws what it was handed — this function
+  // is wiring, nothing more.
+  function runFillMock(worklistOnly) {
+    var brief = el.brief.value.trim();
+    if (!brief) { if (worklistOnly !== true) toast('Load the brief first.'); renderFillEmpty(); return; }
+
+    updateMarketOptions(brief);
+
+    var model = state.pageModel.build(brief, { market: state.market });
+    var rendered = state.mockPage.render(model, { labels: true });
+
+    el.output.innerHTML = renderMockOutline(model) + renderMockPreview(rendered.html);
+  }
+
+  function renderMockOutline(model) {
+    var tpl = model.page.template;
+    var rows = model.components.map(function (c, i) {
+      return '<li class="mock-outline-row">' +
+        '<span class="chip-num">' + (i + 1) + '</span>' +
+        '<span class="mock-outline-type">' + esc(c.type) + '</span>' +
+        '<span class="mock-outline-conf mock-outline-' + esc(c.confidence) + '">' + esc(c.confidence) + '</span>' +
+        '<span class="mock-outline-why">' + esc(c.why) + '</span></li>';
+    }).join('');
+
+    var body = rows ? '<ol class="mock-outline">' + rows + '</ol>' :
+      '<p class="note">Nothing in this brief reads as a page component — only metadata and front matter, so nothing is shown. That is correct when the brief is a campaign brief rather than a content brief.</p>';
+
+    if (model.unresolved.length) {
+      body += '<p class="note warn">' + model.unresolved.length + ' row' + (model.unresolved.length === 1 ? '' : 's') +
+        ' could not be placed: ' + model.unresolved.map(function (u) { return esc(u.why); }).join('; ') + '</p>';
+    }
+
+    var title = 'Page: ' + esc(tpl.type) + ' — ' + esc(tpl.confidence) + ' confidence';
+    return section(title, body);
+  }
+
+  function renderMockPreview(html) {
+    return '<section class="card" id="mock-preview-card"><h3>Mock page</h3>' +
+      '<iframe id="mock-preview" sandbox="" srcdoc="' + esc(html) + '"></iframe></section>';
   }
 
   // A brief naming several markets has no "last column", only a target —

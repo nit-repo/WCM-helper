@@ -9,6 +9,6 @@
   },
   "scripts": {
     "start": "node serve.js",
-    "test": "node test/brief.test.js && node test/engine.test.js && node test/compare.test.js && node test/readers.test.js && node test/filler.test.js && node test/page-model.test.js"
+    "test": "node test/brief.test.js && node test/engine.test.js && node test/compare.test.js && node test/readers.test.js && node test/filler.test.js && node test/page-model.test.js && node test/mock-page.test.js"
   }
 }

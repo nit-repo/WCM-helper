@@ -423,6 +423,34 @@
     .progress { font-size: 13px; color: var(--black-60); margin: 0 0 16px; }
     .progress b { color: var(--black); }
 
+    /* Field lookup / Mock page — a small two-way toggle, not the full
+       sliding-pill tab system: this switches a view within one tab, not
+       between tabs. */
+    .view-toggle { display: flex; gap: 4px; background: var(--sand); border-radius: var(--radius-md); padding: 3px; margin-bottom: 16px; }
+    .view-btn {
+      flex: 1; border: none; background: transparent; border-radius: 6px;
+      padding: 8px 10px; font: inherit; font-size: 13px; color: var(--black-60); cursor: pointer;
+    }
+    .view-btn[aria-pressed="true"] { background: var(--white); color: var(--black); font-weight: 600; box-shadow: 0 1px 2px rgba(20,20,20,.08); }
+
+    /* The mock-page outline: one row per predicted component, with its
+       confidence and the evidence it was inferred from — the review a
+       brief-derived guess always has to show, never a silent type. */
+    ol.mock-outline { list-style: none; margin: 8px 0 0; padding: 0; }
+    ol.mock-outline > li.mock-outline-row { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-bottom: 1px solid var(--hairline); }
+    ol.mock-outline > li.mock-outline-row:last-child { border-bottom: 0; }
+    .mock-outline-type { font-family: var(--font-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-size: 12px; color: var(--black); min-width: 84px; }
+    .mock-outline-conf { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 7px; border-radius: 4px; }
+    .mock-outline-high { color: var(--green); background: var(--green-bg); }
+    .mock-outline-medium { color: var(--amber); background: var(--amber-bg); }
+    .mock-outline-low { color: var(--red); background: #FFEFE9; }
+    .mock-outline-why { font-size: 13px; color: var(--black-60); flex: 1; }
+
+    /* The preview itself: a sandboxed document, so its height cannot be
+       measured from the outside — a fixed viewport with its own scroll,
+       which also reads correctly as a page rather than an inline block. */
+    #mock-preview { width: 100%; height: 70vh; border: 1px solid var(--hairline); border-radius: var(--radius-md); background: var(--white); }
+
     .toast {
       position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
       background: var(--black); color: var(--white); padding: 10px 18px; border-radius: 8px;
@@ -487,9 +515,18 @@
       </section>
 
       <section class="card" id="fill-input" hidden>
-        <h3>English master from the component</h3>
-        <textarea id="english" placeholder="Paste the English text sitting in the Tridion component field. Markup is fine — paste the source if the field is rich text."></textarea>
-        <p class="hint">The tool cannot read or write Tridion fields. It finds the row and hands you the localized text; you paste it.</p>
+        <div class="view-toggle" role="group" aria-label="Fill view">
+          <button type="button" class="view-btn" id="fill-view-lookup" aria-pressed="true">Field lookup</button>
+          <button type="button" class="view-btn" id="fill-view-mock" aria-pressed="false">Mock page</button>
+        </div>
+        <div id="fill-lookup-fields">
+          <h3>English master from the component</h3>
+          <textarea id="english" placeholder="Paste the English text sitting in the Tridion component field. Markup is fine — paste the source if the field is rich text."></textarea>
+          <p class="hint">The tool cannot read or write Tridion fields. It finds the row and hands you the localized text; you paste it.</p>
+        </div>
+        <div id="fill-mock-fields" hidden>
+          <p class="hint">Builds a small editable mock of the page this brief describes — the same market selector below chooses which column fills it in. Every component shown carries the rows it was inferred from and how confident that inference is; nothing is guessed silently.</p>
+        </div>
       </section>
 
       <section class="card" id="settings-card">
@@ -530,12 +567,14 @@
        entry belonging to the old one. app.js reads the same value back out of
        its own src and shows it in the sidebar, so there is one string to bump
        and what it displays is necessarily the file that is running. -->
-  <script src="brief.js?v=2026-09-12a"></script>
-  <script src="engine.js?v=2026-09-12a"></script>
-  <script src="compare.js?v=2026-09-12a"></script>
-  <script src="readers.js?v=2026-09-12a"></script>
-  <script src="filler.js?v=2026-09-12a"></script>
-  <script src="app.js?v=2026-09-12a"></script>
+  <script src="brief.js?v=2026-09-22a"></script>
+  <script src="engine.js?v=2026-09-22a"></script>
+  <script src="compare.js?v=2026-09-22a"></script>
+  <script src="readers.js?v=2026-09-22a"></script>
+  <script src="filler.js?v=2026-09-22a"></script>
+  <script src="page-model.js?v=2026-09-22a"></script>
+  <script src="mock-page.js?v=2026-09-22a"></script>
+  <script src="app.js?v=2026-09-22a"></script>
 </body>
 
 </html>

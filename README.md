@@ -124,6 +124,12 @@ Localizing in Tridion means opening each component, reading the English master i
 
 Matching runs exact → contained → closest, and a closest match shows its overlap score rather than presenting itself as certain. A brief with no English column says so and falls back to the worklist.
 
+**Mock page.** A second view inside the same tab — **Field lookup / Mock page** — for seeing the page a brief describes instead of finding one field at a time. `page-model.js` reads the brief the same way Compare and Fill already do (front matter, sections, market columns) and infers a component for each section — hero, content, cards, steps, table, accordion, cta, image, or generic-for-review — using the brief's own evidence in priority order: an explicit component name first, then a recognised field label, then shape (a heading with an image and a short intro reads as a hero; repeating title/body pairs read as cards; repeating questions read as an accordion), and only as a last resort a generic block marked for review. Nothing is typed silently: every predicted component shows its confidence and the rows it came from, in the outline above the preview.
+
+`page-model.js` also reads an already-built page the same way, from its own Tridion component markers (or the CSS-class map on a live page with none) when it has `<section class="module-…">` markup, or from its own real heading hierarchy and `<details>/<summary>` blocks when it does not — the same model either way, so the mock renderer never has to know which one produced it.
+
+The preview renders inside a sandboxed frame — no script can run in it, and no image is ever fetched from an external URL; an asset renders as a labelled placeholder box instead, matching the tool's zero-external-requests rule. It resembles the structure of a real KONE landing page — a hero band, numbered cards, an accordion — without pretending to reproduce the production design. Switching the market re-renders it immediately, the same way it already re-runs Field lookup.
+
 
 ## Briefs as files
 
@@ -139,7 +145,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 255 verification cases across the five modules
+npm test      # 304 verification cases across the seven modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
