@@ -327,6 +327,309 @@
     return { components: components, unresolved: unresolved };
   }
 
+  // ─── BUILDING FROM AN EXISTING PAGE OR MOCKUP ───────────────────────────
+  // Compare already resolves a page's own Tridion components: readPage()'s
+  // `modules` carry the canonical component type read from the page's own
+  // Component Field/Presentation markers when it has them, or from
+  // config.compare.tridionComponents's CSS-class map when it does not —
+  // the same two-layer reading tridion-component-taxonomy.md documents,
+  // already exercised by Compare's own locator. This reuses that reading
+  // rather than re-deriving it, and returns the same {page, components,
+  // unresolved} shape build() does, so a renderer never has to care which
+  // one produced the model it was handed.
+
+  // tcm:Content/custom:Accordion/custom:items[1]/custom:title, once
+  // fieldPath() in compare.js has already stripped the tcm:/custom:
+  // prefixes, arrives here as "Accordion/items[1]/title". The repeatable
+  // segment and its index are the part that matters; everything after it
+  // is the leaf field name.
+  function parseFieldPath(path) {
+    var parts = String(path || '').split('/');
+    for (var i = 0; i < parts.length; i++) {
+      var m = /^(\w+)\[(\d+)\]$/.exec(parts[i]);
+      if (m) return { index: parseInt(m[2], 10), leaf: parts.slice(i + 1).join('/') || parts[i] };
+    }
+    return { index: null, leaf: parts[parts.length - 1] || null };
+  }
+
+  var LEAF_ROLE = {
+    question: /question/i,
+    answer: /answer/i,
+    heading: /heading|title|h1/i,
+    subtitle: /subtitle/i,
+    body: /\bbody\b|bodytext|description|intro|leadtext/i,
+    cta: /actiontext|^cta$|button/i,
+    ctaHref: /actionurl|href/i,
+    image: /^image$|alttext|caption/i
+  };
+  function leafRole(leaf) {
+    for (var role in LEAF_ROLE) {
+      if (LEAF_ROLE.hasOwnProperty(role) && LEAF_ROLE[role].test(String(leaf || ''))) return role;
+    }
+    return null;
+  }
+
+  // A module's own authored fields, split into the ones that repeat (an
+  // Accordion's items, a card grid's tiles) and the ones that don't (a
+  // Hero's single heading and intro). A repeat is real authored structure —
+  // stronger evidence than any shape guess on the brief side, so two or
+  // more repeated items are always confidence: 'high', never inferred.
+  function fieldsOfModule(mod) {
+    var repeated = {}, order = [];
+    var plain = { heading: null, subtitle: null, body: [], cta: [], ctaHref: null, image: null };
+
+    (mod.fields || []).forEach(function (f) {
+      var parsed = parseFieldPath(f.path);
+      var role = leafRole(parsed.leaf);
+      if (parsed.index != null) {
+        var key = parsed.index;
+        if (!repeated[key]) { repeated[key] = {}; order.push(key); }
+        if (role) repeated[key][role] = f.value;
+        return;
+      }
+      if (role === 'heading') plain.heading = plain.heading || f.value;
+      else if (role === 'subtitle') plain.subtitle = plain.subtitle || f.value;
+      else if (role === 'body' && f.value) plain.body.push(f.value);
+      else if (role === 'cta' && f.value) plain.cta.push(f.value);
+      else if (role === 'ctaHref') plain.ctaHref = f.value;
+      else if (role === 'image') plain.image = plain.image || f.value;
+    });
+
+    var raw = order.map(function (k) { return repeated[k]; })
+      .filter(function (r) { return r.question || r.answer || r.heading || r.body; });
+    var isQA = raw.some(function (r) { return r.question || r.answer; });
+    var items = raw.map(function (r) {
+      return isQA ? { question: r.question || r.heading || null, answer: r.answer || r.body || null }
+        : { title: r.heading || r.question || null, body: r.body || r.answer || null };
+    });
+
+    return { plain: plain, items: items, isQA: isQA };
+  }
+
+  // "FAQ" or "Value highlights" — the same label compare.js's own ledger
+  // already shows, with the same #2-style ordinal when a type repeats.
+  function pageModuleLabel(mod) {
+    return mod.label + (mod.ofType > 1 ? ' #' + mod.ordinal : '');
+  }
+
+  function componentFromModule(mod, comp, chrome) {
+    var label = pageModuleLabel(mod);
+    if (isChrome(mod.label || mod.name, chrome)) {
+      return { drop: true, why: 'names page chrome (' + label + '), not a content component' };
+    }
+
+    var fields = fieldsOfModule(mod);
+    var heading = fields.plain.heading || mod.heading || null;
+    var links = fields.plain.cta.length ? [{ label: fields.plain.cta[0], href: fields.plain.ctaHref || null }] : [];
+    var image = fields.plain.image ? { asset: fields.plain.image, alt: null } : null;
+    var body = fields.plain.body;
+    var items = fields.items;
+    var hasStructure = items.length || body.length || heading || image || links.length;
+    if (!hasStructure && mod.text) body = [mod.text];
+
+    var type, confidence, why;
+    var tridionKey = mod.component ? normaliseLabel(mod.component).replace(/\s+/g, '') : null;
+
+    if (tridionKey && TRIDION_TYPE_OF[tridionKey]) {
+      // Tier 1/2 — the page already states its own component type, either
+      // from an authored marker or from the CSS-class map that stands in
+      // for one on a live page with no markers at all.
+      type = TRIDION_TYPE_OF[tridionKey]; confidence = 'high';
+      why = (mod.fields && mod.fields.length)
+        ? 'the page\'s own Component Field markers identify this as ' + mod.component
+        : 'the page\'s CSS classes match the configured ' + mod.component + ' pattern';
+    } else {
+      var named = namedType([mod.label, heading], comp);
+      if (named) {
+        type = named.type; confidence = 'high';
+        why = 'the page names this section ' + (mod.label || heading);
+      } else if (items.length >= 2) {
+        // Tier 3 — no resolved component type, but the page's own field
+        // markers repeat: real authored structure, not a guess.
+        type = fields.isQA ? 'accordion' : 'cards'; confidence = 'high';
+        why = items.length + ' repeating authored fields read as ' + (fields.isQA ? 'an accordion' : 'a card group');
+      } else {
+        var shape = shapeOfLeaf({ heading: heading, body: body, image: image, links: links });
+        if (shape) { type = shape.type; confidence = shape.confidence; why = shape.why; }
+        else { type = 'generic'; confidence = 'low'; why = 'no component signal on this section — review before publishing'; }
+      }
+    }
+
+    // The outer type can come from the resolved Tridion component name
+    // alone (tier 1/2), independent of what the item-level field names
+    // happen to be — a real Accordion's own items are just as often
+    // authored as "title"/"body" as "question"/"answer". Whichever tier
+    // decided `type`, the item shape it renders in must agree with it, not
+    // with a leaf-name guess made before `type` was known.
+    if (items.length) {
+      if (type === 'accordion') {
+        items = items.map(function (it) { return { question: it.question || it.title || null, answer: it.answer || it.body || null }; });
+      } else if (type === 'cards' || type === 'steps' || type === 'table') {
+        items = items.map(function (it) { return { title: it.title || it.question || null, body: it.body || it.answer || null }; });
+      }
+    }
+
+    return {
+      type: type, confidence: confidence, why: why,
+      heading: heading, subtitle: fields.plain.subtitle, body: body,
+      items: items, image: image, links: links,
+      sourceRows: [mod.start],
+      sourceModule: { label: label, anchor: mod.id ? '#' + mod.id : null, componentId: mod.componentId || null },
+      warnings: []
+    };
+  }
+
+  // A page's own <a> tags — unlike a brief's curated front-matter Internal
+  // Links — include navigation and footer chrome with no way to tell intent
+  // from position alone, so they are left out of the shape fallback below
+  // rather than risked as a fabricated CTA group. A module with a real
+  // MultiCTAModule/cta-list class still produces a proper cta component via
+  // componentFromModule above; this is a stated gap for the fallback path
+  // only, not a missing feature of the module path.
+  function pageAssetLabel(img) {
+    if (img.alt) return img.alt;
+    var src = String(img.src || '').replace(/[?#].*$/, '');
+    var seg = src.split('/').pop();
+    try { seg = decodeURIComponent(seg); } catch (e) { /* leave as-is */ }
+    return seg || 'image';
+  }
+
+  // A brief's headings arrive flat — readBrief strips each one's own [n.m]
+  // marker before this module ever sees it, so there is no hierarchy left
+  // to group by, only shape (see buildLabelled above). A page's own
+  // headings carry their real h1/h2/h3 level, and that is worth using: an
+  // h1/h2 always opens its own section; an h3 beneath it is that section's
+  // own sub-item, not a sibling section guessed into a run by shape alone.
+  function stripSimpleTags(s) {
+    return String(s == null ? '' : s).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  // <details><summary>Question</summary><p>Answer</p></details> is the
+  // plain-HTML equivalent of an Accordion, with no script and no Tridion
+  // markers needed — Pass B renders an accordion the same way. Reading it
+  // back is the other half of that: a page built with it should be
+  // recognised as an accordion just as readily as one with real markers.
+  var DETAILS_RE = /<details\b[^>]*>([\s\S]*?)<\/details>/gi;
+  var SUMMARY_RE = /<summary\b[^>]*>([\s\S]*?)<\/summary>/i;
+  function detailsIn(html) {
+    var out = [], m;
+    DETAILS_RE.lastIndex = 0;
+    while ((m = DETAILS_RE.exec(html)) !== null) {
+      var s = SUMMARY_RE.exec(m[1]);
+      if (!s) continue;
+      var question = stripSimpleTags(s[1]);
+      var answer = stripSimpleTags(m[1].slice(s.index + s[0].length));
+      if (question) out.push({ question: question, answer: answer || null, at: m.index, end: m.index + m[0].length });
+    }
+    return out;
+  }
+
+  function buildFromHeadingStream(html, page, comp, chrome) {
+    var headings = (page.headings || []).filter(function (h) { return !h.hidden; });
+    var faqs = detailsIn(html);
+    // The answer paragraph inside a <details> is already carried on the
+    // faq item itself — without this filter it would also arrive as an
+    // ordinary paragraph a moment later and get counted twice.
+    var paragraphs = (page.paragraphs || []).filter(function (p) {
+      return !faqs.some(function (d) { return p.at >= d.at && p.at < d.end; });
+    });
+
+    var stream = [];
+    headings.forEach(function (h) { stream.push({ kind: 'heading', level: h.level, text: h.text, at: h.at }); });
+    paragraphs.forEach(function (p) { stream.push({ kind: 'body', text: p.text, at: p.at }); });
+    (page.images || []).forEach(function (im) { stream.push({ kind: 'image', text: pageAssetLabel(im), at: im.at }); });
+    faqs.forEach(function (d) { stream.push({ kind: 'faq', question: d.question, answer: d.answer, at: d.at }); });
+    stream.sort(function (a, b) { return a.at - b.at; });
+
+    var leaves = [], preamble = null, top = null;
+    stream.forEach(function (item) {
+      if (item.kind === 'heading') {
+        if (item.level === 'h1' || item.level === 'h2' || !top) {
+          top = { heading: item.text, body: [], image: null, links: [], items: [], rows: [item.at] };
+          leaves.push(top);
+        } else {
+          top.items.push({ title: item.text, body: null });
+          top.rows.push(item.at);
+        }
+        return;
+      }
+      if (item.kind === 'faq') {
+        if (!top) { top = { heading: null, body: [], image: null, links: [], items: [], rows: [] }; leaves.push(top); }
+        top.items.push({ question: item.question, answer: item.answer });
+        top.rows.push(item.at);
+        return;
+      }
+      var target = top;
+      if (!target) {
+        if (!preamble) preamble = { heading: null, body: [], image: null, rows: [] };
+        target = preamble;
+      }
+      target.rows.push(item.at);
+      if (item.kind === 'body') {
+        // An h3's own paragraph belongs to the item it just opened, not to
+        // the section's own body — the last item pushed still owns it as
+        // long as no sibling h3 or new section has started since.
+        var lastItem = target.items && target.items.length ? target.items[target.items.length - 1] : null;
+        if (lastItem && lastItem.title && lastItem.body == null) lastItem.body = item.text;
+        else target.body.push(item.text);
+      } else if (item.kind === 'image') {
+        target.image = { asset: item.text, alt: null };
+      }
+    });
+
+    var components = [], unresolved = [];
+
+    if (preamble && preamble.rows.length) {
+      unresolved.push({
+        rows: sortedUnique(preamble.rows),
+        text: preamble.body.join(' / ').slice(0, 200),
+        why: 'appears before any heading on the page, so there is no section to attach it to'
+      });
+    }
+
+    leaves.forEach(function (leaf) {
+      if (leaf.heading && isChrome(leaf.heading, chrome)) {
+        unresolved.push({ rows: sortedUnique(leaf.rows), text: leaf.heading, why: 'names page chrome (' + leaf.heading + '), not a content component' });
+        return;
+      }
+
+      var named = leaf.heading ? namedType([leaf.heading], comp) : null;
+      var type, confidence, why, items = leaf.items, body = leaf.body;
+
+      if (named) {
+        type = named.type; confidence = 'high'; why = 'the page names this section ' + leaf.heading;
+      } else if (items.length >= 2) {
+        var isQA = items.some(function (it) { return it.question; });
+        var ordered = !isQA && items.every(function (it) { return isOrdinalHeading(it.title); });
+        type = isQA ? 'accordion' : (ordered ? 'steps' : 'cards');
+        confidence = 'medium';
+        why = items.length + (isQA ? ' question-and-answer pairs read as an accordion' : ' sub-headings read as ' + (ordered ? 'an ordered step flow' : 'a card group'));
+      } else if (items.length === 1) {
+        // A single sub-heading is just one more paragraph of this section's
+        // own content, not a group of one.
+        body = body.concat([items[0].title, items[0].body].filter(Boolean).join(': '));
+        items = [];
+        var shape1 = shapeOfLeaf({ heading: leaf.heading, body: body, image: leaf.image, links: [] });
+        type = shape1 ? shape1.type : 'generic';
+        confidence = shape1 ? shape1.confidence : 'low';
+        why = shape1 ? shape1.why : 'no component signal on this section — review before publishing';
+      } else {
+        var shape = shapeOfLeaf({ heading: leaf.heading, body: body, image: leaf.image, links: [] });
+        if (shape) { type = shape.type; confidence = shape.confidence; why = shape.why; }
+        else { type = 'generic'; confidence = 'low'; why = 'no component signal on this section — review before publishing'; }
+      }
+
+      components.push({
+        type: type, confidence: confidence, why: why,
+        heading: leaf.heading, subtitle: null, body: body,
+        items: items, image: leaf.image, links: [],
+        sourceRows: sortedUnique(leaf.rows)
+      });
+    });
+
+    return { components: components, unresolved: unresolved };
+  }
+
   // ─── FIELDS-BY-MARKET ORIENTATION (rows = fields, columns = markets) ────
   // filler.rows() already resolves the chosen market's column correctly
   // (brief.js's Brief.marketColumn, not the last-column guess) and carries
@@ -596,20 +899,71 @@
           heading: c.heading || null, subtitle: c.subtitle || null,
           body: c.body || [], items: c.items || [],
           image: c.image || null, links: c.links || [],
-          sourceRows: c.sourceRows, warnings: c.warnings || []
+          sourceRows: c.sourceRows, sourceModule: null, warnings: c.warnings || []
         };
       });
 
       return {
         market: market,
         orientation: orientation,
+        origin: 'brief',
         page: page,
         components: components,
         unresolved: result.unresolved
       };
     }
 
-    return { build: build };
+    function buildFromPage(html) {
+      var page = comparer.readPage(String(html == null ? '' : html));
+      var components, unresolved;
+
+      if (page.modules && page.modules.length) {
+        components = []; unresolved = [];
+        page.modules.forEach(function (mod) {
+          var c = componentFromModule(mod, comp, chrome);
+          if (c.drop) { unresolved.push({ rows: [mod.start], text: pageModuleLabel(mod), why: c.why }); return; }
+          components.push(c);
+        });
+      } else {
+        // No <section> the tool recognises as a module at all — group by
+        // the page's own real h1/h2/h3 heading hierarchy instead, which a
+        // brief never has to offer.
+        var region = comparer.mainRegion(String(html == null ? '' : html));
+        var result = buildFromHeadingStream(region.html, page, comp, chrome);
+        components = result.components; unresolved = result.unresolved;
+      }
+
+      var pageOut = {
+        title: page.metaTitle || page.pageName || null,
+        description: page.description || null,
+        path: page.canonical || null,
+        keywords: page.keywords || null,
+        template: inferTemplate(components, templates)
+      };
+
+      var out = components.map(function (c, i) {
+        return {
+          id: 'c' + (c.sourceRows && c.sourceRows[0] != null ? c.sourceRows[0] : (i + 1)),
+          type: c.type, confidence: c.confidence, why: c.why,
+          heading: c.heading || null, subtitle: c.subtitle || null,
+          body: c.body || [], items: c.items || [],
+          image: c.image || null, links: c.links || [],
+          sourceRows: c.sourceRows || [], sourceModule: c.sourceModule || null,
+          warnings: c.warnings || []
+        };
+      });
+
+      return {
+        market: null,
+        orientation: 'page',
+        origin: 'page',
+        page: pageOut,
+        components: out,
+        unresolved: unresolved
+      };
+    }
+
+    return { build: build, buildFromPage: buildFromPage };
   }
 
   return { create: create };

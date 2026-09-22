@@ -1939,6 +1939,11 @@
       compare: compare,
       pickBrief: pickBrief,
       readPage: function (h) { return readPage(h, cfg); },
+      // Exposed so a caller reading raw markup for something readPage does
+      // not extract on its own (page-model.js's <details>/<summary> scan)
+      // can still work in the same substring readPage's own offsets are
+      // relative to, rather than guessing where the main region starts.
+      mainRegion: function (h) { return mainRegion(h, (cfg && cfg.contentSelectors) || ['main', '[role=main]']); },
       readBrief: readBrief,
       briefFrom: function (h) { return briefFrom(h, cfg); },
       // Exposed so a test can assert a location without a defect to hang it

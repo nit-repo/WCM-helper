@@ -316,5 +316,92 @@ test('17. the content brief predicts hero, cards, accordion and cta together', f
   assert.strictEqual(model.unresolved.length, 0, JSON.stringify(model.unresolved));
 });
 
+// ─── buildFromPage — the same model, read from an existing page ──────────
+
+var MARKER_PAGE = fs.readFileSync(path.join(__dirname, 'fixtures', 'kone-si-monospace-100dx.html'), 'utf8');
+var LIVE_FAQ_PAGE = fs.readFileSync(path.join(__dirname, 'fixtures', 'kone-in-elevator-types-faq.html'), 'utf8');
+var LANDING_PAGE = fs.readFileSync(path.join(__dirname, 'fixtures', 'kone-it-healthcare-landing.html'), 'utf8');
+
+test('18. a page with real Component Field markers is read at high confidence', function () {
+  var model = pm.buildFromPage(MARKER_PAGE, {});
+  assert.strictEqual(model.origin, 'page');
+  assert.ok(model.components.length >= 5, JSON.stringify(model.components.map(function (c) { return c.type; })));
+
+  var hero = model.components.filter(function (c) { return c.type === 'hero'; })[0];
+  assert.ok(hero, 'expected a hero component from the HeroBanner module');
+  assert.strictEqual(hero.confidence, 'high');
+  assert.ok(/Component Field markers/.test(hero.why), hero.why);
+  assert.ok(hero.sourceModule && hero.sourceModule.anchor, JSON.stringify(hero.sourceModule));
+});
+
+test('19. repeating authored fields become items, not one blob of text', function () {
+  var model = pm.buildFromPage(MARKER_PAGE, {});
+  var cards = model.components.filter(function (c) { return c.type === 'cards'; })[0];
+  assert.ok(cards, JSON.stringify(model.components));
+  assert.ok(cards.items.length >= 2, JSON.stringify(cards.items));
+
+  var accordion = model.components.filter(function (c) { return c.type === 'accordion'; })[0];
+  assert.ok(accordion, JSON.stringify(model.components));
+  assert.ok(accordion.items.length >= 2 && accordion.items[0].question, JSON.stringify(accordion.items));
+});
+
+test('20. page chrome (Breadcrumbs) is dropped from a marker-bearing page, not rendered', function () {
+  var model = pm.buildFromPage(MARKER_PAGE, {});
+  assert.ok(!model.components.some(function (c) { return /breadcrumb/i.test(c.heading || ''); }));
+  assert.ok(model.unresolved.some(function (u) { return /Breadcrumbs/i.test(u.text) && /chrome/.test(u.why); }),
+    JSON.stringify(model.unresolved));
+});
+
+test('21. a live page with no markers still resolves its component via the CSS-class map', function () {
+  var model = pm.buildFromPage(LIVE_FAQ_PAGE, {});
+  assert.strictEqual(model.components.length, 1, JSON.stringify(model.components));
+  assert.strictEqual(model.components[0].type, 'accordion');
+  assert.strictEqual(model.components[0].confidence, 'high');
+  assert.ok(/CSS classes/.test(model.components[0].why), model.components[0].why);
+});
+
+test('22. a page whose sections use no <section class="module-…"> markup falls back to heading shape', function () {
+  var model = pm.buildFromPage(LANDING_PAGE, {});
+  var types = model.components.map(function (c) { return c.type; });
+  assert.deepStrictEqual(types, ['content', 'cards', 'content', 'accordion'], JSON.stringify(types));
+  assert.ok(model.components.every(function (c) { return c.confidence !== 'high'; }),
+    'shape-only inference on unmarked markup should never claim high confidence: ' + JSON.stringify(model.components));
+});
+
+test('23. h1/h2 sections and their own h3 sub-headings are told apart, not flattened into one run', function () {
+  var model = pm.buildFromPage(LANDING_PAGE, {});
+  var cards = model.components.filter(function (c) { return c.type === 'cards'; })[0];
+  assert.strictEqual(cards.items.length, 3, JSON.stringify(cards.items));
+  assert.strictEqual(cards.heading, 'In ospedale l\'ascensore non può fermarsi');
+});
+
+test('24. a <details>/<summary> FAQ is read as an accordion, with no duplicated answer text', function () {
+  var model = pm.buildFromPage(LANDING_PAGE, {});
+  var accordion = model.components.filter(function (c) { return c.type === 'accordion'; })[0];
+  assert.strictEqual(accordion.items.length, 2);
+  assert.strictEqual(accordion.items[0].question, 'Quale ascensore per un ospedale?');
+  assert.strictEqual(accordion.body.length, 0,
+    'the answer belongs to its item only, not duplicated into body too: ' + JSON.stringify(accordion.body));
+});
+
+test('25. every page-built component carries sourceRows, confidence and why too', function () {
+  var models = [pm.buildFromPage(MARKER_PAGE, {}), pm.buildFromPage(LIVE_FAQ_PAGE, {}), pm.buildFromPage(LANDING_PAGE, {})];
+  var components = allComponents(models);
+  components.forEach(function (c) {
+    assert.ok(c.type, JSON.stringify(c));
+    assert.ok(c.confidence === 'high' || c.confidence === 'medium' || c.confidence === 'low', c.confidence);
+    assert.ok(c.why && c.why.length, JSON.stringify(c));
+    assert.ok(Array.isArray(c.sourceRows) && c.sourceRows.length > 0, JSON.stringify(c));
+  });
+});
+
+test('26. build() and buildFromPage() report which origin produced the model', function () {
+  var fromBrief = pm.build(CAMPAIGN_BRIEF, {});
+  var fromPage = pm.buildFromPage(LANDING_PAGE, {});
+  assert.strictEqual(fromBrief.origin, 'brief');
+  assert.strictEqual(fromPage.origin, 'page');
+  assert.strictEqual(fromPage.market, null);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
