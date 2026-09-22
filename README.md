@@ -145,7 +145,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 309 verification cases across the seven modules
+npm test      # 317 verification cases across the seven modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.

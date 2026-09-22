@@ -39,14 +39,20 @@
   var DEFAULT_COMPONENTS = {
     hero: { signals: ['hero', 'herobanner', 'hero banner', 'banner', 'introduction', 'lead'], fields: ['subtitle', 'heading', 'body', 'image', 'cta'] },
     content: { signals: ['content', 'contentblocks', 'content block', 'rich text', 'paragraph', 'contentriver'], fields: ['heading', 'body'] },
-    cards: { signals: ['cards', 'card group', 'teaser', 'highlights', 'benefits', 'campaignhighlight', 'valuehighlight', 'productteaser'], fields: ['heading', 'items'], repeatable: true },
+    cards: { signals: ['cards', 'card group', 'teaser', 'campaignhighlight', 'productteaser'], fields: ['heading', 'items'], repeatable: true },
+    'value-highlights': { signals: ['value highlights', 'valuehighlight', 'value highlight', 'benefits', 'benefit grid'], fields: ['heading', 'items'], repeatable: true },
     steps: { signals: ['steps', 'process', 'how it works', 'come funziona', 'cómo funciona', 'como funciona'], fields: ['heading', 'items'], repeatable: true, ordered: true },
     table: { signals: ['specification', 'specifications', 'table', 'specs', 'productspecification', 'productspecificationcarousel', 'productspecificationitem'], fields: ['heading', 'items'], repeatable: true },
     accordion: { signals: ['faq', 'faqs', 'question', 'answer', 'accordion', 'domande frequenti', 'preguntas frecuentes', 'perguntas frequentes'], fields: ['heading', 'items'], repeatable: true },
     cta: { signals: ['cta', 'button', 'internal links', 'call to action', 'multictamodule', 'related links'], fields: ['items'], repeatable: true },
-    image: { signals: ['image', 'aem assets', 'cover image', 'hero image', 'asset'], fields: ['image', 'alt', 'caption'] }
+    image: { signals: ['image', 'aem assets', 'cover image', 'hero image', 'asset'], fields: ['image', 'alt', 'caption'] },
+    form: {
+      signals: ['form', 'contact form', 'lead form', 'request form', 'submissions to', 'anti-spam',
+        'privacy policy', 'informativa privacy', 'política de privacidad', 'política de privacidade'],
+      fields: ['heading', 'body', 'cta']
+    }
   };
-  var DEFAULT_CHROME = ['navigation', 'nav', 'header', 'footer', 'breadcrumb', 'breadcrumbs', 'cookie', 'cookiepopup', 'form', 'lead form'];
+  var DEFAULT_CHROME = ['navigation', 'nav', 'header', 'footer', 'breadcrumb', 'breadcrumbs', 'cookie', 'cookiepopup'];
   var DEFAULT_TEMPLATES = { landing: ['hero', 'cards'], article: ['content'], product: ['table'], faq: ['accordion'] };
 
   // config.compare.tridionComponents values (HeroBanner, Accordion, ...) are
@@ -56,7 +62,7 @@
     herobanner: 'hero', accordion: 'accordion', contentblocks: 'content',
     productspecificationcarousel: 'table', productspecificationitem: 'table',
     productteaser: 'cards', campaignhighlight: 'cards', contentriver: 'content',
-    multictamodule: 'cta', valuehighlight: 'cards'
+    multictamodule: 'cta', valuehighlight: 'value-highlights', form: 'form'
   };
 
   var CONF_RANK = { high: 3, medium: 2, low: 1 };
@@ -66,10 +72,21 @@
     return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   }
 
+  // A plain substring search on a short signal is a trap the moment the
+  // brief is in a Romance language: "form" is a substring of "formula",
+  // "informativa" and "formulario", all ordinary words in Italian,
+  // Spanish and Portuguese prose that have nothing to do with a form
+  // component. Padding both sides with spaces after normalising turns the
+  // search into a whole-word (or whole-phrase, for a multi-word signal)
+  // match instead, which is what "the brief mentions X" was always
+  // meant to mean.
   function signalHit(text, signals) {
-    var n = normaliseLabel(text);
-    if (!n) return false;
-    return signals.some(function (s) { return n.indexOf(normaliseLabel(s)) !== -1; });
+    var n = ' ' + normaliseLabel(text) + ' ';
+    if (n === '  ') return false;
+    return signals.some(function (s) {
+      var needle = ' ' + normaliseLabel(s) + ' ';
+      return needle !== '  ' && n.indexOf(needle) !== -1;
+    });
   }
 
   function signalType(text, components) {
@@ -105,16 +122,19 @@
   // Tier 1 — the brief names a component or template directly: a heading
   // text, a front-matter value, or a row label matching a configured
   // signal or a Tridion component name outright.
-  function namedType(candidates, comp) {
+  function quoted(text) {
+    return text.length > 70 ? text.slice(0, 67) + '…' : text;
+  }
+
+  function namedType(candidates, comp, why) {
+    why = why || 'the brief names this section ';
     for (var i = 0; i < candidates.length; i++) {
       var text = candidates[i];
       if (!text) continue;
       var tridionKey = normaliseLabel(text).replace(/\s+/g, '');
-      if (TRIDION_TYPE_OF[tridionKey]) {
-        return { type: TRIDION_TYPE_OF[tridionKey], why: 'the brief names this section ' + text };
-      }
+      if (TRIDION_TYPE_OF[tridionKey]) return { type: TRIDION_TYPE_OF[tridionKey], why: why + quoted(text) };
       var type = signalType(text, comp);
-      if (type) return { type: type, why: 'the brief names this section ' + text };
+      if (type) return { type: type, why: why + quoted(text) };
     }
     return null;
   }
@@ -325,9 +345,17 @@
     }
 
     var ordered = leaves.every(function (l) { return isOrdinalHeading(l.heading); });
+    // The run's own heading, when it has one, can name a more specific type
+    // than shape alone ever could — "Value highlights" is exactly the
+    // group a repeating title/body shape cannot tell apart from an
+    // ordinary card group on its own.
+    var namedRun = leadingHeading ? namedType([leadingHeading.heading], comp) : null;
     return {
-      type: ordered ? 'steps' : 'cards', confidence: 'medium',
-      why: leaves.length + ' consecutive title/body groups read as ' + (ordered ? 'an ordered step flow' : 'a card group') + headingNote,
+      type: namedRun ? namedRun.type : (ordered ? 'steps' : 'cards'),
+      confidence: namedRun ? 'high' : 'medium',
+      why: namedRun
+        ? namedRun.why + ' (' + leaves.length + ' repeating items)'
+        : leaves.length + ' consecutive title/body groups read as ' + (ordered ? 'an ordered step flow' : 'a card group') + headingNote,
       heading: heading, subtitle: null, body: [],
       items: leaves.map(function (l) { return { title: l.heading, body: l.body[0] || null }; }),
       image: null, links: [], sourceRows: sortedUnique(allRows)
@@ -337,6 +365,12 @@
   function componentFromLeaf(leaf, comp) {
     var candidates = [leaf.heading].concat(leaf.links.map(function (l) { return l.label; }));
     var named = namedType(candidates, comp);
+    // A heading rarely announces itself as a form ("Let's talk about your
+    // project" says nothing about one) — but the boilerplate underneath it
+    // often does ("submissions to Salesforce", "anti-spam"). Checked only
+    // when the heading and links found nothing, so it never overrides a
+    // more specific signal, just adds one this module would otherwise miss.
+    if (!named && leaf.body.length) named = namedType(leaf.body, comp, 'the brief’s own body text mentions ');
     var tax = !named && leaf.heading ? taxonomyType(leaf.heading) : null;
     var shape = !named && !tax ? shapeOfLeaf(leaf) : null;
 
@@ -404,8 +438,21 @@
         components.push(componentFromRun(next, comp, seg.leaves[0]));
         i += 2; continue;
       }
-      if (seg.kind === 'single') components.push(componentFromLeaf(seg.leaves[0], comp));
-      else components.push(componentFromRun(seg, comp));
+      if (seg.kind === 'single') { components.push(componentFromLeaf(seg.leaves[0], comp)); i++; continue; }
+
+      // A bare heading can also land INSIDE a run rather than before it —
+      // "Value highlights[1.0]" followed immediately by two real items has
+      // no gap between it and the first one for foldRuns to have split on,
+      // so it was folded in as the run's own first (bodyless) item. Pull it
+      // back out as the run's heading, the same as the before-a-run case,
+      // as long as two real items are still left to call a group.
+      var leadLeaf = seg.leaves[0];
+      var leadBare = !leadLeaf.body.length && !leadLeaf.image && !leadLeaf.links.length && leadLeaf.heading;
+      if (leadBare && seg.leaves.length >= 3) {
+        components.push(componentFromRun({ kind: seg.kind, leaves: seg.leaves.slice(1) }, comp, leadLeaf));
+      } else {
+        components.push(componentFromRun(seg, comp));
+      }
       i++;
     }
 

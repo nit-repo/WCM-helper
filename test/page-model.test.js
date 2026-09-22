@@ -336,7 +336,9 @@ test('18. a page with real Component Field markers is read at high confidence', 
 
 test('19. repeating authored fields become items, not one blob of text', function () {
   var model = pm.buildFromPage(MARKER_PAGE, {});
-  var cards = model.components.filter(function (c) { return c.type === 'cards'; })[0];
+  // This module's own name is literally "Value highlights" — it types
+  // that, not the more generic "cards", now that the two are told apart.
+  var cards = model.components.filter(function (c) { return c.type === 'value-highlights'; })[0];
   assert.ok(cards, JSON.stringify(model.components));
   assert.ok(cards.items.length >= 2, JSON.stringify(cards.items));
 
@@ -452,6 +454,74 @@ test('31. a real Tridion-style [n.m] marker is still recognised alongside the lo
   var model = pm.build(brief, {});
   assert.strictEqual(model.components.length, 1);
   assert.strictEqual(model.components[0].heading, 'Marked heading');
+});
+
+// ─── form and value-highlights — two real types found reviewing the ──────
+// actual eleven-page reference against the vocabulary. A lead-capture form
+// used to be dropped as chrome outright; a benefit grid used to fold into
+// generic "cards" with no way to tell it apart.
+
+test('32. a form section is typed from its own body text, not dropped as chrome', function () {
+  var brief = [
+    'URL Path\thttps://www.kone.com/example7/',
+    'Parliamo del tuo progetto[1.0]',
+    'Raccontaci la struttura e i suoi flussi: ti proponiamo un impianto adatto con specifiche verificabili oggi.',
+    'Inviando il modulo accetti l\'informativa privacy. Anti-spam: mandatory phone-prefix validation on the form; submissions to Salesforce.'
+  ].join('\n');
+  var model = pm.build(brief, {});
+  assert.strictEqual(model.components.length, 1, JSON.stringify(model.components));
+  assert.strictEqual(model.components[0].type, 'form');
+  assert.strictEqual(model.components[0].heading, 'Parliamo del tuo progetto');
+  assert.strictEqual(model.unresolved.length, 0);
+});
+
+test('33. a section named "value highlights" types that, not generic cards', function () {
+  var brief = [
+    'URL Path\thttps://www.kone.com/example8/',
+    'Value highlights[1.0]',
+    'Reliability[1.1]',
+    'Our elevators are built to run for decades with minimal downtime across every market we serve.',
+    'Safety[1.2]',
+    'Every KONE elevator meets or exceeds the safety standards required in its market of installation.'
+  ].join('\n');
+  var model = pm.build(brief, {});
+  var vh = model.components.filter(function (c) { return c.type === 'value-highlights'; })[0];
+  assert.ok(vh, JSON.stringify(model.components));
+  assert.strictEqual(vh.items.length, 2);
+});
+
+test('34. an unnamed repeating title/body group still types plain cards, not value-highlights', function () {
+  var brief = [
+    'URL Path\thttps://www.kone.com/example9/',
+    'Reliability[1.0]',
+    'Our elevators are built to run for decades with minimal downtime across every market we serve.',
+    'Safety[1.1]',
+    'Every KONE elevator meets or exceeds the safety standards required in its market of installation.'
+  ].join('\n');
+  var model = pm.build(brief, {});
+  assert.strictEqual(model.components.length, 1);
+  assert.strictEqual(model.components[0].type, 'cards',
+    'shape alone must never guess value-highlights — that needs a name: ' + JSON.stringify(model.components));
+});
+
+test('35. a real "module module-form" page section types form at high confidence', function () {
+  var html = '<html><head><title>T</title></head><body><main>' +
+    '<section class="module module-form" id="item-999"><h2>Talk to us</h2>' +
+    '<p>Tell us about your building and we will get back to you.</p></section>' +
+    '</main></body></html>';
+  var model = pm.buildFromPage(html, {});
+  assert.strictEqual(model.components.length, 1, JSON.stringify(model.components));
+  assert.strictEqual(model.components[0].type, 'form');
+  assert.strictEqual(model.components[0].confidence, 'high');
+});
+
+test('36. the eleven-page marked-brief fixture never produces an unresolved form section', function () {
+  var text = fs.readFileSync(path.join(__dirname, 'fixtures', 'eleven-landing-pages.brief.txt'), 'utf8');
+  var model = pm.build(text, {});
+  assert.ok(model.components.length >= 30, 'expected many components across eleven pages, got ' + model.components.length);
+  var formCount = model.components.filter(function (c) { return c.type === 'form'; }).length;
+  assert.ok(formCount >= 5, 'expected most of the eleven contact sections to type as form, got ' + formCount +
+    ': ' + JSON.stringify(model.components.map(function (c) { return c.type; })));
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

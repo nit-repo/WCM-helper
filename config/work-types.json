@@ -65,7 +65,8 @@
       "content content-river": "ContentRiver",
       "cta-list": "MultiCTAModule",
       "value-highlights": "ValueHighlight",
-      "product-specification__item": "ProductSpecificationItem"
+      "product-specification__item": "ProductSpecificationItem",
+      "module module-form": "Form"
     },
     "briefLabels": {
       "title": ["meta title", "page title", "title tag", "page title/title tag", "seo title"],

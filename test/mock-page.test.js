@@ -219,5 +219,33 @@ test('23. labels toggle off for a clean export', function () {
   assert.ok(!/<span class="mock-tag/.test(clean), clean);
 });
 
+test('24. a form component renders generic placeholder fields, visibly not brief-sourced', function () {
+  var m = model([component({ type: 'form', heading: 'Talk to us', body: ['Tell us about your project.'],
+    links: [{ label: 'Send request', href: null }] })]);
+  var body = mainOnly(mp.render(m).html);
+  assert.strictEqual((body.match(/mock-form-field"/g) || []).length, 4, body);
+  assert.ok(/Name/.test(body) && /Phone/.test(body) && /Email/.test(body) && /Message/.test(body), body);
+  assert.ok(/not sourced from the brief/.test(body), body);
+  assert.ok(/Send request/.test(body), body);
+});
+
+test('25. a form component never emits a real <input> or <form> element', function () {
+  var m = model([component({ type: 'form', heading: 'Talk to us' })]);
+  var body = mainOnly(mp.render(m).html);
+  assert.ok(!/<input\b/i.test(body), body);
+  assert.ok(!/<form\b/i.test(body), body);
+});
+
+test('26. a value-highlights component renders items distinctly from a plain cards component', function () {
+  var m = model([
+    component({ id: 'c1', type: 'cards', items: [{ title: 'A', body: 'a' }, { title: 'B', body: 'b' }] }),
+    component({ id: 'c2', type: 'value-highlights', heading: 'Value highlights',
+      items: [{ title: 'C', body: 'c' }, { title: 'D', body: 'd' }] })
+  ]);
+  var body = mainOnly(mp.render(m).html);
+  assert.strictEqual((body.match(/<div class="mock-card">/g) || []).length, 2, body);
+  assert.strictEqual((body.match(/<div class="mock-vh">/g) || []).length, 2, body);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

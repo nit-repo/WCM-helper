@@ -159,6 +159,43 @@
       '</div>';
   }
 
+  // Same item grid renderCards uses, its own function and class so it can
+  // be told apart from a plain card group and styled independently rather
+  // than forking renderCards's markup and letting the two drift apart.
+  function renderValueHighlights(c, level) {
+    return '<div class="mock-band mock-band-sand mock-valuehighlights">' +
+      (c.heading ? heading(c.heading, level) : '') +
+      paragraphs(c.body) +
+      '<div class="mock-vh-grid">' +
+      c.items.map(function (it, i) {
+        return '<div class="mock-vh">' +
+          '<span class="mock-vh-num">' + (i + 1) + '</span>' +
+          '<h3 class="mock-vh-title">' + esc(it.title || '') + '</h3>' +
+          '<p class="mock-vh-body">' + esc(it.body || '') + '</p>' +
+          '</div>';
+      }).join('') + '</div></div>';
+  }
+
+  // A brief almost never spells out a form's own fields, so this never
+  // claims to be brief-sourced content the way every other renderer's
+  // text is — four generic placeholder rows, visibly labelled as such,
+  // and no real <input>: nothing here can be typed into or submitted.
+  var GENERIC_FORM_FIELDS = ['Name', 'Phone', 'Email', 'Message'];
+  function renderForm(c, level) {
+    var submitLabel = c.links.length ? c.links[0].label : 'Submit';
+    return '<div class="mock-band mock-band-white mock-form">' +
+      (c.heading ? heading(c.heading, level) : '') +
+      paragraphs(c.body) +
+      '<p class="mock-form-flag">Generic placeholder fields — not sourced from the brief</p>' +
+      '<div class="mock-form-fields">' +
+      GENERIC_FORM_FIELDS.map(function (f) {
+        return '<div class="mock-form-field"><span class="mock-form-label">' + esc(f) + '</span>' +
+          '<span class="mock-form-input" aria-hidden="true"></span></div>';
+      }).join('') +
+      '<span class="mock-form-submit">' + esc(submitLabel) + '</span>' +
+      '</div></div>';
+  }
+
   function renderImageComponent(c, level) {
     return '<div class="mock-band mock-band-white mock-image-block">' +
       (c.heading ? heading(c.heading, level) : '') +
@@ -177,7 +214,8 @@
   var RENDERERS = {
     hero: renderHero, content: renderContent, cards: renderCards, steps: renderSteps,
     table: renderTable, accordion: renderAccordion, cta: renderCta,
-    image: renderImageComponent, generic: renderGeneric
+    image: renderImageComponent, generic: renderGeneric,
+    'value-highlights': renderValueHighlights, form: renderForm
   };
 
   // ─── PAGE ASSEMBLY ───────────────────────────────────────────────────────
@@ -250,6 +288,18 @@
     '.mock-image-alt{font-size:11px;color:var(--black-40);}',
     '.mock-generic{border-left:4px solid var(--amber);}',
     '.mock-generic-flag{margin:0 0 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--amber);}',
+    '.mock-vh-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:2px;margin-top:20px;}',
+    '.mock-vh{background:var(--white);border-top:3px solid var(--kone-blue);padding:18px;}',
+    '.mock-vh-num{display:inline-block;font-family:var(--font-secondary);font-size:12px;color:var(--kone-blue);margin-bottom:8px;}',
+    '.mock-vh-title{margin:0 0 6px;font-size:14px;font-weight:600;}',
+    '.mock-vh-body{margin:0;font-size:12.5px;color:var(--black-60);line-height:1.5;}',
+    '.mock-form-flag{margin:0 0 14px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--black-40);}',
+    '.mock-form-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;max-width:480px;}',
+    '.mock-form-field{display:flex;flex-direction:column;gap:5px;}',
+    '.mock-form-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--black-60);}',
+    '.mock-form-input{display:block;height:36px;border:1px solid var(--black-20);border-radius:var(--radius-md);background:var(--white);}',
+    '.mock-form-submit{display:inline-block;margin-top:6px;background:var(--kone-blue);color:var(--white);',
+    'padding:11px 22px;border-radius:var(--radius-md);font-size:13.5px;grid-column:1/-1;width:fit-content;}',
     '@media(max-width:640px){.mock-band{padding:24px 18px;}.mock-heading{font-size:22px;}.mock-hero .mock-heading{font-size:26px;}}'
   ].join('');
 

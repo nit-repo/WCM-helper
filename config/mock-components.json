@@ -10,7 +10,12 @@
       "fields": ["heading", "body"]
     },
     "cards": {
-      "signals": ["cards", "card group", "teaser", "highlights", "benefits", "campaignhighlight", "valuehighlight", "productteaser"],
+      "signals": ["cards", "card group", "teaser", "campaignhighlight", "productteaser"],
+      "fields": ["heading", "items"],
+      "repeatable": true
+    },
+    "value-highlights": {
+      "signals": ["value highlights", "valuehighlight", "value highlight", "benefits", "benefit grid"],
       "fields": ["heading", "items"],
       "repeatable": true
     },
@@ -38,9 +43,14 @@
     "image": {
       "signals": ["image", "aem assets", "cover image", "hero image", "asset"],
       "fields": ["image", "alt", "caption"]
+    },
+    "form": {
+      "signals": ["form", "contact form", "lead form", "request form", "submissions to", "anti-spam",
+        "privacy policy", "informativa privacy", "política de privacidad", "política de privacidade"],
+      "fields": ["heading", "body", "cta"]
     }
   },
-  "chrome": ["navigation", "nav", "header", "footer", "breadcrumb", "breadcrumbs", "cookie", "cookiepopup", "form", "lead form"],
+  "chrome": ["navigation", "nav", "header", "footer", "breadcrumb", "breadcrumbs", "cookie", "cookiepopup"],
   "templates": {
     "landing": ["hero", "cards"],
     "article": ["content"],
