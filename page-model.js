@@ -172,18 +172,81 @@
   // (or steps, or accordion when every heading ends '?') whether or not the
   // hierarchy that produced them is still visible.
 
-  function labelledStream(expect) {
+  // readBrief's copy scanner only recognises a heading when it carries the
+  // Tridion-style [n.m] marker briefFrom() writes — a plainly pasted
+  // content brief or blog article never has one, so every heading in it
+  // reads as one more body paragraph and nothing ever groups into a
+  // component. Rather than change readBrief itself (Compare depends on its
+  // exact behaviour), this module does its own second pass over
+  // expect.body: a short line with no terminal '.' or '!' — a '?' is
+  // fine, an FAQ question is a heading too — reads as a heading here, the
+  // same way labelShaped() already tells a front-matter label from a
+  // sentence, just tuned looser since a prose heading can run longer than
+  // a metadata label.
+  function looksLikeHeadingLine(text) {
+    var v = String(text == null ? '' : text).trim();
+    if (!v || v.length > 90) return false;
+    if (v.split(/\s+/).length > 12) return false;
+    return !/[.!]$/.test(v);
+  }
+
+  // Likewise, "AEM Assets - X" is only recognised mid-line when the brief
+  // writes it with readBrief's exact "HERO:" prefix; "Hero Image: AEM
+  // Assets - X" — an ordinary way to write the same thing — is not. Read
+  // more loosely here too, taking whatever follows the marker anywhere in
+  // the line as the asset name.
+  var LOOSE_AEM_RE = /AEM Assets\s*[-–]\s*(.+)$/i;
+
+  // A brief written with real Tridion-style [n.m] markers still gets to
+  // use them here — recognised first, before either of the two looser
+  // checks below get a turn.
+  var MARKER_RE = /^(.*?)\s*\[\d+\.\d+\]\s*$/;
+
+  function classifyCopyLine(line) {
+    var marker = MARKER_RE.exec(line);
+    if (marker && marker[1]) return { kind: 'heading', text: marker[1].trim() };
+    var asset = LOOSE_AEM_RE.exec(line);
+    if (asset) return { kind: 'image', text: asset[1].trim() };
+    if (looksLikeHeadingLine(line)) return { kind: 'heading', text: line };
+    return { kind: 'body', text: line };
+  }
+
+  // readBrief's own copy scanner also drops any line under 40 characters
+  // entirely — right for Compare, where a short line is more often noise
+  // than a real expectation, but wrong here: "FAQs", "Technology",
+  // "Maintenance" are all real headings a real article uses, and under
+  // that floor they never even reach expect.body for this module to
+  // reclassify. So the copy block is re-read directly from the brief's own
+  // rows, independent of that floor — expect.sections/body/images tell
+  // this function only where the copy block STARTS (the earliest row any
+  // of them mention), not what is in it.
+  function copyBlockStart(expect) {
+    var rows = [].concat(
+      expect.sections.map(function (w) { return w.row; }),
+      expect.body.map(function (w) { return w.row; }),
+      expect.images.map(function (w) { return w.row; }));
+    return rows.length ? Math.min.apply(null, rows) : null;
+  }
+
+  function labelledStream(text, expect) {
     var stream = [];
-    expect.sections.forEach(function (w) { stream.push({ kind: 'heading', text: w.text, row: w.row }); });
-    expect.body.forEach(function (w) { stream.push({ kind: 'body', text: w.text, row: w.row }); });
-    expect.images.forEach(function (w) { stream.push({ kind: 'image', text: w.text, row: w.row }); });
+    var start = copyBlockStart(expect);
+    if (start != null) {
+      var rows = Brief.splitRows(text);
+      for (var i = start - 1; i < rows.length; i++) {
+        var line = rows[i].join('\t').trim();
+        if (!line) continue;
+        var c = classifyCopyLine(line);
+        stream.push({ kind: c.kind, text: c.text, row: i + 1 });
+      }
+    }
     expect.links.forEach(function (w) { stream.push({ kind: 'link', text: w.text, href: w.href, row: w.row }); });
     stream.sort(function (a, b) { return a.row - b.row; });
     return stream;
   }
 
-  function labelledLeaves(expect) {
-    var stream = labelledStream(expect);
+  function labelledLeaves(text, expect) {
+    var stream = labelledStream(text, expect);
     var leaves = [], preamble = null, current = null;
 
     stream.forEach(function (item) {
@@ -198,7 +261,10 @@
       }
       current.rows.push(item.row);
       if (item.kind === 'body') current.body.push(item.text);
-      else if (item.kind === 'image') current.image = { asset: item.text, alt: null };
+      // The first image after a heading is the one that belongs to it —
+      // a second "AEM Assets -" line before the next heading is extra and
+      // is not allowed to silently replace the one already claimed.
+      else if (item.kind === 'image') { if (!current.image) current.image = { asset: item.text, alt: null }; }
       else if (item.kind === 'link') current.links.push({ label: item.text, href: item.href });
     });
 
@@ -240,16 +306,19 @@
     return out;
   }
 
-  function componentFromRun(run, comp) {
+  function componentFromRun(run, comp, leadingHeading) {
     var leaves = run.leaves;
     var allRows = [];
+    if (leadingHeading) allRows = allRows.concat(leadingHeading.rows);
     leaves.forEach(function (l) { allRows = allRows.concat(l.rows); });
+    var heading = leadingHeading ? leadingHeading.heading : null;
+    var headingNote = leadingHeading ? ', under its own heading "' + leadingHeading.heading + '"' : '';
 
     if (run.kind === 'accordion-run') {
       return {
         type: 'accordion', confidence: 'medium',
-        why: leaves.length + ' consecutive question-shaped headings read as an accordion',
-        heading: null, subtitle: null, body: [],
+        why: leaves.length + ' consecutive question-shaped headings read as an accordion' + headingNote,
+        heading: heading, subtitle: null, body: [],
         items: leaves.map(function (l) { return { question: l.heading, answer: l.body[0] || null }; }),
         image: null, links: [], sourceRows: sortedUnique(allRows)
       };
@@ -258,8 +327,8 @@
     var ordered = leaves.every(function (l) { return isOrdinalHeading(l.heading); });
     return {
       type: ordered ? 'steps' : 'cards', confidence: 'medium',
-      why: leaves.length + ' consecutive title/body groups read as ' + (ordered ? 'an ordered step flow' : 'a card group'),
-      heading: null, subtitle: null, body: [],
+      why: leaves.length + ' consecutive title/body groups read as ' + (ordered ? 'an ordered step flow' : 'a card group') + headingNote,
+      heading: heading, subtitle: null, body: [],
       items: leaves.map(function (l) { return { title: l.heading, body: l.body[0] || null }; }),
       image: null, links: [], sourceRows: sortedUnique(allRows)
     };
@@ -290,8 +359,8 @@
     return !!n && chrome.some(function (c) { return n.indexOf(normaliseLabel(c)) !== -1; });
   }
 
-  function buildLabelled(expect, comp, chrome) {
-    var parsed = labelledLeaves(expect);
+  function buildLabelled(text, expect, comp, chrome) {
+    var parsed = labelledLeaves(text, expect);
     var components = [], unresolved = [];
 
     if (parsed.preamble && parsed.preamble.rows.length) {
@@ -319,10 +388,26 @@
       return true;
     });
 
-    foldRuns(kept).forEach(function (run) {
-      if (run.kind === 'single') components.push(componentFromLeaf(run.leaves[0], comp));
-      else components.push(componentFromRun(run, comp));
-    });
+    // A bare heading — no body, image or links of its own — immediately
+    // before a run (a card group, a step flow, an accordion) is not a
+    // sibling component: it is that run's own section title, the one the
+    // marker-stripped hierarchy can no longer say so directly. Left alone
+    // it would render as its own empty component right next to the real
+    // one it was introducing — "FAQs" as a bare, itemless accordion,
+    // immediately followed by the actual Q&A group.
+    var segments = foldRuns(kept);
+    var i = 0;
+    while (i < segments.length) {
+      var seg = segments[i], next = segments[i + 1];
+      var bare = seg.kind === 'single' && !seg.leaves[0].body.length && !seg.leaves[0].image && !seg.leaves[0].links.length && seg.leaves[0].heading;
+      if (bare && next && next.kind !== 'single') {
+        components.push(componentFromRun(next, comp, seg.leaves[0]));
+        i += 2; continue;
+      }
+      if (seg.kind === 'single') components.push(componentFromLeaf(seg.leaves[0], comp));
+      else components.push(componentFromRun(seg, comp));
+      i++;
+    }
 
     return { components: components, unresolved: unresolved };
   }
@@ -881,7 +966,7 @@
       } else {
         // labelled and prose both come out of readBrief as flat
         // sections/body/images/links; the same grouping serves both.
-        result = buildLabelled(expect, comp, chrome);
+        result = buildLabelled(text, expect, comp, chrome);
       }
 
       var page = {

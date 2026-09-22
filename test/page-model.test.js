@@ -403,5 +403,56 @@ test('26. build() and buildFromPage() report which origin produced the model', f
   assert.strictEqual(fromPage.market, null);
 });
 
+// ─── unmarked content briefs — no [n.m] markers, real short headings ─────
+// readBrief only recognises a heading via the Tridion-style [n.m] marker
+// briefFrom() writes, and drops any copy-block line under 40 characters
+// before it even reaches expect.body — both correct for Compare, both
+// wrong here: an ordinarily pasted content brief or blog article has
+// neither, and its shortest headings ("FAQs", "Technology") are exactly
+// the ones that floor would discard outright. Found reviewing a real
+// article a user pasted, which predicted zero components before this fix.
+
+var UNMARKED_BRIEF = fs.readFileSync(path.join(__dirname, 'fixtures', 'unmarked-content-brief.txt'), 'utf8');
+
+test('27. an ordinary blog-style brief with no [n.m] markers still predicts components', function () {
+  var model = pm.build(UNMARKED_BRIEF, {});
+  assert.ok(model.components.length >= 3, JSON.stringify(model.components.map(function (c) { return c.type; })));
+  assert.strictEqual(model.unresolved.length, 0, JSON.stringify(model.unresolved));
+});
+
+test('28. a heading under readBrief\'s 40-character body floor is still recognised', function () {
+  var model = pm.build(UNMARKED_BRIEF, {});
+  assert.ok(model.components.some(function (c) { return c.heading === 'FAQs'; }),
+    'FAQs is 4 characters — readBrief drops it before it ever reaches expect.body: ' + JSON.stringify(model.components));
+});
+
+test('29. "Hero Image: AEM Assets - X" (not readBrief\'s exact "HERO:" prefix) is still read as an image', function () {
+  var model = pm.build(UNMARKED_BRIEF, {});
+  var hero = model.components.filter(function (c) { return /Difference Between/.test(c.heading || ''); })[0];
+  assert.ok(hero, JSON.stringify(model.components));
+  assert.strictEqual(hero.type, 'hero');
+});
+
+test('30. a bare heading right before a run becomes that run\'s own heading, not an empty sibling', function () {
+  var model = pm.build(UNMARKED_BRIEF, {});
+  var accordion = model.components.filter(function (c) { return c.type === 'accordion'; })[0];
+  assert.ok(accordion, JSON.stringify(model.components));
+  assert.strictEqual(accordion.heading, 'FAQs');
+  assert.strictEqual(accordion.items.length, 2);
+  assert.ok(!model.components.some(function (c) { return c.heading === 'FAQs' && c.type !== 'accordion'; }),
+    'FAQs must not also appear as its own separate, itemless component: ' + JSON.stringify(model.components));
+});
+
+test('31. a real Tridion-style [n.m] marker is still recognised alongside the looser heuristics', function () {
+  var brief = [
+    'URL Path\thttps://www.kone.com/example6/',
+    'Marked heading[1.0]',
+    'A short paragraph of body copy that is definitely long enough to count as real content here.'
+  ].join('\n');
+  var model = pm.build(brief, {});
+  assert.strictEqual(model.components.length, 1);
+  assert.strictEqual(model.components[0].heading, 'Marked heading');
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
