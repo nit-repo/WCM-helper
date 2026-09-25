@@ -55,6 +55,240 @@
   var DEFAULT_CHROME = ['navigation', 'nav', 'header', 'footer', 'breadcrumb', 'breadcrumbs', 'cookie', 'cookiepopup'];
   var DEFAULT_TEMPLATES = { landing: ['hero', 'cards'], article: ['content'], product: ['table'], faq: ['accordion'] };
 
+  // ─── TRIDION TAXONOMY (component name -> its real field slots) ─────────
+  // Mirrors config/tridion-taxonomy.json, following the same "config wins,
+  // this is only the non-fatal fallback" pattern DEFAULT_COMPONENTS already
+  // uses for mock-components.json. This is the NAMED tier for field-table
+  // construction (Brief mode's depth pass): a real Tridion component name,
+  // resolved either from an authored Component Field marker or from
+  // config.compare.tridionComponents' CSS-class map, gets its true,
+  // documented slot list. Slot names are always one of the eight canonical
+  // types below — never a raw XPath field name — which is what keeps
+  // `bodytext` and "body text" from ever being treated as different things.
+  var SLOT_LABELS = {
+    heading: 'Heading', subtitle: 'Subtitle', intro: 'Introduction', body: 'Body',
+    description: 'Description', cta: 'CTA', media: 'Image', label: 'Label'
+  };
+  var DEFAULT_TAXONOMY = {
+    slotTypes: {
+      heading: { fieldNames: ['heading', 'h1', 'title'] },
+      subtitle: { fieldNames: ['subtitle'] },
+      intro: { fieldNames: ['intro', 'introduction', 'leadtext'] },
+      body: { fieldNames: ['body', 'bodytext'] },
+      description: { fieldNames: ['description'] },
+      cta: { fieldNames: ['cta', 'button', 'actiontext', 'actionurl'] },
+      media: { fieldNames: ['image', 'alttext', 'caption'] },
+      label: { fieldNames: ['label'] }
+    },
+    components: {
+      HeroBanner: { slots: ['heading', 'subtitle', 'intro', 'cta', 'media'], cssContainer: '.hero-banner-wrapper › section.banner.hero-banner' },
+      Accordion: { slots: ['heading', 'subtitle', 'intro', 'body'], cssContainer: 'section.module.module-faq' },
+      ContentBlocks: { slots: ['heading', 'subtitle', 'description', 'media'], cssContainer: 'section.module.module-content-blocks' },
+      ProductSpecificationCarousel: { slots: ['intro', 'body', 'description', 'media', 'cta'], cssContainer: 'section.module.module-product-specification-carousel' },
+      ProductTeaser: { slots: ['heading', 'subtitle', 'description', 'media'], cssContainer: 'section.module.module-product-teaser' },
+      CampaignHighlight: { slots: ['cta', 'heading', 'description', 'media'], cssContainer: 'section.module.module-campaign-highlights' },
+      Form: { slots: ['heading', 'intro'], cssContainer: 'section.module.module-form' },
+      ContentRiver: { slots: ['intro', 'body', 'description', 'media'], cssContainer: '.content.content-river' },
+      MultiCTAModule: { slots: ['subtitle', 'intro', 'cta'], cssContainer: '.cta-list' },
+      Article: { slots: ['heading', 'intro', 'body', 'media'], cssContainer: null },
+      ContentHeading: { slots: ['heading', 'subtitle', 'intro', 'description', 'media'], cssContainer: null },
+      Business: { slots: ['cta', 'heading', 'subtitle', 'intro', 'description', 'media'], cssContainer: null },
+      Contact: { slots: ['cta', 'heading', 'intro', 'body', 'description', 'media'], cssContainer: null },
+      HighlightTeaser: { slots: ['heading', 'subtitle', 'intro', 'description', 'media'], cssContainer: null },
+      History: { slots: ['heading', 'intro', 'body', 'description', 'media'], cssContainer: null },
+      ImageBanner: { slots: ['heading', 'subtitle', 'intro', 'description', 'media'], cssContainer: null },
+      InfoModules: { slots: ['heading', 'subtitle', 'intro', 'body', 'description', 'media'], cssContainer: null },
+      MediaCarousel: { slots: ['subtitle', 'intro', 'description', 'media'], cssContainer: null },
+      Mosaic: { slots: ['subtitle', 'intro', 'description', 'media'], cssContainer: null },
+      PeopleIntroCarousel: { slots: ['heading', 'subtitle', 'intro', 'body', 'description', 'media', 'cta'], cssContainer: null },
+      Podcast: { slots: ['subtitle', 'intro'], cssContainer: null },
+      PPCards: { slots: ['heading', 'subtitle', 'intro', 'description', 'media'], cssContainer: null },
+      PPTiles: { slots: ['heading', 'subtitle', 'intro', 'cta', 'description', 'media'], cssContainer: null },
+      ProcessModules: { slots: ['subtitle', 'intro', 'cta', 'description', 'media'], cssContainer: null },
+      Quote: { slots: ['subtitle', 'intro', 'body', 'media'], cssContainer: null },
+      QuickLinks: { slots: ['intro', 'body', 'description', 'media'], cssContainer: null },
+      SelectedHighlights: { slots: ['subtitle', 'intro', 'cta', 'description', 'media'], cssContainer: null },
+      SMB: { slots: ['heading', 'intro', 'description', 'cta'], cssContainer: null },
+      StoryHighlights: { slots: ['intro', 'media'], cssContainer: null },
+      Table: { slots: ['intro', 'body', 'cta'], cssContainer: null },
+      Teasers: { slots: ['subtitle', 'intro', 'description', 'media'], cssContainer: null },
+      ToolsAndDownloads: { slots: ['subtitle', 'intro', 'cta', 'description', 'media'], cssContainer: null },
+      VideoBB: { slots: ['intro', 'description', 'media'], cssContainer: null },
+      VideoParallax: { slots: ['intro'], cssContainer: null }
+    }
+  };
+
+  // The generic (works-on-any-page) tier reuses DEFAULT_COMPONENTS'/
+  // mock-components.json's own per-render-type `fields` list as the slot
+  // template — that data already exists for mock-page.js's own rendering,
+  // this is simply its first reuse as a Brief-mode field table. Only a
+  // handful of its field spellings need mapping onto the eight canonical
+  // slot names; `items` deliberately has no slot of its own — a
+  // component's own repeating items are already modelled on `items[]`,
+  // never re-expressed as a field-table row.
+  var GENERIC_FIELD_TO_SLOT = { heading: 'heading', subtitle: 'subtitle', body: 'body', image: 'media', cta: 'cta' };
+  function genericSlotList(fields) {
+    var seen = {}, out = [];
+    (fields || []).forEach(function (f) {
+      var slot = GENERIC_FIELD_TO_SLOT[f];
+      if (slot && !seen[slot]) { seen[slot] = true; out.push(slot); }
+    });
+    return out;
+  }
+
+  // One slot can claim one paragraph at a time, in the order the taxonomy
+  // (or the generic field list) declares its prose slots — a component
+  // rarely has more than one of intro/body/description filled anyway, and
+  // when it does, the extra paragraphs are exactly the kind of "nowhere
+  // documented to go" content the unmapped list exists for.
+  function slotContentFrom(slot, extracted, usedBody) {
+    if (slot === 'heading') return extracted.heading || null;
+    if (slot === 'subtitle') return extracted.subtitle || null;
+    if (slot === 'cta') {
+      var c = extracted.cta && extracted.cta[0];
+      return c ? (c.label || c.href || null) : null;
+    }
+    if (slot === 'media') {
+      var img = extracted.image;
+      return img ? (img.asset || img.alt || null) : null;
+    }
+    if (slot === 'intro' || slot === 'body' || slot === 'description') {
+      var body = extracted.body || [];
+      if (usedBody.i < body.length) { var v = body[usedBody.i]; usedBody.i++; return v; }
+      return null;
+    }
+    return null;
+  }
+
+  // The field-slot table itself: every slot the taxonomy (or the generic
+  // tier) documents for this component, in order, each cell carrying its
+  // own evidence tag; then, separately and always shown, anything that was
+  // extracted but had nowhere documented to go — a spare paragraph once
+  // every prose slot is filled, or a repeating group (a stat row, a bullet
+  // list) that no single-value slot could ever hold. Never blocks, never
+  // force-fits: the same discipline `unresolved[]` already keeps elsewhere
+  // in this module.
+  function fieldTableFor(slotList, extracted, evidenceKind, componentLabel) {
+    var usedBody = { i: 0 };
+    var slots = [];
+    (slotList || []).forEach(function (slot) {
+      var content = slotContentFrom(slot, extracted, usedBody);
+      if (content) slots.push({ slot: slot, label: SLOT_LABELS[slot] || slot, content: content, evidence: evidenceKind });
+    });
+    var unmapped = [];
+    var body = extracted.body || [];
+    for (var i = usedBody.i; i < body.length; i++) {
+      unmapped.push({ content: body[i], why: 'no remaining Body/Introduction/Description slot on ' + componentLabel + ' for this paragraph' });
+    }
+    (extracted.looseGroups || []).forEach(function (g) {
+      unmapped.push({
+        content: g.summary,
+        why: g.items.length + ' short text fragment' + (g.items.length === 1 ? '' : 's') +
+          ' outside any recognised field (e.g. a stat row or bullet list) on ' + componentLabel +
+          ' — shown for review, not mapped to any slot'
+      });
+    });
+    return { slots: slots, unmapped: unmapped };
+  }
+
+  function taxonomyNameMatch(text, taxonomy) {
+    if (!text || !taxonomy.components) return null;
+    var n = normaliseLabel(text).replace(/\s+/g, '');
+    if (!n) return null;
+    var names = Object.keys(taxonomy.components);
+    for (var i = 0; i < names.length; i++) {
+      if (normaliseLabel(names[i]).replace(/\s+/g, '') === n) return names[i];
+    }
+    return null;
+  }
+
+  // The two-tier lookup itself. `componentName` is a real taxonomy name
+  // when one was resolved (a marker or a CSS-class match against
+  // config.compare.tridionComponents); `type` is page-model's own render
+  // type (hero/cards/steps/...), which every component gets regardless of
+  // whether a real component name was ever identified. `evidenceSource` is
+  // 'marker' | 'css' | 'shape' — how the COMPONENT itself, not any one
+  // field, was identified. Returns `{fieldTable, componentLabel}`, with
+  // `fieldTable: null` only when neither tier has a slot list to offer.
+  function fieldTableAndLabel(componentName, type, extracted, evidenceSource, taxonomy, comp) {
+    var taxEntry = componentName && taxonomy.components && taxonomy.components[componentName];
+    if (taxEntry) {
+      var evidence = evidenceSource === 'marker' ? 'Component Field marker'
+        : evidenceSource === 'named' ? 'named in the source text'
+        : (taxEntry.cssContainer ? taxEntry.cssContainer + ' › CSS-class match' : 'CSS-class match');
+      var label = componentName + ' (' + evidence + ')';
+      return {
+        componentLabel: label,
+        fieldTable: fieldTableFor(taxEntry.slots, extracted, evidenceSource, componentName)
+      };
+    }
+    var generic = comp && comp[type];
+    var genericSlots = generic ? genericSlotList(generic.fields) : [];
+    if (genericSlots.length) {
+      return {
+        componentLabel: type + ' (read from page structure — no named component identified)',
+        fieldTable: fieldTableFor(genericSlots, extracted, 'shape', type)
+      };
+    }
+    return { componentLabel: null, fieldTable: null };
+  }
+
+  // ─── VERBATIM QUOTES AND OPEN ITEMS ──────────────────────────────────────
+  // Two small, literal-only detectors — neither infers, both only ever
+  // report a span that is actually there in the source text.
+
+  var QUOTE_RE = /"([^"\n]{3,300})"|“([^”\n]{3,300})”/g;
+  function verbatimSpans(text) {
+    var out = [], m;
+    QUOTE_RE.lastIndex = 0;
+    var s = String(text == null ? '' : text);
+    while ((m = QUOTE_RE.exec(s)) !== null) {
+      var span = m[1] || m[2];
+      if (span) out.push(span.trim());
+    }
+    return out;
+  }
+  function verbatimSpansIn(extracted) {
+    var out = [];
+    var texts = [extracted.heading, extracted.subtitle].concat(extracted.body || []);
+    (extracted.cta || []).forEach(function (c) { texts.push(c.label); });
+    texts.forEach(function (t) {
+      if (!t) return;
+      verbatimSpans(t).forEach(function (span) { out.push(span); });
+    });
+    return out;
+  }
+
+  var OPEN_ITEM_RE = /\b(TBD|TBC|to be confirmed|to confirm|to be aligned with KONE|KONE to confirm)\b|\[\s*placeholder\s*\]|\[\s*\]/gi;
+  function openItemMarkers(text, at) {
+    var out = [], m;
+    OPEN_ITEM_RE.lastIndex = 0;
+    var s = String(text == null ? '' : text);
+    while ((m = OPEN_ITEM_RE.exec(s)) !== null) {
+      out.push({ text: s.slice(Math.max(0, m.index - 40), m.index + m[0].length + 40).trim(), at: at, why: 'contains the marker "' + m[0] + '"' });
+    }
+    return out;
+  }
+
+  // Walks every already-built component's own text — never a second,
+  // independent read of the raw source — collecting only literal TBD/
+  // to-confirm/placeholder markers that are actually there.
+  function openItemsIn(components) {
+    var out = [];
+    (components || []).forEach(function (c) {
+      var at = c.sourceRows && c.sourceRows[0] != null ? c.sourceRows[0] : null;
+      var texts = [c.heading, c.subtitle].concat(c.body || []);
+      (c.items || []).forEach(function (it) {
+        texts.push(it.title, it.body, it.question, it.answer);
+      });
+      texts.forEach(function (t) {
+        if (!t) return;
+        openItemMarkers(t, at).forEach(function (item) { out.push(item); });
+      });
+    });
+    return out;
+  }
+
   // config.compare.tridionComponents values (HeroBanner, Accordion, ...) are
   // PascalCase component NAMES, not our lowercase type vocabulary. This is
   // the one place the two vocabularies meet.
@@ -544,7 +778,7 @@
     return mod.label + (mod.ofType > 1 ? ' #' + mod.ordinal : '');
   }
 
-  function componentFromModule(mod, comp, chrome) {
+  function componentFromModule(mod, comp, chrome, taxonomy) {
     var label = pageModuleLabel(mod);
     if (isChrome(mod.label || mod.name, chrome)) {
       return { drop: true, why: 'names page chrome (' + label + '), not a content component' };
@@ -601,13 +835,23 @@
       }
     }
 
+    var extracted = {
+      heading: heading, subtitle: fields.plain.subtitle, body: body,
+      cta: links, image: image, looseGroups: []
+    };
+    var evidenceSource = (mod.fields && mod.fields.length) ? 'marker' : 'css';
+    var tblAndLabel = fieldTableAndLabel(mod.component || null, type, extracted, evidenceSource, taxonomy, comp);
+
     return {
       type: type, confidence: confidence, why: why,
       heading: heading, subtitle: fields.plain.subtitle, body: body,
       items: items, image: image, links: links,
       sourceRows: [mod.start],
       sourceModule: { label: label, anchor: mod.id ? '#' + mod.id : null, componentId: mod.componentId || null },
-      warnings: []
+      warnings: [],
+      fieldTable: tblAndLabel.fieldTable,
+      componentLabel: tblAndLabel.componentLabel,
+      verbatim: verbatimSpansIn(extracted)
     };
   }
 
@@ -656,8 +900,84 @@
     return out;
   }
 
-  function buildFromHeadingStream(html, page, comp, chrome) {
-    var headings = (page.headings || []).filter(function (h) { return !h.hidden; });
+  // A page built without Tridion markers or config-recognised CSS classes
+  // at all — a bespoke agency mockup, say — routinely carries real content
+  // in bare <div>s: a stat row, a bullet list, anything that isn't a <p>
+  // or <li>. page.paragraphs only ever matches those two tags, so this
+  // content is not merely unmapped, it is invisible. Only run inside this
+  // shape-fallback path, on the raw region HTML — compare.js's own
+  // page.paragraphs stays exactly as it is, same precedent as the
+  // brief-side copy rescan a few hundred lines up ("rather than change
+  // readBrief itself"). A leaf div is one with no nested <div> of its own;
+  // one that itself contains a <p>/<li>/<h1-6>/form control/<details> is
+  // skipped, since that content already reaches this module through its
+  // own dedicated path and must not be read twice.
+  var LEAF_DIV_RE = /<div\b([^>]*)>((?:(?!<div\b)[\s\S])*?)<\/div>/gi;
+  var LEAF_DIV_EXCLUDE_RE = /<(p|li|h[1-6]|label|input|select|textarea|button|details|summary)\b/i;
+  function looseDivText(html, faqs) {
+    var out = [], m;
+    LEAF_DIV_RE.lastIndex = 0;
+    while ((m = LEAF_DIV_RE.exec(html)) !== null) {
+      if (LEAF_DIV_EXCLUDE_RE.test(m[2])) continue;
+      var text = stripSimpleTags(m[2]);
+      if (!text || text.length > 200) continue;
+      var start = m.index;
+      if (faqs.some(function (d) { return start >= d.at && start < d.end; })) continue;
+      out.push({ text: text, at: start });
+    }
+    return out;
+  }
+
+  // Every loose div found inside one leaf folds into a single candidate —
+  // "a stat row" or "a bullet list" read as one thing, not six or four
+  // stray one-line fragments nobody could act on.
+  function groupLoose(items) {
+    if (!items || !items.length) return null;
+    var texts = items.map(function (i) { return i.text; });
+    return { kind: 'loose-text', items: texts, summary: texts.join('; ') };
+  }
+
+  // page.headings (compare.js) only ever reads h1-h3 — right for Compare's
+  // own structure diffing, but a real card/step title in markup like the
+  // agency `.ld-*` template sits on an h5, invisible to that regex. Rather
+  // than widen compare.js's own regex (other callers depend on its exact
+  // h1-h3 behaviour), this reads h4-h6 as its own independent, additive
+  // layer, exactly the "rather than change readBrief itself" precedent
+  // already used for the brief-side copy rescan above.
+  var LOWER_HEADING_RE = /<(h[4-6])\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+  function lowerHeadingsIn(html) {
+    var out = [], hm;
+    LOWER_HEADING_RE.lastIndex = 0;
+    while ((hm = LOWER_HEADING_RE.exec(html)) !== null) {
+      out.push({ level: hm[1].toLowerCase(), text: stripSimpleTags(hm[3]), hidden: /display\s*:\s*none/i.test(hm[2]), at: hm.index });
+    }
+    return out;
+  }
+
+  // Which heading level actually opens a new top-level section is a
+  // property of the page, not a fixed "h1/h2 always, h3 never" rule — this
+  // template's own single H1-equivalent is an H2 that appears exactly
+  // once, and its real, repeating section titles are H3s. When the
+  // shallowest level in the document only ever appears once, it reads as
+  // the page's own one-off title rather than a repeating section marker,
+  // and the next distinct level — the one that actually repeats — is what
+  // opens sections here instead. Anything deeper than both stays a
+  // sub-item of whichever section is open, same as before.
+  var LEVEL_NUM = { h1: 1, h2: 2, h3: 3, h4: 4, h5: 5, h6: 6 };
+  function sectionOpenLevels(headingList) {
+    var counts = {}, open = {};
+    headingList.forEach(function (h) { counts[h.level] = (counts[h.level] || 0) + 1; });
+    var levels = Object.keys(counts).sort(function (a, b) { return LEVEL_NUM[a] - LEVEL_NUM[b]; });
+    if (!levels.length) return open;
+    open[levels[0]] = true;
+    if (counts[levels[0]] === 1 && levels.length > 1) open[levels[1]] = true;
+    return open;
+  }
+
+  function buildFromHeadingStream(html, page, comp, chrome, taxonomy) {
+    var headings = (page.headings || []).filter(function (h) { return !h.hidden; })
+      .concat(lowerHeadingsIn(html).filter(function (h) { return !h.hidden; }));
+    var openLevels = sectionOpenLevels(headings);
     var faqs = detailsIn(html);
     // The answer paragraph inside a <details> is already carried on the
     // faq item itself — without this filter it would also arrive as an
@@ -665,19 +985,21 @@
     var paragraphs = (page.paragraphs || []).filter(function (p) {
       return !faqs.some(function (d) { return p.at >= d.at && p.at < d.end; });
     });
+    var loose = looseDivText(html, faqs);
 
     var stream = [];
     headings.forEach(function (h) { stream.push({ kind: 'heading', level: h.level, text: h.text, at: h.at }); });
     paragraphs.forEach(function (p) { stream.push({ kind: 'body', text: p.text, at: p.at }); });
     (page.images || []).forEach(function (im) { stream.push({ kind: 'image', text: pageAssetLabel(im), at: im.at }); });
     faqs.forEach(function (d) { stream.push({ kind: 'faq', question: d.question, answer: d.answer, at: d.at }); });
+    loose.forEach(function (l) { stream.push({ kind: 'loose', text: l.text, at: l.at }); });
     stream.sort(function (a, b) { return a.at - b.at; });
 
     var leaves = [], preamble = null, top = null;
     stream.forEach(function (item) {
       if (item.kind === 'heading') {
-        if (item.level === 'h1' || item.level === 'h2' || !top) {
-          top = { heading: item.text, body: [], image: null, links: [], items: [], rows: [item.at] };
+        if (openLevels[item.level] || !top) {
+          top = { heading: item.text, body: [], image: null, links: [], items: [], loose: [], rows: [item.at] };
           leaves.push(top);
         } else {
           top.items.push({ title: item.text, body: null });
@@ -686,14 +1008,14 @@
         return;
       }
       if (item.kind === 'faq') {
-        if (!top) { top = { heading: null, body: [], image: null, links: [], items: [], rows: [] }; leaves.push(top); }
+        if (!top) { top = { heading: null, body: [], image: null, links: [], items: [], loose: [], rows: [] }; leaves.push(top); }
         top.items.push({ question: item.question, answer: item.answer });
         top.rows.push(item.at);
         return;
       }
       var target = top;
       if (!target) {
-        if (!preamble) preamble = { heading: null, body: [], image: null, rows: [] };
+        if (!preamble) preamble = { heading: null, body: [], image: null, loose: [], rows: [] };
         target = preamble;
       }
       target.rows.push(item.at);
@@ -706,6 +1028,8 @@
         else target.body.push(item.text);
       } else if (item.kind === 'image') {
         target.image = { asset: item.text, alt: null };
+      } else if (item.kind === 'loose') {
+        target.loose.push({ text: item.text, at: item.at });
       }
     });
 
@@ -751,11 +1075,21 @@
         else { type = 'generic'; confidence = 'low'; why = 'no component signal on this section — review before publishing'; }
       }
 
+      var looseGroup = groupLoose(leaf.loose);
+      var extracted = {
+        heading: leaf.heading, subtitle: null, body: body, cta: [],
+        image: leaf.image, looseGroups: looseGroup ? [looseGroup] : []
+      };
+      var tblAndLabel = fieldTableAndLabel(null, type, extracted, 'shape', taxonomy, comp);
+
       components.push({
         type: type, confidence: confidence, why: why,
         heading: leaf.heading, subtitle: null, body: body,
         items: items, image: leaf.image, links: [],
-        sourceRows: sortedUnique(leaf.rows)
+        sourceRows: sortedUnique(leaf.rows),
+        fieldTable: tblAndLabel.fieldTable,
+        componentLabel: tblAndLabel.componentLabel,
+        verbatim: verbatimSpansIn(extracted)
       });
     });
 
@@ -979,6 +1313,7 @@
     var comp = mockCfg.components || DEFAULT_COMPONENTS;
     var chrome = mockCfg.chrome || DEFAULT_CHROME;
     var templates = mockCfg.templates || DEFAULT_TEMPLATES;
+    var taxonomy = (config && config['tridion-taxonomy']) || DEFAULT_TAXONOMY;
     var comparer = Compare.create({ 'work-types': wt });
 
     function build(briefText, options) {
@@ -1025,13 +1360,28 @@
       };
 
       var components = result.components.map(function (c, i) {
+        var extracted = {
+          heading: c.heading || null, subtitle: c.subtitle || null, body: c.body || [],
+          cta: (c.links || []).map(function (l) { return { label: l.label, href: l.href }; }),
+          image: c.image || null, looseGroups: []
+        };
+        // The brief side has no marker/CSS distinction to offer — the only
+        // evidence available is the brief naming the component outright,
+        // in its own heading, the same literal-match idea namedType()
+        // already uses for the smaller TRIDION_TYPE_OF vocabulary.
+        var named = taxonomyNameMatch(c.heading, taxonomy);
+        var tblAndLabel = fieldTableAndLabel(named, c.type, extracted, 'named', taxonomy, comp);
+
         return {
           id: 'c' + (c.sourceRows[0] || (i + 1)),
           type: c.type, confidence: c.confidence, why: c.why,
           heading: c.heading || null, subtitle: c.subtitle || null,
           body: c.body || [], items: c.items || [],
           image: c.image || null, links: c.links || [],
-          sourceRows: c.sourceRows, sourceModule: null, warnings: c.warnings || []
+          sourceRows: c.sourceRows, sourceModule: null, warnings: c.warnings || [],
+          fieldTable: tblAndLabel.fieldTable,
+          componentLabel: tblAndLabel.componentLabel,
+          verbatim: verbatimSpansIn(extracted)
         };
       });
 
@@ -1041,7 +1391,8 @@
         origin: 'brief',
         page: page,
         components: components,
-        unresolved: result.unresolved
+        unresolved: result.unresolved,
+        openItems: openItemsIn(components)
       };
     }
 
@@ -1052,7 +1403,7 @@
       if (page.modules && page.modules.length) {
         components = []; unresolved = [];
         page.modules.forEach(function (mod) {
-          var c = componentFromModule(mod, comp, chrome);
+          var c = componentFromModule(mod, comp, chrome, taxonomy);
           if (c.drop) { unresolved.push({ rows: [mod.start], text: pageModuleLabel(mod), why: c.why }); return; }
           components.push(c);
         });
@@ -1061,7 +1412,7 @@
         // the page's own real h1/h2/h3 heading hierarchy instead, which a
         // brief never has to offer.
         var region = comparer.mainRegion(String(html == null ? '' : html));
-        var result = buildFromHeadingStream(region.html, page, comp, chrome);
+        var result = buildFromHeadingStream(region.html, page, comp, chrome, taxonomy);
         components = result.components; unresolved = result.unresolved;
       }
 
@@ -1081,7 +1432,10 @@
           body: c.body || [], items: c.items || [],
           image: c.image || null, links: c.links || [],
           sourceRows: c.sourceRows || [], sourceModule: c.sourceModule || null,
-          warnings: c.warnings || []
+          warnings: c.warnings || [],
+          fieldTable: c.fieldTable || null,
+          componentLabel: c.componentLabel || null,
+          verbatim: c.verbatim || []
         };
       });
 
@@ -1091,7 +1445,8 @@
         origin: 'page',
         page: pageOut,
         components: out,
-        unresolved: unresolved
+        unresolved: unresolved,
+        openItems: openItemsIn(out)
       };
     }
 

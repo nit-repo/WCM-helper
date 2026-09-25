@@ -736,6 +736,12 @@
         ' left out: no name could be read from the URL. ' + esc(n.unnamedImages.slice(0, 3).join(', ')));
     }
 
+    // The plain draft above is what actually feeds Compare — untouched, so
+    // the round-trip contract it's already tested against never changes.
+    // The component-mapped depth below is a second, additive reading of
+    // the same page through the shared model, purely for this report.
+    var model = state.pageModel.buildFromPage(html);
+
     el.output.innerHTML =
       section('Drafted from the page',
         '<p class="coverage short">The draft is in the Brief box — edit it, then switch to Compare.</p>' +
@@ -746,8 +752,72 @@
             '<ul class="devs">' + gaps.map(function (g) {
               return '<li class="check"><p class="dev-note"><span class="sev-tag check">check</span>' + g + '</p></li>';
             }).join('') + '</ul>')
-        : '');
+        : '') +
+      renderBriefFieldTables(model) +
+      renderOpenItems(model);
     toast('Brief drafted from the page — it is in the Brief box.');
+  }
+
+  // ─── BRIEF MODE DEPTH — component-mapped field tables ──────────────────
+  // A second reading of the same page, through page-model.js's shared
+  // model, laid out the way a manually-written Tridion content brief
+  // actually reads: one card per component, its own evidence-bearing
+  // label, a Field slot | Content table, an image placeholder, any
+  // verbatim-flagged quotes, and — always shown, never blocking, never
+  // force-fit — whatever the model could not map to any documented slot.
+
+  function fieldTableRows(fieldTable) {
+    if (!fieldTable || !fieldTable.slots.length) return '';
+    return '<table class="field-table"><tbody>' + fieldTable.slots.map(function (s) {
+      return '<tr><th>' + esc(s.label) + '</th><td>' + esc(s.content) +
+        '<span class="field-evidence">' + esc(s.evidence) + '</span></td></tr>';
+    }).join('') + '</tbody></table>';
+  }
+
+  function fieldUnmapped(fieldTable) {
+    if (!fieldTable || !fieldTable.unmapped.length) return '';
+    return '<div class="field-unmapped"><p class="field-unmapped-label">Unmapped content — ' +
+      fieldTable.unmapped.length + '</p><ul>' +
+      fieldTable.unmapped.map(function (u) {
+        return '<li>' + esc(u.content || '(empty)') + '<span class="field-why">' + esc(u.why) + '</span></li>';
+      }).join('') + '</ul></div>';
+  }
+
+  function renderBriefFieldTables(model) {
+    if (!model.components.length) return '';
+    var cards = model.components.map(function (c) {
+      var label = c.componentLabel || (esc(c.type) + ' — no component identified, review before publishing');
+      var imageRow = c.image
+        ? '<p class="field-image"><span class="sev-tag check">image</span> ' + esc(c.image.asset || 'untitled asset') +
+          (c.image.alt ? ' — alt: ' + esc(c.image.alt) : '') + '</p>'
+        : '';
+      var verbatimRow = (c.verbatim || []).length
+        ? '<p class="field-verbatim">' + c.verbatim.map(function (v) {
+            return '<span class="verbatim-chip">do not paraphrase</span> “' + esc(v) + '”';
+          }).join('<br>') + '</p>'
+        : '';
+      var noneNote = !c.fieldTable
+        ? '<p class="note">No named component identified for this section — nothing to map fields against.</p>'
+        : '';
+      return '<div class="field-card"><h4>' + esc(label) + '</h4>' +
+        fieldTableRows(c.fieldTable) + imageRow + verbatimRow + noneNote + fieldUnmapped(c.fieldTable) +
+        '</div>';
+    }).join('');
+    return section('Component field tables', cards);
+  }
+
+  function renderOpenItems(model) {
+    var items = (model.unresolved || []).map(function (u) {
+      return { text: u.text, why: u.why };
+    }).concat((model.openItems || []).map(function (o) {
+      return { text: o.text, why: o.why };
+    }));
+    if (!items.length) return '';
+    return section('Open items',
+      '<ul class="devs">' + items.map(function (it) {
+        return '<li class="check"><p class="dev-note"><span class="sev-tag check">check</span>' +
+          esc(it.text || '(no text)') + ' — ' + esc(it.why) + '</p></li>';
+      }).join('') + '</ul>');
   }
 
   function renderCompareEmpty() {

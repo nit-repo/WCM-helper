@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "note": "Structured form of tridion-component-taxonomy.md's Component reference table. Every component's slots list is normalised to slotTypes' eight canonical names (never a raw XPath field name like 'bodytext' or a human phrase like 'body text' directly) — that normalisation is what page-model.js's fieldTableFor() relies on to never see the two spellings as different things. A component listed here with no cssContainer/xpath has no observed live instance yet, per the source doc; it still contributes its documented slot list to the named tier once a page or brief names it directly.",
+  "slotTypes": {
+    "heading": { "fieldNames": ["heading", "h1", "title"], "briefLabels": ["Headline", "Title", "H1", "Section header"] },
+    "subtitle": { "fieldNames": ["subtitle"], "briefLabels": ["Subtitle", "Kicker", "Eyebrow"] },
+    "intro": { "fieldNames": ["intro", "introduction", "leadtext"], "briefLabels": ["Introduction", "Intro", "Lead", "Standfirst"] },
+    "body": { "fieldNames": ["body", "bodytext"], "briefLabels": ["Body", "Body text", "Copy", "Paragraph"] },
+    "description": { "fieldNames": ["description"], "briefLabels": ["Description", "Supporting text"] },
+    "cta": { "fieldNames": ["cta", "button", "actiontext", "actionurl"], "briefLabels": ["CTA", "Button", "Link text"] },
+    "media": { "fieldNames": ["image", "alttext", "caption"], "briefLabels": ["Image", "Alt text", "Caption"] },
+    "label": { "fieldNames": ["label"], "briefLabels": [] }
+  },
+  "components": {
+    "HeroBanner": {
+      "slots": ["heading", "subtitle", "intro", "cta", "media"],
+      "cssContainer": ".hero-banner-wrapper › section.banner.hero-banner",
+      "xpath": "tcm:Content/custom:HeroBanner/custom:{field}"
+    },
+    "Accordion": {
+      "slots": ["heading", "subtitle", "intro", "body"],
+      "cssContainer": "section.module.module-faq",
+      "xpath": "tcm:Content/custom:Accordion/custom:{field}"
+    },
+    "ContentBlocks": {
+      "slots": ["heading", "subtitle", "description", "media"],
+      "cssContainer": "section.module.module-content-blocks",
+      "xpath": "tcm:Content/custom:ContentBlocks/custom:{field}"
+    },
+    "ProductSpecificationCarousel": {
+      "slots": ["intro", "body", "description", "media", "cta"],
+      "cssContainer": "section.module.module-product-specification-carousel",
+      "xpath": "tcm:Content/custom:ProductSpecificationCarousel/custom:{field}"
+    },
+    "ProductTeaser": {
+      "slots": ["heading", "subtitle", "description", "media"],
+      "cssContainer": "section.module.module-product-teaser",
+      "xpath": "tcm:Content/custom:ProductTeaser/custom:{field}"
+    },
+    "CampaignHighlight": {
+      "slots": ["cta", "heading", "description", "media"],
+      "cssContainer": "section.module.module-campaign-highlights",
+      "xpath": "tcm:Content/custom:CampaignHighlight/custom:{field}"
+    },
+    "Form": {
+      "slots": ["heading", "intro"],
+      "cssContainer": "section.module.module-form",
+      "xpath": "tcm:Content/custom:Form/custom:{field}"
+    },
+    "ContentRiver": {
+      "slots": ["intro", "body", "description", "media"],
+      "cssContainer": ".content.content-river",
+      "xpath": "tcm:Content/custom:ContentRiver/custom:{field}"
+    },
+    "MultiCTAModule": {
+      "slots": ["subtitle", "intro", "cta"],
+      "cssContainer": ".cta-list",
+      "xpath": "tcm:Content/custom:MultiCTAModule/custom:{field}"
+    },
+    "Article": { "slots": ["heading", "intro", "body", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:Article/custom:{field}" },
+    "ContentHeading": { "slots": ["heading", "subtitle", "intro", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:ContentHeading/custom:{field}" },
+    "Business": { "slots": ["cta", "heading", "subtitle", "intro", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:Business/custom:{field}" },
+    "Contact": { "slots": ["cta", "heading", "intro", "body", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:Contact/custom:{field}" },
+    "HighlightTeaser": { "slots": ["heading", "subtitle", "intro", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:HighlightTeaser/custom:{field}" },
+    "History": { "slots": ["heading", "intro", "body", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:History/custom:{field}" },
+    "ImageBanner": { "slots": ["heading", "subtitle", "intro", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:ImageBanner/custom:{field}" },
+    "InfoModules": { "slots": ["heading", "subtitle", "intro", "body", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:InfoModules/custom:{field}" },
+    "MediaCarousel": { "slots": ["subtitle", "intro", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:MediaCarousel/custom:{field}" },
+    "Mosaic": { "slots": ["subtitle", "intro", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:Mosaic/custom:{field}" },
+    "PeopleIntroCarousel": { "slots": ["heading", "subtitle", "intro", "body", "description", "media", "cta"], "cssContainer": null, "xpath": "tcm:Content/custom:PeopleIntroCarousel/custom:{field}" },
+    "Podcast": { "slots": ["subtitle", "intro"], "cssContainer": null, "xpath": "tcm:Content/custom:Podcast/custom:{field}" },
+    "PPCards": { "slots": ["heading", "subtitle", "intro", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:PPCards/custom:{field}" },
+    "PPTiles": { "slots": ["heading", "subtitle", "intro", "cta", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:PPTiles/custom:{field}" },
+    "ProcessModules": { "slots": ["subtitle", "intro", "cta", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:ProcessModules/custom:{field}" },
+    "Quote": { "slots": ["subtitle", "intro", "body", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:Quote/custom:{field}" },
+    "QuickLinks": { "slots": ["intro", "body", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:QuickLinks/custom:{field}" },
+    "SelectedHighlights": { "slots": ["subtitle", "intro", "cta", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:SelectedHighlights/custom:{field}" },
+    "SMB": { "slots": ["heading", "intro", "description", "cta"], "cssContainer": null, "xpath": "tcm:Content/custom:SMB/custom:{field}" },
+    "StoryHighlights": { "slots": ["intro", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:StoryHighlights/custom:{field}" },
+    "Table": { "slots": ["intro", "body", "cta"], "cssContainer": null, "xpath": "tcm:Content/custom:Table/custom:{field}" },
+    "Teasers": { "slots": ["subtitle", "intro", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:Teasers/custom:{field}" },
+    "ToolsAndDownloads": { "slots": ["subtitle", "intro", "cta", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:ToolsAndDownloads/custom:{field}" },
+    "VideoBB": { "slots": ["intro", "description", "media"], "cssContainer": null, "xpath": "tcm:Content/custom:VideoBB/custom:{field}" },
+    "VideoParallax": { "slots": ["intro"], "cssContainer": null, "xpath": "tcm:Content/custom:VideoParallax/custom:{field}" }
+  },
+  "chrome": [
+    "header.kone-header", "section.kone-header-navigation", "footer.kone-footer",
+    "section.footer__bottomtext", "section#cookiepopup", "section.module-breadcrumbs"
+  ]
+}

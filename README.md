@@ -110,6 +110,8 @@ Writing the generator turned up three faults in extraction that had been quietly
 - **A Scene7 rendition preset was read as part of the asset name.** `Monospace100_img_3-1:669x475` is one asset delivered at one size, not an asset called `Monospace100_img_3-1:669x475`.
 - **`&reg;` was not decoded** while `&trade;` was, so a brief writing `KONE MonoSpace®` never matched a page rendering the entity. `&copy;`, `&deg;`, `&hellip;` and hex numeric entities were missing too.
 
+**Component-mapped field tables.** The plain draft above is what Compare actually reads, untouched. Alongside it, the results pane shows the same page read a second way — through the shared model Fill's Mock page already uses — laid out the way a person writes a Tridion content brief by hand: one card per component, headed by how it was identified (`HeroBanner (Component Field marker)` on a CMS preview page, `HeroBanner (.hero-banner-wrapper › CSS-class match)` on a live one, or `hero (read from page structure — no named component identified)` on a page with neither, from `config/tridion-taxonomy.json`'s real component/field-slot data), a Field slot | Content table in the component's own documented order, an image placeholder wherever it carries one, and any quoted text flagged *do not paraphrase*. Content that fits no documented slot — a stat row or a bullet list built from bare `<div>`s, which no `<p>`/`<li>`-only reading ever sees — is never dropped or forced into the wrong field: it lands in its own **Unmapped content** block, always shown. An **Open items** section below it collects both the component-placement failures and any literal `to be aligned with KONE`/`to confirm`/`TBD`-style note already in the text, never invented. Verified against a real eleven-page agency mockup the tool has never seen a KONE class name or Tridion marker in — the generic tier that makes this work on any pasted page, not only KONE's own markup.
+
 ## Fill
 
 Localizing in Tridion means opening each component, reading the English master in the field, and finding that row in a brief that may run to a hundred rows. The finding is the slow part. Paste the English you are looking at and the Fill tab returns the localized text on a Copy button, plus the whole brief as a worklist you can tick down — progress is remembered per brief.
@@ -145,7 +147,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 317 verification cases across the seven modules
+npm test      # 329 verification cases across the seven modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -228,19 +230,25 @@ A missing row is placed by the rows around it that did match — the nearest loc
 ## Structure
 
 ```
-index.html              UI, three tabs
-app.js                  renders what the modules return — no analysis of its own
-brief.js                one parse shared by the other three: rows, sections, markets, target
-engine.js               classify → detect CMS → check needs → return steps
-compare.js              read the page → read the brief → diff → group by category
-filler.js               find the row from its English master → carry the markup across
-readers.js              .docx / .xlsx / .csv → text, with no dependencies
-config/work-types.json  the six playbooks, the compare settings, the market list
-test/brief.test.js      22 cases, the shared parse alone
-test/engine.test.js     53 cases, fixtures are real briefs
-test/compare.test.js    112 cases, deviations planted one per category,
-                        plus an excerpt of a real KONE page as a fixture
-test/readers.test.js    10 cases, run against real ZIP bytes
-test/filler.test.js     26 cases, including markup that must never be guessed
-serve.js                local static server
+index.html                    UI, four tabs — Analyse, Compare, Fill, Brief
+app.js                        renders what the modules return — no analysis of its own
+brief.js                      one parse shared by the others: rows, sections, markets, target
+engine.js                     classify → detect CMS → check needs → return steps
+compare.js                    read the page → read the brief → diff → group by category
+filler.js                     find the row from its English master → carry the markup across
+readers.js                    .docx / .xlsx / .csv → text, with no dependencies
+page-model.js                 one neutral component model, from a brief or from a page
+mock-page.js                  draws the page-model.js model as a sandboxed HTML preview
+config/work-types.json        the six playbooks, the compare settings, the market list
+config/mock-components.json   the render-type vocabulary page-model.js infers components into
+config/tridion-taxonomy.json  real Tridion component names → their documented field slots
+test/brief.test.js            22 cases, the shared parse alone
+test/engine.test.js           53 cases, fixtures are real briefs
+test/compare.test.js          144 cases, deviations planted one per category,
+                               plus excerpts of real KONE pages as fixtures
+test/readers.test.js          10 cases, run against real ZIP bytes
+test/filler.test.js           26 cases, including markup that must never be guessed
+test/page-model.test.js       48 cases, including a real agency mockup with no Tridion markup at all
+test/mock-page.test.js        26 cases, safety-first: escaping, hrefs, no external requests
+serve.js                      local static server
 ```

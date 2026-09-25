@@ -17,9 +17,15 @@ var workTypesJson = JSON.parse(
 var mockComponentsJson = JSON.parse(
   fs.readFileSync(path.join(__dirname, '..', 'config', 'mock-components.json'), 'utf8')
 );
+var tridionTaxonomyJson = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '..', 'config', 'tridion-taxonomy.json'), 'utf8')
+);
 
 var pm = PageModel.create({ 'work-types': workTypesJson });
 var pmWithFile = PageModel.create({ 'work-types': workTypesJson, 'mock-components': mockComponentsJson });
+var pmWithTaxonomyFile = PageModel.create({
+  'work-types': workTypesJson, 'mock-components': mockComponentsJson, 'tridion-taxonomy': tridionTaxonomyJson
+});
 
 var passed = 0, failed = 0;
 function test(name, fn) {
@@ -522,6 +528,135 @@ test('36. the eleven-page marked-brief fixture never produces an unresolved form
   var formCount = model.components.filter(function (c) { return c.type === 'form'; }).length;
   assert.ok(formCount >= 5, 'expected most of the eleven contact sections to type as form, got ' + formCount +
     ': ' + JSON.stringify(model.components.map(function (c) { return c.type; })));
+});
+
+// ─── BRIEF MODE DEPTH — component-mapped field tables ──────────────────
+// Real material: the eleven-page KONE agency mockup the user pasted
+// directly into chat, trimmed here to one full built page — no Tridion
+// markers, no CSS class this repo's config recognises at all. Tracing
+// this fixture end to end is what surfaced two real, pre-existing gaps
+// fixed alongside this feature: a bare <div> (a stat row, a bullet list)
+// was invisible to page.paragraphs' <p>/<li>-only read, and this
+// template's own H2-hero/H3-section split was being flattened by the
+// old hardcoded "only h1/h2 opens a section" rule.
+var ANY_HTML_PAGE = fs.readFileSync(path.join(__dirname, 'fixtures', 'kone-landing-pages-mockup.html'), 'utf8');
+
+test('37. every taxonomy component\'s slots are valid slotTypes keys', function () {
+  var slotKeys = Object.keys(tridionTaxonomyJson.slotTypes);
+  Object.keys(tridionTaxonomyJson.components).forEach(function (name) {
+    tridionTaxonomyJson.components[name].slots.forEach(function (slot) {
+      assert.ok(slotKeys.indexOf(slot) !== -1,
+        name + ' declares slot "' + slot + '", which is not one of the eight canonical slot types — ' +
+        'this is exactly the bodytext/"body text" class of mismatch the conversion to data exists to rule out');
+    });
+  });
+});
+
+test('38. config/tridion-taxonomy.json matches the built-in DEFAULT_TAXONOMY fallback', function () {
+  var withDefaults = pm.buildFromPage(MARKER_PAGE, {});
+  var withFile = pmWithTaxonomyFile.buildFromPage(MARKER_PAGE, {});
+  var hero1 = withDefaults.components.filter(function (c) { return c.type === 'hero'; })[0];
+  var hero2 = withFile.components.filter(function (c) { return c.type === 'hero'; })[0];
+  assert.strictEqual(hero1.componentLabel, hero2.componentLabel);
+  assert.deepStrictEqual(hero1.fieldTable, hero2.fieldTable);
+});
+
+test('39. a marker-backed HeroBanner gets its real slot list, evidence "marker"', function () {
+  var model = pm.buildFromPage(MARKER_PAGE, {});
+  var hero = model.components.filter(function (c) { return c.type === 'hero'; })[0];
+  assert.ok(hero, JSON.stringify(model.components.map(function (c) { return c.type; })));
+  assert.strictEqual(hero.componentLabel, 'HeroBanner (Component Field marker)');
+  assert.ok(hero.fieldTable, 'a real named component must produce a field table');
+  var slotNames = hero.fieldTable.slots.map(function (s) { return s.slot; });
+  assert.ok(slotNames.indexOf('heading') !== -1 || slotNames.indexOf('intro') !== -1, JSON.stringify(hero.fieldTable));
+  hero.fieldTable.slots.forEach(function (s) { assert.strictEqual(s.evidence, 'marker'); });
+});
+
+test('40. a live, CSS-only Accordion gets the same real slot list, evidence "css"', function () {
+  var model = pm.buildFromPage(LIVE_FAQ_PAGE, {});
+  var accordion = model.components.filter(function (c) { return c.type === 'accordion'; })[0];
+  assert.ok(accordion, JSON.stringify(model.components));
+  assert.ok(accordion.componentLabel.indexOf('Accordion') === 0, accordion.componentLabel);
+  assert.ok(accordion.componentLabel.indexOf('CSS-class match') !== -1, accordion.componentLabel);
+  accordion.fieldTable.slots.forEach(function (s) { assert.strictEqual(s.evidence, 'css'); });
+});
+
+test('41. a page with no Tridion markers or recognised CSS at all still gets field tables, via render type', function () {
+  var model = pmWithTaxonomyFile.buildFromPage(ANY_HTML_PAGE, {});
+  assert.ok(model.components.length >= 5, 'expected several real sections, got ' + model.components.length);
+  var namedAny = model.components.some(function (c) { return c.componentLabel && c.componentLabel.indexOf('Component Field marker') !== -1; });
+  assert.ok(!namedAny, 'this fixture carries no Tridion markers — nothing should ever resolve at the named tier');
+  var shapeTyped = model.components.filter(function (c) {
+    return c.componentLabel && c.componentLabel.indexOf('read from page structure') !== -1;
+  });
+  assert.ok(shapeTyped.length >= 4, 'expected most sections to get a field table via the generic (shape) tier: ' +
+    JSON.stringify(model.components.map(function (c) { return c.componentLabel; })));
+});
+
+test('42. the hero\'s stat row — bare <div>s, never <p> or <li> — is read at all, grouped, and lands in unmapped', function () {
+  var model = pmWithTaxonomyFile.buildFromPage(ANY_HTML_PAGE, {});
+  var heroish = model.components[0];
+  assert.ok(heroish.fieldTable, JSON.stringify(heroish));
+  var statGroup = heroish.fieldTable.unmapped.filter(function (u) { return u.content.indexOf('2.500 kg') !== -1; })[0];
+  assert.ok(statGroup, 'the stat row never reached the model at all: ' + JSON.stringify(heroish.fieldTable.unmapped));
+  assert.ok(statGroup.content.indexOf('40 m') !== -1 && statGroup.content.indexOf('1,6 m/s') !== -1,
+    'the three stat pairs should be grouped into one candidate, not scattered: ' + statGroup.content);
+  assert.ok(/repeating group|short text fragment/.test(statGroup.why), statGroup.why);
+});
+
+test('43. the CTA band\'s trust-claim bullet list — also bare <div>s — lands in unmapped too, never silently dropped', function () {
+  var model = pmWithTaxonomyFile.buildFromPage(ANY_HTML_PAGE, {});
+  var cta = model.components.filter(function (c) {
+    return c.heading === 'Parliamo del tuo progetto';
+  })[0];
+  assert.ok(cta, JSON.stringify(model.components.map(function (c) { return c.heading; })));
+  var bullets = cta.fieldTable.unmapped.filter(function (u) { return u.content.indexOf('Gamma dedicata') !== -1; })[0];
+  assert.ok(bullets, JSON.stringify(cta.fieldTable.unmapped));
+  assert.ok(bullets.content.indexOf('Specifiche chiare') !== -1 && bullets.content.indexOf('Configurazione esplorabile') !== -1,
+    'the trust bullets should group into one candidate: ' + bullets.content);
+});
+
+test('44. a quoted phrase in real page copy is flagged verbatim, never paraphrased away', function () {
+  var model = pmWithTaxonomyFile.buildFromPage(ANY_HTML_PAGE, {});
+  var cta = model.components.filter(function (c) { return c.heading === 'Parliamo del tuo progetto'; })[0];
+  assert.ok(cta.verbatim.length, 'expected the quoted phrase to be detected');
+  assert.strictEqual(cta.verbatim[0], 'in attesa di conferma da KONE');
+});
+
+test('45. an unquoted paragraph never gets flagged verbatim', function () {
+  var model = pmWithTaxonomyFile.buildFromPage(LIVE_FAQ_PAGE, {});
+  model.components.forEach(function (c) {
+    assert.deepStrictEqual(c.verbatim, [], 'no quoted text exists in this fixture: ' + JSON.stringify(c.verbatim));
+  });
+});
+
+test('46. a brief\'s own "to be aligned with KONE" note is collected as an open item, sourced literally', function () {
+  var brief = [
+    'URL Path\thttps://www.kone.com/example-open-items/',
+    'Process[1.0]',
+    'The process steps are a proposed flow, to be aligned with KONE.'
+  ].join('\n');
+  var model = pm.build(brief, {});
+  assert.ok(model.openItems.length, JSON.stringify(model));
+  assert.ok(model.openItems[0].text.indexOf('to be aligned with KONE') !== -1, model.openItems[0].text);
+});
+
+test('47. ordinary text with none of the open-item markers produces no open items', function () {
+  var brief = [
+    'URL Path\thttps://www.kone.com/example-clean/',
+    'Content[1.0]',
+    'Every claim on this page is already confirmed and ready to publish.'
+  ].join('\n');
+  var model = pm.build(brief, {});
+  assert.deepStrictEqual(model.openItems, []);
+});
+
+test('48. a component with neither a named match nor a usable render type gets fieldTable: null, never a guessed table', function () {
+  var model = pmWithTaxonomyFile.buildFromPage(ANY_HTML_PAGE, {});
+  var tableSection = model.components.filter(function (c) { return c.type === 'generic'; })[0];
+  assert.ok(tableSection, JSON.stringify(model.components.map(function (c) { return c.type; })));
+  assert.strictEqual(tableSection.fieldTable, null);
+  assert.strictEqual(tableSection.componentLabel, null);
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

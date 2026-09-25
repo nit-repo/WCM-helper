@@ -446,6 +446,35 @@
     .mock-outline-low { color: var(--red); background: #FFEFE9; }
     .mock-outline-why { font-size: 13px; color: var(--black-60); flex: 1; }
 
+    /* Brief mode depth: one card per component read off the page, headed
+       by its evidence-bearing label (a real Tridion component name and
+       how it was identified, or the render type read from page structure
+       when no named component exists), a Field slot | Content table, an
+       image placeholder, verbatim-quote chips, and — always visible,
+       never collapsed away — whatever could not be mapped to any slot. */
+    .field-card { border: 1px solid var(--hairline); border-radius: var(--radius-md, 8px); padding: 14px 16px; margin-top: 12px; }
+    .field-card:first-child { margin-top: 0; }
+    .field-card h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--black); }
+    table.field-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 6px; }
+    table.field-table th, table.field-table td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+    table.field-table tr:last-child th, table.field-table tr:last-child td { border-bottom: 0; }
+    table.field-table th { font-weight: 600; color: var(--black-60); white-space: nowrap; width: 1%; font-family: var(--font-secondary); text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; }
+    table.field-table td { color: var(--black); word-break: break-word; }
+    .field-evidence { display: block; margin-top: 2px; font-size: 11px; color: var(--black-40); }
+    .field-image { margin: 6px 0; font-size: 13px; color: var(--black-60); }
+    .field-verbatim { margin: 6px 0; font-size: 13px; color: var(--black); line-height: 1.6; }
+    .verbatim-chip {
+      display: inline-block; font-family: var(--font-secondary); text-transform: uppercase;
+      letter-spacing: 0.04em; font-size: 10px; padding: 2px 6px; border-radius: 4px;
+      background: var(--amber-bg); color: var(--amber); margin-right: 4px;
+    }
+    .field-unmapped { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--black-20); }
+    .field-unmapped-label { margin: 0 0 6px; font-family: var(--font-secondary); text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; color: var(--amber); }
+    .field-unmapped ul { list-style: none; margin: 0; padding: 0; }
+    .field-unmapped li { font-size: 13px; color: var(--black); padding: 4px 0; border-bottom: 1px solid var(--hairline); }
+    .field-unmapped li:last-child { border-bottom: 0; }
+    .field-why { display: block; margin-top: 2px; font-size: 12px; color: var(--black-60); }
+
     /* The preview itself: a sandboxed document, so its height cannot be
        measured from the outside — a fixed viewport with its own scroll,
        which also reads correctly as a page rather than an inline block. */
@@ -567,14 +596,14 @@
        entry belonging to the old one. app.js reads the same value back out of
        its own src and shows it in the sidebar, so there is one string to bump
        and what it displays is necessarily the file that is running. -->
-  <script src="brief.js?v=2026-09-22a"></script>
-  <script src="engine.js?v=2026-09-22a"></script>
-  <script src="compare.js?v=2026-09-22a"></script>
-  <script src="readers.js?v=2026-09-22a"></script>
-  <script src="filler.js?v=2026-09-22a"></script>
-  <script src="page-model.js?v=2026-09-22a"></script>
-  <script src="mock-page.js?v=2026-09-22a"></script>
-  <script src="app.js?v=2026-09-22a"></script>
+  <script src="brief.js?v=2026-09-25a"></script>
+  <script src="engine.js?v=2026-09-25a"></script>
+  <script src="compare.js?v=2026-09-25a"></script>
+  <script src="readers.js?v=2026-09-25a"></script>
+  <script src="filler.js?v=2026-09-25a"></script>
+  <script src="page-model.js?v=2026-09-25a"></script>
+  <script src="mock-page.js?v=2026-09-25a"></script>
+  <script src="app.js?v=2026-09-25a"></script>
 </body>
 
 </html>
