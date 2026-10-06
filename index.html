@@ -384,54 +384,14 @@
     table.meta-rows td.state { white-space: nowrap; width: 1%; font-size: 12px; color: var(--black-60); }
     table.meta-rows tr.ok td.state { color: var(--green); }
     table.meta-rows tr.bad td.state { color: var(--amber); font-weight: 600; }
+    table.meta-rows tr.score-green td.state { color: var(--green); font-weight: 600; }
+    table.meta-rows tr.score-amber td.state { color: var(--amber); font-weight: 600; }
+    table.meta-rows tr.score-red td.state { color: var(--red); font-weight: 600; }
+    table.meta-rows td.state { white-space: normal; min-width: 120px; }
     .brief-warning {
       font-size: 13px; background: var(--sand); border-radius: 8px;
       padding: 10px 12px; margin: 12px 0 0;
     }
-
-    textarea#english {
-      width: 100%; min-height: 130px; padding: 14px;
-      border: 1px solid var(--black-20); border-radius: 8px;
-      font: inherit; font-size: 14px; resize: vertical; background: var(--white);
-    }
-    textarea#english:focus { outline: none; border-color: var(--kone-blue); box-shadow: 0 0 0 3px rgba(20, 80, 245, 0.18); }
-
-    .localized {
-      font-size: 15px; background: var(--green-bg); border-radius: 8px;
-      padding: 12px 14px; margin: 0 0 12px; word-break: break-word;
-    }
-    .localized a { color: var(--kone-blue); }
-    .row-label {
-      font-family: var(--font-secondary); text-transform: uppercase; letter-spacing: 0.06em;
-      font-size: 12px; font-weight: 400; color: var(--kone-blue);
-    }
-    .english-was { font-size: 13px; color: var(--black-60); margin: 10px 0 0; }
-
-    ul.worklist { list-style: none; padding: 0; margin: 0; }
-    ul.worklist > li { padding: 12px 0; border-bottom: 1px solid var(--hairline); display: flex; gap: 12px; align-items: flex-start; }
-    ul.worklist > li:last-child { border-bottom: 0; }
-    ul.worklist > li.done { opacity: 0.45; }
-    ul.worklist input[type=checkbox] { margin-top: 4px; flex: none; width: 16px; height: 16px; }
-    .work-body { flex: 1; min-width: 0; }
-    .work-en { font-size: 13px; color: var(--black-60); margin: 3px 0 0; }
-    .work-local { font-size: 14px; margin: 3px 0 0; word-break: break-word; }
-    .work-copy { flex: none; }
-    .badge-untranslated {
-      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
-      background: var(--sand); color: var(--black-60); padding: 2px 7px; border-radius: 4px; margin-left: 8px;
-    }
-    .progress { font-size: 13px; color: var(--black-60); margin: 0 0 16px; }
-    .progress b { color: var(--black); }
-
-    /* Field lookup / Mock page — a small two-way toggle, not the full
-       sliding-pill tab system: this switches a view within one tab, not
-       between tabs. */
-    .view-toggle { display: flex; gap: 4px; background: var(--sand); border-radius: var(--radius-md); padding: 3px; margin-bottom: 16px; }
-    .view-btn {
-      flex: 1; border: none; background: transparent; border-radius: 6px;
-      padding: 8px 10px; font: inherit; font-size: 13px; color: var(--black-60); cursor: pointer;
-    }
-    .view-btn[aria-pressed="true"] { background: var(--white); color: var(--black); font-weight: 600; box-shadow: 0 1px 2px rgba(20,20,20,.08); }
 
     /* The mock-page outline: one row per predicted component, with its
        confidence and the evidence it was inferred from — the review a
@@ -495,15 +455,12 @@
     <div class="brand">
     <img src="assets/brand/kone-logo-white.svg" alt="KONE" width="118" height="22">
       <h1>WCM Helper</h1>
-      <p>Analyse a brief, or compare it against the page that got built</p>
+      <p>Analyse a brief and mock its page, or QA the page that got built</p>
       <p class="build" id="build-tag"></p>
     </div>
     <nav class="tabs" role="tablist">
       <span class="tab-indicator" aria-hidden="true"></span>
       <button class="tab" id="tab-analyse" role="tab" aria-selected="true" type="button">Analyse</button>
-      <button class="tab" id="tab-compare" role="tab" aria-selected="false" type="button">Compare</button>
-      <button class="tab" id="tab-fill" role="tab" aria-selected="false" type="button">Fill</button>
-      <button class="tab" id="tab-brief" role="tab" aria-selected="false" type="button">Brief</button>
       <button class="tab" id="tab-qa" role="tab" aria-selected="false" type="button">QA</button>
     </nav>
   </aside>
@@ -511,23 +468,6 @@
   <div class="workspace">
   <main>
     <div class="pane-input">
-      <section class="card" id="brief-card">
-      <h3>Brief</h3>
-      <textarea id="brief" placeholder="Paste the brief here — a ticket, an email, a spreadsheet of URLs, a page of copy."></textarea>
-
-      <div class="input-actions">
-        <button id="analyse-btn" class="btn-primary" type="button" disabled>Analyse</button>
-        <button id="compare-btn" class="btn-primary" type="button" hidden disabled>Compare</button>
-        <button id="fill-btn" class="btn-primary" type="button" hidden disabled>Find localized text</button>
-        <button id="briefgen-btn" class="btn-primary" type="button" hidden disabled>Draft brief</button>
-        <button id="brief-upload-btn" class="btn-ghost" type="button">Upload brief</button>
-        <button id="sample-btn" class="btn-ghost" type="button">Load sample</button>
-        <input type="file" id="brief-file" accept=".docx,.xlsx,.csv,.txt,.md,.html,.htm" hidden>
-        <button id="clear-btn" class="btn-ghost" type="button">Clear</button>
-        <button id="copy-btn" class="btn-ghost" type="button" disabled>Copy questions</button>
-      </div>
-      </section>
-
       <section class="card" id="compare-input" hidden>
         <h3>Page</h3>
         <div class="launch-row">
@@ -537,7 +477,8 @@
         <p class="field-label">Page HTML</p>
         <textarea id="html" placeholder="Paste the built page's source here — View Source, select all, paste."></textarea>
         <div class="input-actions">
-          <button id="qa-btn" class="btn-primary" type="button" hidden disabled>Run QA</button>
+          <button id="qa-btn" class="btn-primary" type="button" disabled>Run QA</button>
+          <button id="briefgen-btn" class="btn-ghost" type="button" disabled>Generate brief</button>
           <button id="html-upload-btn" class="btn-ghost" type="button">Upload .html</button>
           <button id="html-clear-btn" class="btn-ghost" type="button">Clear HTML</button>
           <input type="file" id="html-file" accept=".html,.htm,.txt" hidden>
@@ -545,19 +486,19 @@
         <p class="hint">Nothing leaves the browser. The tool cannot fetch the page itself, so paste or upload it — or <a href="bookmarklet.html">install the bookmarklet</a>: open the page above, click the bookmarklet on it, and it lands here without touching this tab or the brief.</p>
       </section>
 
-      <section class="card" id="fill-input" hidden>
-        <div class="view-toggle" role="group" aria-label="Fill view">
-          <button type="button" class="view-btn" id="fill-view-lookup" aria-pressed="true">Field lookup</button>
-          <button type="button" class="view-btn" id="fill-view-mock" aria-pressed="false">Mock page</button>
-        </div>
-        <div id="fill-lookup-fields">
-          <h3>English master from the component</h3>
-          <textarea id="english" placeholder="Paste the English text sitting in the Tridion component field. Markup is fine — paste the source if the field is rich text."></textarea>
-          <p class="hint">The tool cannot read or write Tridion fields. It finds the row and hands you the localized text; you paste it.</p>
-        </div>
-        <div id="fill-mock-fields" hidden>
-          <p class="hint">Builds a small editable mock of the page this brief describes — the same market selector below chooses which column fills it in. Every component shown carries the rows it was inferred from and how confident that inference is; nothing is guessed silently.</p>
-        </div>
+      <section class="card" id="brief-card">
+      <h3 id="brief-heading">Brief</h3>
+      <textarea id="brief" placeholder="Paste the brief here — a ticket, an email, a spreadsheet of URLs, a page of copy."></textarea>
+
+      <div class="input-actions">
+        <button id="analyse-btn" class="btn-primary" type="button" disabled>Analyse</button>
+        <button id="mock-btn" class="btn-ghost" type="button" disabled>Build mock page</button>
+        <button id="brief-upload-btn" class="btn-ghost" type="button">Upload brief</button>
+        <button id="sample-btn" class="btn-ghost" type="button">Load sample</button>
+        <input type="file" id="brief-file" accept=".docx,.xlsx,.csv,.txt,.md,.html,.htm" hidden>
+        <button id="clear-btn" class="btn-ghost" type="button">Clear</button>
+        <button id="copy-btn" class="btn-ghost" type="button" disabled>Copy questions</button>
+      </div>
       </section>
 
       <section class="card" id="settings-card">
@@ -575,7 +516,7 @@
         </select>
       </div>
 
-      <div class="override">
+      <div class="override" id="cms-override">
         <label for="cms-select">CMS platform</label>
         <select id="cms-select">
           <option value="">Read it from the site URL</option>
@@ -598,15 +539,15 @@
        entry belonging to the old one. app.js reads the same value back out of
        its own src and shows it in the sidebar, so there is one string to bump
        and what it displays is necessarily the file that is running. -->
-  <script src="brief.js?v=2026-10-07a"></script>
-  <script src="engine.js?v=2026-10-07a"></script>
-  <script src="compare.js?v=2026-10-07a"></script>
-  <script src="readers.js?v=2026-10-07a"></script>
-  <script src="filler.js?v=2026-10-07a"></script>
-  <script src="page-model.js?v=2026-10-07a"></script>
-  <script src="mock-page.js?v=2026-10-07a"></script>
-  <script src="qa.js?v=2026-10-07a"></script>
-  <script src="app.js?v=2026-10-07a"></script>
+  <script src="brief.js?v=2026-10-08a"></script>
+  <script src="engine.js?v=2026-10-08a"></script>
+  <script src="compare.js?v=2026-10-08a"></script>
+  <script src="readers.js?v=2026-10-08a"></script>
+  <script src="filler.js?v=2026-10-08a"></script>
+  <script src="page-model.js?v=2026-10-08a"></script>
+  <script src="mock-page.js?v=2026-10-08a"></script>
+  <script src="qa.js?v=2026-10-08a"></script>
+  <script src="app.js?v=2026-10-08a"></script>
 </body>
 
 </html>

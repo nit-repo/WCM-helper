@@ -118,45 +118,87 @@
 
   function titleKey(s) { return String(s).toLowerCase().replace(/\s+/g, ' ').trim(); }
 
-  function titleFindings(page, normalise) {
-    var out = [];
-    var titles = [];
-    if (!page.pageName || !normalise(page.pageName)) {
-      out.push({ category: 'metadata', severity: 'break', field: 'Page title', note: 'the page has no <title>' });
-    } else {
-      titles.push(['Page title', page.pageName]);
-    }
-    if (page.metaTitle && normalise(page.metaTitle) !== normalise(page.pageName || '')) {
-      titles.push(['og:title', page.metaTitle]);
-    }
-
-    titles.forEach(function (t) {
-      var parts = normalise(t[1]).split(TITLE_SPLIT).map(titleKey).filter(Boolean);
-      var seen = {}, doubled = null;
-      parts.forEach(function (p) { if (seen[p]) doubled = p; seen[p] = true; });
-      if (doubled) {
-        out.push({
-          category: 'metadata', severity: 'check', field: t[0], known: true, found: t[1],
-          note: 'double title — "' + doubled + '" appears twice'
-        });
-        return;
-      }
-      // Only the trailing segments carry the site name; the first is the
-      // page's own subject and routinely contains the brand ("KONE MonoSpace").
-      var tail = parts.slice(1);
-      for (var i = 0; i < tail.length; i++) {
-        for (var j = 0; j < tail.length; j++) {
-          if (i !== j && (' ' + tail[j] + ' ').indexOf(' ' + tail[i] + ' ') !== -1) {
-            out.push({
-              category: 'metadata', severity: 'check', field: t[0], known: true, found: t[1],
-              note: 'partial duplicate — "' + tail[i] + '" repeats inside "' + tail[j] + '"'
-            });
-            return;
-          }
+  // A doubled or partial site name in a title ("| KONE India - KONE India",
+  // "| KONE - KONE Slovenija"), or null. Only the trailing segments carry the
+  // site name; the first is the page's own subject and routinely contains
+  // the brand ("KONE MonoSpace").
+  function duplicateNote(title, normalise) {
+    var parts = normalise(title).split(TITLE_SPLIT).map(titleKey).filter(Boolean);
+    var seen = {}, doubled = null;
+    parts.forEach(function (p) { if (seen[p]) doubled = p; seen[p] = true; });
+    if (doubled) return 'double title — "' + doubled + '" appears twice';
+    var tail = parts.slice(1);
+    for (var i = 0; i < tail.length; i++) {
+      for (var j = 0; j < tail.length; j++) {
+        if (i !== j && (' ' + tail[j] + ' ').indexOf(' ' + tail[i] + ' ') !== -1) {
+          return 'partial duplicate — "' + tail[i] + '" repeats inside "' + tail[j] + '"';
         }
       }
+    }
+    return null;
+  }
+
+  function titleFindings(page, normalise) {
+    var out = [];
+    if (!page.pageName || !normalise(page.pageName)) {
+      out.push({ category: 'metadata', severity: 'break', field: 'Page title', note: 'the page has no <title>' });
+    }
+    titlesOf(page, normalise).forEach(function (t) {
+      var dup = duplicateNote(t.title, normalise);
+      if (dup) out.push({ category: 'metadata', severity: 'check', field: t.field, known: true, found: t.title, note: dup });
     });
     return out;
+  }
+
+  // The page title, and og:title when it says something different.
+  function titlesOf(page, normalise) {
+    var out = [];
+    if (page.pageName && normalise(page.pageName)) out.push({ field: 'Page title', source: '<title>', title: page.pageName });
+    if (page.metaTitle && normalise(page.metaTitle) !== normalise(page.pageName || '')) {
+      out.push({ field: 'og:title', source: 'og:title', title: page.metaTitle });
+    }
+    return out;
+  }
+
+  function nameKey(s) { return String(s).toLowerCase().replace(/\s+/g, ' ').trim(); }
+
+  // KONE's naming rule for a page title: "Page Name | KONE Corporation", or
+  // "Page Name | KONE <the page's own country>" in that market's spelling.
+  // Green only on a confirmed name for the page's own market; red only when
+  // the title is wrong beyond doubt (no title, a doubled site name, another
+  // market's confirmed name); everything uncertain is amber, so a guessed
+  // spelling in the registry can never fail a page.
+  function titleFormat(title, market, entries, normalise) {
+    if (!title || !normalise(title)) return { state: 'red', reason: 'no title' };
+    var t = normalise(title);
+    if (duplicateNote(t, normalise)) return { state: 'red', reason: 'site name doubled — see Known template issues', known: true };
+
+    var at = t.lastIndexOf(' | ');
+    if (at === -1) {
+      if (/\s[-\u2013\u2014]\s*KONE\b/i.test(t)) return { state: 'amber', reason: 'the site name is not after " | "' };
+      return { state: 'amber', reason: 'no site name — expected "| KONE Corporation" or "| KONE <country>"' };
+    }
+    var suffix = t.slice(at + 3).trim();
+    var m = /^KONE(?:\s+(.+))?$/.exec(suffix);
+    if (!m) return { state: 'amber', reason: '"' + suffix + '" is not KONE Corporation or KONE <country>' };
+    if (!m[1]) return { state: 'amber', reason: '"| KONE" with no country' };
+
+    var name = nameKey(m[1]);
+    if (name === 'corporation') return { state: 'green', reason: 'KONE Corporation' };
+
+    var own = market && !market.ambiguous ? market : null;
+    function has(list) { return (list || []).some(function (n) { return nameKey(n) === name; }); }
+    if (own && has(own.siteNames)) return { state: 'green', reason: 'KONE ' + m[1] + ' — the confirmed name for ' + own.name };
+
+    var other = entries.filter(function (e) { return has(e.siteNames) && (!own || e.base !== own.base); })[0];
+    if (other && own) {
+      return { state: 'red', reason: '"KONE ' + m[1] + '" is the ' + other.base + ' site\'s name, on a ' + own.name + ' page' };
+    }
+    if (!own) return { state: 'amber', reason: 'the page\'s market could not be determined, so "KONE ' + m[1] + '" was not verified' };
+    if (has(own.siteNamesDraft)) {
+      return { state: 'amber', reason: '"KONE ' + m[1] + '" matches the draft spelling for ' + own.name + ', not yet confirmed' };
+    }
+    return { state: 'amber', reason: '"KONE ' + m[1] + '" is not a confirmed site name for ' + own.name };
   }
 
   var RESOURCE_RE = /<(a|img|script|iframe|source|link|video|audio|embed)\b[^>]*>/gi;
@@ -354,24 +396,39 @@
     var qaCfg = wt.qa || {};
     var cme = qaCfg.cme || DEFAULT_QA.cme;
     var comparerConfig = { 'work-types': wt };
-    if (config['form-ids']) comparerConfig['form-ids'] = config['form-ids'];
+    if (config['sites']) comparerConfig['sites'] = config['sites'];
     var comparer = Compare.create(comparerConfig);
     var normalise = comparer.normalise;
     var pathOf = comparer.pathOf;
 
     function cmeLink(pattern, id) { return id ? pattern.split('{id}').join(id) : null; }
 
-    function run(html) {
+    // options.brief (optional): with a brief, QA is also the comparison —
+    // one report, the brief's findings and the page's own in the same five
+    // categories, coverage on top. Without one it is QA on the page alone.
+    // options.workTypeId decides which playbook the brief is read with.
+    function run(html, options) {
+      options = options || {};
       html = String(html == null ? '' : html);
       var page = comparer.readPage(html);
       var head = /<head\b[^>]*>([\s\S]*?)<\/head>/i.exec(html);
       var headHtml = head ? head[1] : html;
 
+      var briefText = String(options.brief || '').trim();
+      var workTypeId = options.workTypeId || 'new-page';
+      var comparison = null, expect = null;
+      if (briefText) {
+        comparison = comparer.compare(briefText, html, { workTypeId: workTypeId });
+        if (comparison.supported) expect = comparer.readBrief(briefText, workTypeId, wt);
+      }
+      var compared = !!(comparison && comparison.supported && !comparison.unreadable);
+
       var robotsTag = metaTag(headHtml, 'robots');
       var tcmTag = metaTag(headHtml, 'pagetcmid');
       var tcmRaw = tcmTag ? (attr(tcmTag, 'content') || '').trim() : '';
       var tcmId = /^tcm:\d+-\d+(-\d+)?$/i.test(tcmRaw) ? tcmRaw : null;
-      var formId = comparer.formIdFinding(null, page);
+      var formId = comparer.formIdFinding(expect, page);
+      var market = comparer.marketOf(expect, page);
 
       var facts = {
         canonical: page.canonical || null,
@@ -382,23 +439,33 @@
         cmeOldUi: cmeLink(cme.oldUi, tcmId),
         lang: page.lang || null,
         dataLang: page.dataLang || null,
-        market: formId.country || null,
+        market: market ? (market.ambiguous ? market.base + ' (language version not determined)' : market.name) : null,
         robots: robotsTag ? attr(robotsTag, 'content') : null,
         digitalData: page.digitalData || null,
         hreflang: []
       };
 
-      // Start from everything compare.js already finds on the page alone.
-      var pageOnly = comparer.pageOnlyCategories(page);
       var byId = {};
       CATEGORIES.forEach(function (c) { byId[c[0]] = { id: c[0], label: c[1], deviations: [], rows: [] }; });
-      pageOnly.categories.forEach(function (c) {
-        if (!byId[c.id]) return;
+
+      // With a readable brief, start from the comparison — it already holds
+      // the page-only findings too. Without one, from those alone. Compare's
+      // own Form Assembly ID category is skipped: QA reports that itself,
+      // under Structure, below.
+      var start = compared ? comparison.categories : comparer.pageOnlyCategories(page).categories;
+      start.forEach(function (c) {
+        var target = byId[c.id];
+        if (!target) return;
         c.deviations.forEach(function (d) {
           // QA counts H1s its own way (document-wide, visible only) below.
           if (c.id === 'metadata' && d.field === 'H1') return;
-          byId[c.id].deviations.push(d);
+          target.deviations.push(d);
         });
+        if (compared && c.ledger) target.ledger = c.ledger;
+        if (compared && c.id === 'metadata') {
+          target.rows = (c.rows || []).slice();
+          if (c.note) target.note = c.note;
+        }
       });
 
       var reportedUrls = {};
@@ -413,6 +480,24 @@
         .concat(keywordFindings(page))
         .concat(h1Findings(html, normalise))
         .concat(linkTextFindings(comparer.mainRegion(html).html, qaCfg, normalise));
+
+      // The title naming rule, scored for each title the page carries.
+      var entries = comparer.siteEntries();
+      var formatRows = [];
+      if (!page.pageName || !normalise(page.pageName)) {
+        formatRows.push({ field: 'Title format', source: 'page title', expected: null, found: null,
+          state: 'red', stateLabel: 'no title', soft: false, basis: 'expected' });
+      }
+      titlesOf(page, normalise).forEach(function (t) {
+        var score = titleFormat(t.title, market, entries, normalise);
+        formatRows.push({ field: 'Title format', source: t.field === 'og:title' ? 'og:title' : 'page title',
+          expected: null, found: t.title, state: score.state, stateLabel: score.reason, soft: false, basis: 'expected' });
+        // A doubled site name is already a known template issue; scoring it
+        // again here would count the template against the page after all.
+        if (score.known || score.state === 'green') return;
+        findings.push({ category: 'metadata', severity: score.state === 'red' ? 'break' : 'check',
+          field: 'Title format', found: t.title, note: score.reason });
+      });
 
       var known = [];
       findings.forEach(function (f) {
@@ -430,28 +515,33 @@
       byId.structure.rows.push(formId.row);
 
       // What the page carries, shown whether or not anything is wrong with it.
+      // With a brief, Compare's rows already show the titles, description and
+      // path against the brief; QA adds only what they do not cover.
       function row(field, source, value) {
         return { field: field, source: source, expected: null, found: value || null,
-          state: value ? 'present' : 'absent', soft: false };
+          state: value ? 'present' : 'absent', soft: false, basis: 'expected' };
       }
-      byId.metadata.rows = [
+      var indexing = facts.digitalData &&
+        [facts.digitalData.indexOptions, facts.digitalData.followLinksOptions].filter(Boolean).join(', ');
+      var hreflangCodes = facts.hreflang.length ? facts.hreflang.map(function (a) { return a.code; }).join(', ') : null;
+      var pageRows = compared ? [] : [
         row('Page title', '<title>', page.pageName),
         row('Meta title', 'og:title', page.metaTitle),
-        row('Meta description', null, page.description),
+        row('Meta description', null, page.description)
+      ];
+      byId.metadata.rows = byId.metadata.rows.concat(pageRows, formatRows, [
         row('Canonical', null, page.canonical),
         row('Robots', '<meta name="robots">', facts.robots),
-        row('Indexing', 'digitalData', facts.digitalData &&
-          [facts.digitalData.indexOptions, facts.digitalData.followLinksOptions].filter(Boolean).join(', ')),
-        row('hreflang', '<link rel="alternate">', facts.hreflang.length
-          ? facts.hreflang.map(function (a) { return a.code; }).join(', ') : null)
-      ];
+        row('Indexing', 'digitalData', indexing),
+        row('hreflang', '<link rel="alternate">', hreflangCodes)
+      ]);
 
       // Body copy is judged against a brief; from the page alone the only
       // check is an empty Tridion field, which needs field markers to see.
       var hasFields = (page.modules || []).some(function (mod) { return mod.fields && mod.fields.length; });
-      if (!byId.body.deviations.length && !hasFields) {
-        byId.body.note = 'Body copy is checked against a brief, in Compare. From the page alone only an empty ' +
-          'Tridion field can be caught, and this page carries no component field markers — so nothing here was checked.';
+      if (!compared && !byId.body.deviations.length && !hasFields) {
+        byId.body.note = 'Body copy is checked against a brief — add one above to check it. From the page alone ' +
+          'only an empty Tridion field can be caught, and this page carries no component field markers — so nothing here was checked.';
       }
 
       var categories = CATEGORIES.map(function (c) {
@@ -471,6 +561,17 @@
       return {
         generatedAt: new Date().toISOString(),
         facts: facts,
+        comparison: comparison && {
+          supported: comparison.supported,
+          unreadable: !!comparison.unreadable,
+          note: comparison.note || null,
+          workTypeId: workTypeId,
+          mode: comparison.mode || null,
+          expectations: comparison.expectations || 0,
+          coverage: comparison.coverage || null,
+          suspectParse: !!comparison.suspectParse,
+          parseNote: comparison.parseNote || null
+        },
         categories: categories,
         knownIssues: known,
         breaks: breaks,

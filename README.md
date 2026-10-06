@@ -1,10 +1,9 @@
 # WCM Helper
 
-Three tools behind one page.
+Two tools behind one page, one per input.
 
-**Analyse** — paste a work brief, find out what it is and how to do it.
-**Compare** — paste the brief and the HTML of the page that got built, find out where they differ.
-**Fill** — paste the English master from a Tridion component, get the localized text to replace it with.
+**Analyse** — a work brief in: what kind of job it is, how to do it, what is missing — and a mock of the page it describes.
+**QA** — a built page in: is it sound on its own, and, with the brief alongside, is everything the brief asked for on it. Or, with no brief, write one from the page.
 
 ## Analyse
 
@@ -25,11 +24,55 @@ Nothing else. A two-line redirect request gets two questions at most — not a c
 
 A single-market brief is never checked for this, and says so rather than rendering as if it were checked and found clean.
 
-## Compare
+### Mock page
 
-Paste the same brief plus the built page's source (or upload the `.html`), and the comparer answers one question first — **is everything the brief asked for actually on the page?**
+**Build mock page** draws the page a brief describes. `page-model.js` reads the brief the same way QA's comparison does (front matter, sections, market columns) and infers a component for each section — hero, content, cards, steps, table, accordion, cta, image, or generic-for-review — using the brief's own evidence in priority order: an explicit component name first, then a recognised field label, then shape (a heading with an image and a short intro reads as a hero; repeating title/body pairs read as cards; repeating questions read as an accordion), and only as a last resort a generic block marked for review. Nothing is typed silently: every predicted component shows its confidence and the rows it came from, in the outline above the preview.
 
-That is the headline. *"All 74 items from the brief are on the page"*, or *"61 of 74 — 13 missing"*. Underneath it sit the differences, in five groups: Metadata, Structure, Body Text, Images, Hyperlinks/CTAs. Structure sits ahead of Body Text because a missing or misordered heading changes how the body content underneath it should be read. A group with nothing wrong says "No deviations."
+`page-model.js` also reads an already-built page the same way, from its own Tridion component markers (or the CSS-class map on a live page with none) when it has `<section class="module-…">` markup, or from its own real heading hierarchy and `<details>/<summary>` blocks when it does not — the same model either way, so the mock renderer never has to know which one produced it.
+
+The preview renders inside a sandboxed frame — no script can run in it, and no image is ever fetched from an external URL; an asset renders as a labelled placeholder box instead, matching the tool's zero-external-requests rule. It resembles the structure of a real KONE landing page — a hero band, numbered cards, an accordion — without pretending to reproduce the production design. Switching the market re-renders it immediately.
+
+**Send to QA** hands the mock's HTML across to the QA tab — to check it, or to turn it back into a brief.
+
+**A brief naming several markets has a target, not a "last column".** A localization sheet carrying English, Spain, Italy and Portugal side by side used to be read from whichever column happened to be last — confidently wrong on every market but one. The target market is read from the brief's own front matter (`Level 2 / SPAIN`) and shown in a dropdown that lists every market the brief declares; switching it needs no re-paste. A brief naming markets with no declared target asks rather than guesses.
+
+## QA
+
+A built page in — pasted, uploaded, or captured with the bookmarklet — and **Run QA**. On its own it asks **is this page sound by itself?** With a brief in the optional Brief box, the same run also asks **is everything the brief asked for on the page?** And with no brief at all, **Generate brief** writes one from the page.
+
+The results follow the WCM Page QA Framework's own layout:
+
+- **The page itself, first.** Its environment, read off the canonical host — Tridion preview, AEM author preview, or production, and "unknown" when there is no canonical rather than assuming live. Its **TCM ID** from `<meta name="pagetcmid">`, with links that open it straight in the CME, new UI and old (patterns in `config/work-types.json` under `qa.cme`), and a copy button. Its market and language.
+- **The framework's five categories** — Metadata, Body text, Images, Hyperlinks, Structure. Every finding the page makes about itself that Compare already knew (placeholder links, dead CTAs, CME and author links, images with no alt, a field published empty, duplicate headings, the Form Assembly ID for the market) plus the framework's must-haves: robots against the `digitalData` object's own INDEX/FOLLOW, title duplication, links and resources pointing at preview, staging or CMS hosts, mixed content on an `https` page, hreflang (missing, invalid, repeated, or not pointing back at the page), exactly one visible H1 counted across the whole document rather than only the main region, and link text a screen reader can use — "Leer más" and an icon link with no alt are both caught, in six languages.
+- **Known template issues, kept apart.** The framework's own list of defects a template causes on every page — a doubled `- KONE India` title suffix, an empty keywords tag, an `.aspx` canonical, robots disagreeing with `digitalData` — are listed in their own card and never counted against the page. A page is not failed for its template.
+
+Metadata always shows what the page carries — title, `og:title`, description, canonical, robots, the `digitalData` indexing values, hreflang — whether anything is wrong with it or not. A category QA cannot judge from the page alone says so instead of reading "No deviations": body copy is checked against a brief — add one in the Brief box — so with no brief, on a page with no Tridion field markers, Body text states that nothing was checked.
+
+A preview build is read as one. `noindex` is expected there and stays silent; links to preview hosts are expected too, and QA says to run it on the live page rather than flagging each one.
+
+**Building it turned up a bug in the comparison.** The check for a link pasted straight from the CME only recognised `/ui/editor/item?item=`. Neither real CME URL matches that — the new UI is `web-cms.kone.com/ui/editor/page?activeItem=…`, the old one `web-cms.kone.com/WebUI/item.aspx?tcm=…` — so the defect it exists to catch went unreported on both. It now recognises all three.
+
+QA does not fetch anything. Live status, SSL and site crawling come with the backend, in a later pass; until then the page arrives by paste, upload or bookmarklet, the same as everywhere else in the tool.
+
+**Title format, scored.** KONE's naming rule for a page title is `Page Name | KONE Corporation`, or `Page Name | KONE <country>` with the page's own country in that market's own spelling. Each title the page carries (the window title, and og:title when it differs) gets a row in Metadata:
+
+| Title ends in | Score |
+|---|---|
+| `\| KONE Corporation` | green |
+| `\| KONE <name>` — a confirmed name for the page's own market | green |
+| `\| KONE <name>` — another market's confirmed name ("KONE India" on kone.es) | red — a break |
+| `\| KONE`, no country | amber — a check |
+| no site name, or one after ` - ` instead of ` \| ` | amber |
+| a name not yet confirmed for the market, or a market that cannot be determined | amber — "not verified" |
+| no title, or a doubled site name | red |
+
+The page's market comes from the brief's `Market` row when there is one, else from its canonical host — a preview host (`preview.kone.es`) counts as its live market. Accepted names live in `config/sites.json`, one list per market: `siteNames` are confirmed, `siteNamesDraft` are spellings still to be confirmed. A title using a draft spelling scores amber, never red, so a guessed spelling can never fail a page; move it into `siteNames` once it is confirmed. A doubled site name stays a known template issue, so it is not counted against the page twice.
+
+### With a brief
+
+Put a brief in QA's Brief box and Run QA answers one more question, first — **is everything the brief asked for actually on the page?** It is one report: the brief's findings and the page's own land in the same five categories, each labelled by where its expectation came from (*Brief*, or *Expected* for a config table or a naming rule).
+
+That is the headline. *"All 74 items from the brief are on the page"*, or *"61 of 74 — 13 missing"*. Underneath it sit the differences, in the five groups. A group with nothing wrong says "No deviations."
 
 Counting coverage is what makes the tool's two worst failures legible without a special rule for each. `0 of 0` is a brief that did not parse; `2 of 74` is a brief that parsed wrongly. Both used to need a bespoke guard to interpret, because a report that shows only failures cannot tell "nothing was wrong" from "nothing was checked".
 
@@ -57,11 +100,11 @@ Every finding is either a **break** — a real defect — or a **check**, someth
 
 **Findings are placed by their Tridion component, not just a CSS label.** A CMS preview page's `<!-- Start Component Field -->` comments already name the exact component and field a piece of content lives in ("*FAQ · Accordion/items[1]/title*"). A live production page has none of those comments — they're stripped before publish — so a `tridionComponents` mapping (in `config/work-types.json`, documented in full in `tridion-component-taxonomy.md`) reads the section's CSS classes and names the same component anyway ("*FAQ · Accordion*"). Field markers, when a page has them, always win over the CSS guess.
 
-It works on the four jobs that produce a page to read — new page, localization, content update, keyword update. Redirect and removal are checked by following the URL, so the Compare tab says so rather than inventing findings.
+It works on the four jobs that produce a page to read — new page, localization, content update, keyword update. Redirect and removal are checked by following the URL, so QA says there is nothing to compare rather than inventing findings, and still checks the page on its own.
 
 Two limits worth stating plainly:
 
-- **The tool cannot fetch the page.** A static browser app is blocked by CORS from reading a live KONE URL, which is why the HTML is pasted or uploaded. It follows that it cannot tell you an image is *broken* — only that the brief named an asset the page does not carry. The [bookmarklet](bookmarklet.html) is the alternative to doing that by hand: paste the page URL into Compare and click **Open page**, then click the bookmarklet on the tab that opens. It runs inside the KONE page itself, in your own already-authenticated browser tab — including CMS preview pages behind login that no fetch could reach anyway — and posts the markup straight back into the Compare tab you were already working in, **with the brief you pasted still there**. Opening the page from Compare is what makes that possible: it makes this tab the page's `window.opener`, so the capture has somewhere to report to. The bookmarklet opens and navigates nothing: the capture goes into the tab you are already working in, or it does not go and the page tells you why. Opening from Compare is required rather than a convenience — a browser gives a page no other way to reach a tab on a different site.
+- **The tool cannot fetch the page.** A static browser app is blocked by CORS from reading a live KONE URL, which is why the HTML is pasted or uploaded. It follows that it cannot tell you an image is *broken* — only that the brief named an asset the page does not carry. The [bookmarklet](bookmarklet.html) is the alternative to doing that by hand: paste the page URL into QA and click **Open page**, then click the bookmarklet on the tab that opens. It runs inside the KONE page itself, in your own already-authenticated browser tab — including CMS preview pages behind login that no fetch could reach anyway — and posts the markup straight back into the QA tab you were already working in, **with the brief you pasted still there**. Opening the page from QA is what makes that possible: it makes this tab the page's `window.opener`, so the capture has somewhere to report to. The bookmarklet opens and navigates nothing: the capture goes into the tab you are already working in, or it does not go and the page tells you why. Opening from Compare is required rather than a convenience — a browser gives a page no other way to reach a tab on a different site.
 - **Body text is compared verbatim after normalising.** Whitespace, `&nbsp;` and curly quotes are folded, then the match must be exact. A reworded sentence is reported; whether the rewording was deliberate is a judgement left to you.
 
 **URLs are compared as paths.** `preview.kone.in/services/index.aspx` and `www.kone.in/services/` are the same page, so the scheme, host, `.aspx`/`.html` extension, directory `index`, and trailing slash are all dropped before comparing — the query string is kept, because it can be meaningful. An environment difference is never reported; a genuinely different path still is.
@@ -88,70 +131,31 @@ Lazy-loaded images resolve to the asset rather than the loading placeholder, whi
 
 Where the comparer reads the page content from is shown above the results. If it says "body minus nav, header and footer" and the Body Text group fills with menu labels, add the template's content wrapper class to `compare.contentSelectors` in `config/work-types.json`.
 
-**Picking which of several briefs matches a pasted page.** Compare has always assumed one brief goes with one page — `pickBrief(candidates, html)` answers "which one" when there's more than one candidate, and never picks silently. A brief's declared URL Path or target market (resolved to a domain) against the page's own canonical URL is a near-certain signal and decides it outright when exactly one candidate matches; with no declared match, or more than one, every candidate is run through the ordinary coverage calculation above and ranked by how much of itself it finds on the page. A result always names `how` it decided (`declared-url` / `coverage` / `ambiguous` / `none`) and carries every candidate's evidence, so a close call is visible rather than resolved for you — the same shape Fill's closest-match lookup already uses. The multi-brief input in the UI is a follow-up pass; the logic and its tests ship first.
+**Picking which of several briefs matches a pasted page.** The comparison has always assumed one brief goes with one page — `pickBrief(candidates, html)` answers "which one" when there's more than one candidate, and never picks silently. A brief's declared URL Path or target market (resolved to a domain) against the page's own canonical URL is a near-certain signal and decides it outright when exactly one candidate matches; with no declared match, or more than one, every candidate is run through the ordinary coverage calculation above and ranked by how much of itself it finds on the page. A result always names `how` it decided (`declared-url` / `coverage` / `ambiguous` / `none`) and carries every candidate's evidence, so a close call is visible rather than resolved for you — the same shape Fill's closest-match lookup already uses. The multi-brief input in the UI is a follow-up pass; the logic and its tests ship first.
 
 **A localization table can be read either way round, and the tool used to know only one of them.** Every localization brief handled so far was *rows = content fields, columns = markets* — a `Headline` row, a `Body` row, one cell per market. A real KONE sheet is the transpose: *rows = markets, columns = content fields* — one row per country, with its own translated header and body columns. Read against the wrong assumption, every row's first cell is a country name, never `Headline`/`Body`, so nothing was extracted and a fully correct, live-and-matching translation reported as **unreadable**. `Brief.detectOrientation` now reads a tabular brief's shape from evidence rather than a fixed label vocabulary: a column of short, distinct identifiers (a country, a language — under 30 characters, four words or fewer, no sentence punctuation) next to a column that reads as real prose is read as *markets-by-field*, with the header row itself found by which row's own cells read most like column labels rather than assumed to be whichever comes first — real sheets carry stray front matter above the real header. A configured market name corroborates when it's there; it is never required, since most real markets (Bulgaria, Croatia, Germany, ...) aren't and can't practically all be in `config/work-types.json`'s `markets` list. A shape that fits neither known orientation says so, with its reasoning, rather than guessing.
 
 **A row that's two-thirds right must not read as entirely wrong.** Sentence-descent already existed to catch a paragraph split across page elements — but a row's status was `found` only if *every* sentence matched; anything less read identically to zero found. A market's own row-identity text (the country name, prefixed onto the row before the real copy) failing to match while the actual sentences underneath it are genuinely on the page used to report as a total miss. The ledger now has a third status, `partial`, naming exactly what's missing (*"partly found in Bulgaria — 1 of 2 sentences missing"*) rather than folding a mostly-correct row into either a clean pass or a total failure.
 
-**A sixth category, independent of the brief: Form Assembly ID.** Every KONE country site stamps a `var digitalData = {...}` script on every page naming the FormAssembly form it carries. The tool reads that id and checks it against the country's expected one, from the table in `config/form-ids.json`. This is a different claim from the five categories above — not "does the page match this brief" but "does this page carry the right country's form" — so it never inflates or dilutes the coverage count. The country is resolved from the brief's own declared `Market` row when one is present, else from the page's canonical domain (three domains — `kone.be`, `kone.ch`, `kone.ca` — carry two languages each and are told apart by the first path segment). A handful of campaign pages carry their own id instead of their country's default; add those to `form-ids.json`'s `pageOverrides` as they come up. A page whose market cannot be determined is reported as **not checked**, never as a silent pass. The same check runs in Brief mode (reading the page alone, with no brief to supply a Market row) and, in Analyse, surfaces as a suggestion — *"this brief declares a Form component for Italy; Italy pages are expected to carry id 733"* — rather than a check, since there is no real page there to check it against.
+**Form Assembly ID — independent of the brief.** Every KONE country site stamps a `var digitalData = {...}` script on every page naming the FormAssembly form it carries. The tool reads that id and checks it against the country's expected one, from the site registry in `config/sites.json`. It reports under Structure, and is a different claim from the brief's findings — not "does the page match this brief" but "does this page carry the right country's form" — so it never inflates or dilutes the coverage count. The country is resolved from the brief's own declared `Market` row when one is present, else from the page's canonical domain (three domains — `kone.be`, `kone.ch`, `kone.ca` — carry two languages each and are told apart by the first path segment). A handful of campaign pages carry their own id instead of their country's default; add those to `sites.json`'s `pageOverrides` as they come up. A page whose market cannot be determined is reported as **not checked**, never as a silent pass. With no brief it reads the market from the page's own host (a preview host counts as its live market) and, in Analyse, surfaces as a suggestion — *"this brief declares a Form component for Italy; Italy pages are expected to carry id 733"* — rather than a check, since there is no real page there to check it against.
 
-## Brief
+### Generate a brief
 
-The other direction: paste a built page and get back the brief that describes it. For re-briefing a page into another market, for handing a translator a source of truth, or simply for a page whose brief was never kept.
+The other direction: a built page — or an agency's HTML mockup, or the mock page Analyse built — in, and **Generate brief** writes the brief that describes it. For re-briefing a page into another market, for handing a translator a source of truth, or simply for a page whose brief was never kept.
 
-It reads the page's own metadata, section headings, copy, assets and internal links, and writes them out in the order the page renders them — in the same format Compare reads, so the draft lands in the **Brief** box ready to edit and compare. Headings become `[n.m]` markers, assets become `AEM Assets - <name>`, and only links on the page's own host are briefed.
+It reads the page's own metadata, section headings, copy, assets and internal links, and writes them out in the order the page renders them — in the same format the comparison reads, so the draft lands in the **Brief** box ready to edit — and Run QA then checks the page against it. Headings become `[n.m]` markers, assets become `AEM Assets - <name>`, and only links on the page's own host are briefed.
 
 **It never invents.** A field the page does not carry produces no row at all, rather than an empty one — an empty `Keywords` row would read as *"the brief asked for nothing here"*, which is a different claim from *"the page defines nothing here"*. An asset whose name cannot be read out of its URL is reported in the results pane rather than guessed at. Headings the template stamps in with `display:none` are skipped, and a link into the CME is never briefed: that is a defect the comparer reports on the page itself, and briefing it would ask the next page to reproduce the bug.
 
-**Page → Brief → Compare is a round trip, and it is the test.** Generate a brief from a page, compare it back against that same page, and nothing the generator wrote should fail to match. Two fixtures assert exactly that. What the round trip does *not* have to explain is the page's own defects — a missing H1, a field published empty, a CME link — which exist whether or not anyone wrote a brief, and are excluded by `fromBrief`.
+**Page → brief → QA is a round trip, and it is the test.** Generate a brief from a page, compare it back against that same page, and nothing the generator wrote should fail to match. Two fixtures assert exactly that. What the round trip does *not* have to explain is the page's own defects — a missing H1, a field published empty, a CME link — which exist whether or not anyone wrote a brief, and are excluded by `fromBrief`.
 
-Writing the generator turned up three faults in extraction that had been quietly costing Compare matches on real pages, all now fixed and covered:
+Writing the generator turned up three faults in extraction that had been quietly costing the comparison matches on real pages, all now fixed and covered:
 
 - **A percent-encoded filename never matched its own name.** A brief writing `Graphic 1` resolved to `graphic1`; the page's own `Graphic%201.jpg` resolved to `graphic201`. Every asset with a space in its name, on every AEM page.
 - **A Scene7 rendition preset was read as part of the asset name.** `Monospace100_img_3-1:669x475` is one asset delivered at one size, not an asset called `Monospace100_img_3-1:669x475`.
 - **`&reg;` was not decoded** while `&trade;` was, so a brief writing `KONE MonoSpace®` never matched a page rendering the entity. `&copy;`, `&deg;`, `&hellip;` and hex numeric entities were missing too.
 
-**Component-mapped field tables.** The plain draft above is what Compare actually reads, untouched. Alongside it, the results pane shows the same page read a second way — through the shared model Fill's Mock page already uses — laid out the way a person writes a Tridion content brief by hand: one card per component, headed by how it was identified (`HeroBanner (Component Field marker)` on a CMS preview page, `HeroBanner (.hero-banner-wrapper › CSS-class match)` on a live one, or `hero (read from page structure — no named component identified)` on a page with neither, from `config/tridion-taxonomy.json`'s real component/field-slot data), a Field slot | Content table in the component's own documented order, an image placeholder wherever it carries one, and any quoted text flagged *do not paraphrase*. Content that fits no documented slot — a stat row or a bullet list built from bare `<div>`s, which no `<p>`/`<li>`-only reading ever sees — is never dropped or forced into the wrong field: it lands in its own **Unmapped content** block, always shown. An **Open items** section below it collects both the component-placement failures and any literal `to be aligned with KONE`/`to confirm`/`TBD`-style note already in the text, never invented. Verified against a real eleven-page agency mockup the tool has never seen a KONE class name or Tridion marker in — the generic tier that makes this work on any pasted page, not only KONE's own markup.
-
-## QA
-
-Compare asks whether a page matches its brief. QA asks the other question a release needs: **is this page sound on its own?** Paste or upload the page's HTML (or capture it with the bookmarklet while the QA tab is open) and hit **Run QA** — no brief.
-
-The results follow the WCM Page QA Framework's own layout:
-
-- **The page itself, first.** Its environment, read off the canonical host — Tridion preview, AEM author preview, or production, and "unknown" when there is no canonical rather than assuming live. Its **TCM ID** from `<meta name="pagetcmid">`, with links that open it straight in the CME, new UI and old (patterns in `config/work-types.json` under `qa.cme`), and a copy button. Its market and language.
-- **The framework's five categories** — Metadata, Body text, Images, Hyperlinks, Structure. Every finding the page makes about itself that Compare already knew (placeholder links, dead CTAs, CME and author links, images with no alt, a field published empty, duplicate headings, the Form Assembly ID for the market) plus the framework's must-haves: robots against the `digitalData` object's own INDEX/FOLLOW, title duplication, links and resources pointing at preview, staging or CMS hosts, mixed content on an `https` page, hreflang (missing, invalid, repeated, or not pointing back at the page), exactly one visible H1 counted across the whole document rather than only the main region, and link text a screen reader can use — "Leer más" and an icon link with no alt are both caught, in six languages.
-- **Known template issues, kept apart.** The framework's own list of defects a template causes on every page — a doubled `- KONE India` title suffix, an empty keywords tag, an `.aspx` canonical, robots disagreeing with `digitalData` — are listed in their own card and never counted against the page. A page is not failed for its template.
-
-Metadata always shows what the page carries — title, `og:title`, description, canonical, robots, the `digitalData` indexing values, hreflang — whether anything is wrong with it or not. A category QA cannot judge from the page alone says so instead of reading "No deviations": body copy is checked against a brief, in Compare, so on a page with no Tridion field markers Body text states that nothing was checked.
-
-A preview build is read as one. `noindex` is expected there and stays silent; links to preview hosts are expected too, and QA says to run it on the live page rather than flagging each one.
-
-**Building it turned up a bug in Compare.** The check for a link pasted straight from the CME only recognised `/ui/editor/item?item=`. Neither real CME URL matches that — the new UI is `web-cms.kone.com/ui/editor/page?activeItem=…`, the old one `web-cms.kone.com/WebUI/item.aspx?tcm=…` — so the defect it exists to catch went unreported on both. It now recognises all three.
-
-QA does not fetch anything. Live status, SSL and site crawling come with the backend, in a later pass; until then the page arrives by paste, upload or bookmarklet, the same as everywhere else in the tool.
-
-## Fill
-
-Localizing in Tridion means opening each component, reading the English master in the field, and finding that row in a brief that may run to a hundred rows. The finding is the slow part. Paste the English you are looking at and the Fill tab returns the localized text on a Copy button, plus the whole brief as a worklist you can tick down — progress is remembered per brief.
-
-**It cannot read or write Tridion fields.** This is a static page on a different origin from the CME, so the author still does the paste. Auto-fill would need a browser extension running inside the CME, which is deferred rather than forgotten.
-
-**A brief naming several markets has a target, not a "last column".** A localization sheet carrying English, Spain, Italy and Portugal side by side used to hand back whichever column happened to be last — confidently wrong on every market but one. The target market is read from the brief's own front matter (`Level 2 / SPAIN`) and shown in a dropdown that lists every market the brief declares; switching it needs no re-paste. A brief naming markets with no declared target asks rather than guesses.
-
-**Two rows sharing the same English text are never resolved by picking one.** The same CTA label reused across several components is common, and taking the first exact match used to hand back total confidence on what was really a coin flip. Every row carrying that text is listed instead, with its section and line so the choice is the author's.
-
-**Formatting is carried across where it can be placed with certainty.** If the English master held `Learn more about <a href="/maintenance/">KONE Predictive Maintenance</a>` and that product name appears verbatim in the localized text — as brand and product names usually do — the link is reapplied around it, and Copy writes `text/html` so it survives the paste into a rich-text field. Where the anchor text *was* translated, the link cannot be placed deterministically, so it is listed explicitly — *"`<strong>` was on 'design freedom'"* — rather than dropped or guessed into the wrong position. A silently dropped link is a defect the Comparer would only catch two steps later.
-
-Matching runs exact → contained → closest, and a closest match shows its overlap score rather than presenting itself as certain. A brief with no English column says so and falls back to the worklist.
-
-**Mock page.** A second view inside the same tab — **Field lookup / Mock page** — for seeing the page a brief describes instead of finding one field at a time. `page-model.js` reads the brief the same way Compare and Fill already do (front matter, sections, market columns) and infers a component for each section — hero, content, cards, steps, table, accordion, cta, image, or generic-for-review — using the brief's own evidence in priority order: an explicit component name first, then a recognised field label, then shape (a heading with an image and a short intro reads as a hero; repeating title/body pairs read as cards; repeating questions read as an accordion), and only as a last resort a generic block marked for review. Nothing is typed silently: every predicted component shows its confidence and the rows it came from, in the outline above the preview.
-
-`page-model.js` also reads an already-built page the same way, from its own Tridion component markers (or the CSS-class map on a live page with none) when it has `<section class="module-…">` markup, or from its own real heading hierarchy and `<details>/<summary>` blocks when it does not — the same model either way, so the mock renderer never has to know which one produced it.
-
-The preview renders inside a sandboxed frame — no script can run in it, and no image is ever fetched from an external URL; an asset renders as a labelled placeholder box instead, matching the tool's zero-external-requests rule. It resembles the structure of a real KONE landing page — a hero band, numbered cards, an accordion — without pretending to reproduce the production design. Switching the market re-renders it immediately, the same way it already re-runs Field lookup.
-
+**Component-mapped field tables.** The plain draft above is what the comparison actually reads, untouched. Alongside it, the results pane shows the same page read a second way — through the shared model Analyse's mock page already uses — laid out the way a person writes a Tridion content brief by hand: one card per component, headed by how it was identified (`HeroBanner (Component Field marker)` on a CMS preview page, `HeroBanner (.hero-banner-wrapper › CSS-class match)` on a live one, or `hero (read from page structure — no named component identified)` on a page with neither, from `config/tridion-taxonomy.json`'s real component/field-slot data), a Field slot | Content table in the component's own documented order, an image placeholder wherever it carries one, and any quoted text flagged *do not paraphrase*. Content that fits no documented slot — a stat row or a bullet list built from bare `<div>`s, which no `<p>`/`<li>`-only reading ever sees — is never dropped or forced into the wrong field: it lands in its own **Unmapped content** block, always shown. An **Open items** section below it collects both the component-placement failures and any literal `to be aligned with KONE`/`to confirm`/`TBD`-style note already in the text, never invented. Verified against a real eleven-page agency mockup the tool has never seen a KONE class name or Tridion marker in — the generic tier that makes this work on any pasted page, not only KONE's own markup.
 
 ## Briefs as files
 
@@ -167,7 +171,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 329 verification cases across the seven modules
+npm test      # 404 verification cases across the eight modules
 ```
 
 No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
@@ -250,27 +254,28 @@ A missing row is placed by the rows around it that did match — the nearest loc
 ## Structure
 
 ```
-index.html                    UI, five tabs — Analyse, Compare, Fill, Brief, QA
+index.html                    UI, two tabs — Analyse, QA
 app.js                        renders what the modules return — no analysis of its own
 brief.js                      one parse shared by the others: rows, sections, markets, target
 engine.js                     classify → detect CMS → check needs → return steps
 compare.js                    read the page → read the brief → diff → group by category
-filler.js                     find the row from its English master → carry the markup across
+filler.js                     each market's text out of a brief, markup carried across — fills the mock page
 readers.js                    .docx / .xlsx / .csv → text, with no dependencies
 page-model.js                 one neutral component model, from a brief or from a page
 mock-page.js                  draws the page-model.js model as a sandboxed HTML preview
-qa.js                         QA a page on its own: the framework's must-have checks, no brief
+qa.js                         QA a page: the framework's checks, the title format, and the brief comparison when given one
 config/work-types.json        the six playbooks, the compare settings, the market list
 config/mock-components.json   the render-type vocabulary page-model.js infers components into
 config/tridion-taxonomy.json  real Tridion component names → their documented field slots
+config/sites.json             the site registry: market, domain, Form Assembly ID, accepted site names
 test/brief.test.js            22 cases, the shared parse alone
 test/engine.test.js           53 cases, fixtures are real briefs
-test/compare.test.js          160 cases, deviations planted one per category,
+test/compare.test.js          162 cases, deviations planted one per category,
                                plus excerpts of real KONE pages as fixtures
 test/readers.test.js          10 cases, run against real ZIP bytes
 test/filler.test.js           26 cases, including markup that must never be guessed
 test/page-model.test.js       48 cases, including a real agency mockup with no Tridion markup at all
 test/mock-page.test.js        26 cases, safety-first: escaping, hrefs, no external requests
-test/qa.test.js               35 cases, the real Slovenia preview and Italian landing pages among them
+test/qa.test.js               57 cases, the real Slovenia preview and Italian landing pages among them
 serve.js                      local static server
 ```

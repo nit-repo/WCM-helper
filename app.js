@@ -21,7 +21,10 @@
 
   var state = {
     engine: null, comparer: null, filler: null, pageModel: null, mockPage: null, qa: null,
-    analysis: null, mode: 'analyse', market: null, fillView: 'lookup'
+    analysis: null, mode: 'analyse', market: null,
+    // What Analyse's output pane is showing, so a market change re-renders
+    // the right one; and the last mock built, ready to hand to QA.
+    analyseView: 'analysis', mockHtml: null
   };
 
   var el = {
@@ -35,9 +38,7 @@
     output: document.getElementById('output'),
     toast: document.getElementById('toast'),
     tabAnalyse: document.getElementById('tab-analyse'),
-    tabCompare: document.getElementById('tab-compare'),
     compareInput: document.getElementById('compare-input'),
-    compareBtn: document.getElementById('compare-btn'),
     html: document.getElementById('html'),
     htmlUpload: document.getElementById('html-upload-btn'),
     htmlClear: document.getElementById('html-clear-btn'),
@@ -46,23 +47,15 @@
     launch: document.getElementById('launch-btn'),
     briefUpload: document.getElementById('brief-upload-btn'),
     briefFile: document.getElementById('brief-file'),
-    tabFill: document.getElementById('tab-fill'),
-    fillInput: document.getElementById('fill-input'),
-    fillBtn: document.getElementById('fill-btn'),
-    tabBrief: document.getElementById('tab-brief'),
     briefgenBtn: document.getElementById('briefgen-btn'),
-    english: document.getElementById('english'),
+    mockBtn: document.getElementById('mock-btn'),
+    briefHeading: document.getElementById('brief-heading'),
+    cmsOverride: document.getElementById('cms-override'),
     marketOverride: document.getElementById('market-override'),
     marketSelect: document.getElementById('market-select'),
     tabIndicator: document.querySelector('.tab-indicator'),
-    fillViewLookup: document.getElementById('fill-view-lookup'),
-    fillViewMock: document.getElementById('fill-view-mock'),
-    fillLookupFields: document.getElementById('fill-lookup-fields'),
-    fillMockFields: document.getElementById('fill-mock-fields'),
     tabQa: document.getElementById('tab-qa'),
-    qaBtn: document.getElementById('qa-btn'),
-    briefCard: document.getElementById('brief-card'),
-    settingsCard: document.getElementById('settings-card')
+    qaBtn: document.getElementById('qa-btn')
   };
 
   // ─── MOTION ──────────────────────────────────────────────────────────────
@@ -163,7 +156,7 @@
   //
   //   1. postMessage from a page opened by the launcher below, which made
   //      this window its opener. The only channel that can cross origins,
-  //      which is why the page has to be opened from Compare.
+  //      which is why the page has to be opened from QA.
   //   2. BroadcastChannel, origin-scoped, so it only carries anything when
   //      the tool and the page happen to share an origin.
   //
@@ -181,15 +174,11 @@
   function acceptCapture(data) {
     if (!data || data.type !== 'WCM_PAGE_CAPTURE' || typeof data.html !== 'string') return;
     el.html.value = data.html;
-    // A capture made while QA is open is for QA: stay there and run it,
-    // rather than dropping the user back into Compare.
-    if (state.mode === 'qa') {
-      runQa();
-      toast('Captured ' + shortHost(data.url) + ' — QA run on it.');
-      return;
-    }
-    setMode('compare');
-    toast('Captured ' + shortHost(data.url) + ' — brief kept, ready to Compare.');
+    // A captured page is for QA, the one tab that reads pages. Any brief
+    // already pasted stays, and is compared against it.
+    if (state.mode !== 'qa') setMode('qa');
+    runQa();
+    toast('Captured ' + shortHost(data.url) + ' — QA run on it.');
   }
 
   window.addEventListener('message', function (e) {
@@ -227,24 +216,22 @@
     }),
     // The mock-component vocabulary is a nice-to-have, not a dependency:
     // page-model.js carries the same defaults built in, so a missing or
-    // broken copy of this file must never block Fill's existing "find
-    // localized text" behaviour, which does not need it at all.
+    // broken copy of this file must never stop the tool booting.
     fetch('config/mock-components.json?v=' + buildTag())
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; }),
-    // Same nice-to-have shape: compare.js carries its own in-code mirror of
-    // this table, so a missing or broken copy only means the Form Assembly
-    // ID check runs on stale/incomplete country data, never that Compare or
-    // Brief mode stop working.
-    fetch('config/form-ids.json?v=' + buildTag())
+    // The site registry — market, form id, site names. Same nice-to-have
+    // shape: compare.js carries an in-code mirror, so a missing copy only
+    // means QA runs on the built-in table, never that it stops working.
+    fetch('config/sites.json?v=' + buildTag())
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; })
   ])
     .then(function (results) {
-      var workTypes = results[0], mockComponents = results[1], formIds = results[2];
+      var workTypes = results[0], mockComponents = results[1], sites = results[2];
       state.engine = window.BriefEngine.create({ 'work-types': workTypes });
       var comparerConfig = { 'work-types': workTypes };
-      if (formIds) comparerConfig['form-ids'] = formIds;
+      if (sites) comparerConfig['sites'] = sites;
       state.comparer = window.BriefCompare.create(comparerConfig);
       state.qa = window.BriefQA.create(comparerConfig);
       // Unwrapped, unlike engine/compare above — Filler.create passes this
@@ -261,9 +248,8 @@
         el.type.appendChild(o);
       });
       el.analyse.disabled = false;
-      el.compareBtn.disabled = false;
+      el.mockBtn.disabled = false;
       el.qaBtn.disabled = false;
-      el.fillBtn.disabled = false;
       el.briefgenBtn.disabled = false;
     })
     .catch(function (e) {
@@ -275,6 +261,7 @@
   // ─── EVENTS ──────────────────────────────────────────────────────────────
 
   el.analyse.addEventListener('click', run);
+  el.mockBtn.addEventListener('click', runMock);
   el.cms.addEventListener('change', function () { if (state.analysis) run(); });
   el.type.addEventListener('change', function () { if (state.analysis) run(); });
   el.sample.addEventListener('click', function () { el.brief.value = SAMPLE; run(); });
@@ -286,7 +273,9 @@
     state.market = null;
     el.marketOverride.hidden = true;
     el.copy.disabled = true;
-    renderEmpty();
+    state.mockHtml = null;
+    state.analyseView = 'analysis';
+    if (state.mode === 'analyse') renderEmpty();
   });
   el.copy.addEventListener('click', copyQuestions);
 
@@ -304,7 +293,7 @@
         .then(function (text) {
           el.brief.value = text;
           toast(file.name + ' loaded.');
-          if (state.mode === 'analyse') run(); else renderCompareEmpty();
+          if (state.mode === 'analyse') run();
         })
         .catch(function (err) { toast(err.message); });
     };
@@ -312,32 +301,17 @@
   });
 
   el.tabAnalyse.addEventListener('click', function () { setMode('analyse'); });
-  el.tabCompare.addEventListener('click', function () { setMode('compare'); });
-  el.tabFill.addEventListener('click', function () { setMode('fill'); });
-  el.fillBtn.addEventListener('click', runFill);
-
-  function setFillView(view) {
-    state.fillView = view;
-    el.fillViewLookup.setAttribute('aria-pressed', String(view === 'lookup'));
-    el.fillViewMock.setAttribute('aria-pressed', String(view === 'mock'));
-    el.fillLookupFields.hidden = view !== 'lookup';
-    el.fillMockFields.hidden = view !== 'mock';
-    el.fillBtn.textContent = view === 'mock' ? 'Build mock page' : 'Find localized text';
-    runFill(true);
-  }
-  el.fillViewLookup.addEventListener('click', function () { setFillView('lookup'); });
-  el.fillViewMock.addEventListener('click', function () { setFillView('mock'); });
-  el.tabBrief.addEventListener('click', function () { setMode('brief'); });
   el.tabQa.addEventListener('click', function () { setMode('qa'); });
   el.qaBtn.addEventListener('click', runQa);
   el.briefgenBtn.addEventListener('click', runBriefGen);
+  // The market chooses which column of a multi-market brief is read — for
+  // the analysis and for the mock page, whichever is on screen.
   el.marketSelect.addEventListener('change', function () {
     state.market = el.marketSelect.value;
-    if (state.mode === 'analyse' && state.analysis) run();
-    else if (state.mode === 'compare') runCompare();
-    else if (state.mode === 'fill') runFill();
+    if (state.mode !== 'analyse') return;
+    if (state.analyseView === 'mock') runMock();
+    else if (state.analysis) run();
   });
-  el.compareBtn.addEventListener('click', runCompare);
   // Opening the page from here is what makes this tab its window.opener,
   // which is what lets the bookmarklet report back into this tab instead of
   // starting a fresh one and stranding the brief.
@@ -364,39 +338,27 @@
     el.htmlFile.value = '';
   });
 
-  // The brief is shared between the tabs, so a brief analysed on one is
-  // already loaded on the other.
+  // The brief is shared between the two tabs: analysed in one, it is the
+  // brief QA compares the page against in the other.
   function setMode(mode) {
     state.mode = mode;
-    el.tabAnalyse.setAttribute('aria-selected', String(mode === 'analyse'));
-    el.tabCompare.setAttribute('aria-selected', String(mode === 'compare'));
-    el.tabFill.setAttribute('aria-selected', String(mode === 'fill'));
-    el.tabBrief.setAttribute('aria-selected', String(mode === 'brief'));
-    el.tabQa.setAttribute('aria-selected', String(mode === 'qa'));
+    var qa = mode === 'qa';
+    el.tabAnalyse.setAttribute('aria-selected', String(!qa));
+    el.tabQa.setAttribute('aria-selected', String(qa));
 
-    el.analyse.hidden = mode !== 'analyse';
-    el.compareBtn.hidden = mode !== 'compare';
-    el.fillBtn.hidden = mode !== 'fill';
-    el.briefgenBtn.hidden = mode !== 'brief';
-    el.qaBtn.hidden = mode !== 'qa';
-    // Brief mode reads the page and writes into the brief box, so it needs
-    // the page card on screen too — and the brief box is its output, which is
-    // what makes the draft editable and Compare ready to run straight after.
-    el.compareInput.hidden = mode !== 'compare' && mode !== 'brief' && mode !== 'qa';
-    // QA reads the page alone: no brief, and none of the brief's settings.
-    el.briefCard.hidden = mode === 'qa';
-    if (el.settingsCard) el.settingsCard.hidden = mode === 'qa';
-    el.fillInput.hidden = mode !== 'fill';
-    el.copy.hidden = mode !== 'analyse';
+    el.analyse.hidden = qa;
+    el.mockBtn.hidden = qa;
+    el.sample.hidden = qa;
+    el.copy.hidden = qa;
+    el.cmsOverride.hidden = qa;
+    el.compareInput.hidden = !qa;
+    el.briefHeading.textContent = qa ? 'Brief — optional: adds the comparison' : 'Brief';
 
     moveIndicator();
     armReveal(paneInput, true);
 
     el.output.innerHTML = '';
-    if (mode === 'compare') renderCompareEmpty();
-    else if (mode === 'fill') runFill(true);
-    else if (mode === 'brief') renderBriefGenEmpty();
-    else if (mode === 'qa') renderQaEmpty();
+    if (qa) renderQaEmpty();
     else renderEmpty();
   }
 
@@ -412,6 +374,7 @@
       marketOverride: state.market
     });
     state.analysis.formIdSuggestion = formIdSuggestionFor(text, state.market);
+    state.analyseView = 'analysis';
     el.copy.disabled = state.analysis.questions.length === 0;
     render(state.analysis);
   }
@@ -542,110 +505,39 @@
       '<li>What that kind of job needs, and what the brief already has</li>' +
       '<li>The steps to do it in that CMS</li>' +
       '<li>What is still missing, as questions to send back</li></ol>' +
-      '<p>Every call shows the signals behind it, so you can check its working rather than trust it.</p></div>';
-  }
-
-  // ─── COMPARE ─────────────────────────────────────────────────────────────
-
-  function runCompare() {
-    var brief = el.brief.value.trim();
-    var html = el.html.value.trim();
-    if (!brief) { toast('Paste the brief first.'); return; }
-    if (!html) { toast('Paste or upload the page HTML.'); return; }
-
-    updateMarketOptions(brief);
-
-    // The comparer needs to know which kind of job it is reading, so the
-    // analyser classifies first unless the work type has been set by hand.
-    var analysis = state.engine.analyse(brief, {
-      cmsOverride: el.cms.value || null,
-      workTypeOverride: el.type.value || null,
-      marketOverride: state.market
-    });
-
-    renderCompare(state.comparer.compare(brief, html, { workTypeId: analysis.workType.id }), analysis);
-  }
-
-  function renderCompare(result, analysis) {
-    var head = section('Comparing against',
-      '<p class="headline">' + esc(analysis.workType.label) + '</p>' +
-      '<p class="sub">' + esc(analysis.workType.summary) + '</p>' +
-      (analysis.workType.confident || analysis.workType.overridden ? '' :
-        '<p class="note warn">The brief\'s type was not a confident call, so these expectations may be ' +
-        'read from the wrong playbook. Set the work type by hand on the left.</p>'));
-
-    if (!result.supported) {
-      el.output.innerHTML = head + section('Nothing to compare', '<p class="note">' + esc(result.note) + '</p>');
-      return;
-    }
-
-    // Five empty categories would read as a pass. An unreadable brief has to
-    // look nothing like one.
-    if (result.unreadable) {
-      el.output.innerHTML = head + section('Could not read the brief',
-        '<p class="note warn">' + esc(result.note) + '</p>') +
-        (result.categories.length
-          ? '<p class="tally"><b>' + result.breaks + '</b> to fix, <b>' + result.checks +
-            '</b> to check by eye — from the page alone.</p>' +
-            result.categories.map(renderCategory).join('')
-          : '');
-      return;
-    }
-
-    var region = '<p class="region-note">Read the page content from: ' + esc(result.regionVia || 'the page body') +
-      ' · brief read as <b>' + esc(result.mode || 'labelled') + '</b>, ' + result.expectations +
-      ' things to check</p>';
-
-    // Coverage is the headline. "Is everything from the brief on the page" is
-    // the question the tool exists to answer; the five deviation groups are
-    // the detail underneath it.
-    var cov = result.coverage || { total: 0, found: 0, missing: 0, complete: false };
-    var coverage = cov.complete
-      ? '<p class="coverage ok">All ' + cov.total + ' item' + (cov.total === 1 ? '' : 's') +
-        ' from the brief are on the page.</p>'
-      : '<p class="coverage short"><span class="tick-up" data-to="' + cov.found + '">' + cov.found +
-        '</span> of ' + cov.total +
-        ' items from the brief are on the page — <b>' + cov.missing + '</b> missing.</p>';
-
-    var suspect = result.suspectParse
-      ? '<p class="note warn">' + esc(result.parseNote) + '</p>'
-      : '';
-
-    var tally = '<p class="tally"><b>' + result.breaks + '</b> to fix, <b>' + result.checks +
-      '</b> to check by eye.</p>';
-
-    // Word does not survive a paste. If the brief itself is damaged, say so
-    // here rather than letting it surface as deviations against the page.
-    var warnings = window.BriefReaders.briefWarnings(el.brief.value).map(function (w) {
-      return '<p class="brief-warning">' + esc(w) + '</p>';
-    }).join('');
-
-    el.output.innerHTML = head + warnings + coverage + suspect + tally + region +
-      result.categories.map(renderCategory).join('');
+      '<p>Every call shows the signals behind it, so you can check its working rather than trust it.</p>' +
+      '<p><strong>Build mock page</strong> draws the page the brief describes instead, one component per ' +
+      'section, each showing how confidently it was inferred and from which rows — then <strong>Send to QA</strong> ' +
+      'hands it across to be checked or turned back into a brief.</p></div>';
   }
 
   // What the page actually carries, listed whether or not the brief mentions
   // it. An author asked to see the meta title, page name and path on every
-  // run — a blank Metadata block tells them nothing about the page.
-  // neutral: the rows were judged against an expected value, not a brief —
-  // QA and Brief mode have no brief, and saying so would be false.
-  function renderRows(rows, neutral) {
+  // run — a blank Metadata block tells them nothing about the page. Each row
+  // says what it was judged against: the brief, or an expected value (a
+  // config table, a naming rule) — never "the brief" when there was none.
+  function renderRows(rows) {
     if (!rows || !rows.length) return '';
-    var STATE = {
-      'matches': ['ok', neutral ? 'matches the expected value' : 'matches the brief'],
-      'differs': ['bad', neutral ? 'differs from the expected value' : 'differs from the brief'],
-      'missing': ['bad', 'not on the page'],
-      'not-in-brief': ['idle', 'not defined in the brief'],
-      'not-checked': ['idle', 'market could not be determined'],
-      'present': ['ok', 'on the page'],
-      'absent': ['idle', 'not on the page']
-    };
     return '<table class="meta-rows">' + rows.map(function (r) {
+      var expected = r.basis === 'expected';
+      var STATE = {
+        'matches': ['ok', expected ? 'matches the expected value' : 'matches the brief'],
+        'differs': ['bad', expected ? 'differs from the expected value' : 'differs from the brief'],
+        'missing': ['bad', 'not on the page'],
+        'not-in-brief': ['idle', 'not defined in the brief'],
+        'not-checked': ['idle', 'market could not be determined'],
+        'present': ['ok', 'on the page'],
+        'absent': ['idle', 'not on the page'],
+        'green': ['score-green', 'green'],
+        'amber': ['score-amber', 'amber'],
+        'red': ['score-red', 'red']
+      };
       var s = STATE[r.state] || ['idle', r.state];
+      var label = r.stateLabel ? s[1] + ' — ' + r.stateLabel : s[1];
       return '<tr class="' + s[0] + '"><th>' + esc(r.field) +
         (r.source ? '<span class="src">' + esc(r.source) + '</span>' : '') + '</th>' +
         '<td>' + (r.found ? esc(r.found) : '<i>nothing on the page</i>') + '</td>' +
-        '<td class="state">' + esc(s[1]) + '</td></tr>';
+        '<td class="state">' + esc(label) + '</td></tr>';
     }).join('') + '</table>';
   }
 
@@ -701,7 +593,7 @@
   }
 
   function renderCategory(c) {
-    var rows = renderRows(c.rows, c.neutral);
+    var rows = renderRows(c.rows);
     var ledger = renderLedger(c);
 
     if (!c.deviations.length) {
@@ -729,7 +621,9 @@
       if (d.componentId) refs.push(d.componentId);
       if (d.anchor) refs.push(d.anchor);
       if (refs.length) lines += '<p class="dev-ref">' + esc(refs.join('  ·  ')) + '</p>';
-      if (d.expected) lines += '<p class="dev-line"><b>' + (c.neutral ? 'Expected' : 'Brief') + '</b><span>' + esc(d.expected) + '</span></p>';
+      // Labelled by where the expectation came from, finding by finding: one
+      // card can hold both a brief's expectation and a config's.
+      if (d.expected) lines += '<p class="dev-line"><b>' + (d.fromBrief ? 'Brief' : 'Expected') + '</b><span>' + esc(d.expected) + '</span></p>';
       if (d.found) lines += '<p class="dev-line"><b>Page</b><span>' + esc(d.found) + '</span></p>';
       return '<li class="' + (check ? 'check' : 'break') + '">' + lines + '</li>';
     }).join('');
@@ -739,21 +633,11 @@
       c.deviations.length + '</h3><ul class="devs">' + items + '</ul>' + ledger + rows + '</section>';
   }
 
-  // ─── BRIEF FROM A PAGE ───────────────────────────────────────────────────
-  // The other direction: read a built page and write the brief that describes
-  // it. The draft lands in the brief box rather than in a read-only panel, so
-  // it can be edited on the spot and Compare has it loaded already.
-
-  function renderBriefGenEmpty() {
-    el.output.innerHTML =
-      '<div class="empty-state"><p>Paste the built page\'s HTML, then hit <strong>Draft brief</strong>. ' +
-      'The page\'s own content comes back as a brief: metadata, section headings, copy, ' +
-      'assets and internal links, in the order the page renders them.</p>' +
-      '<p>The draft lands in the <strong>Brief</strong> box above, so you can edit it and go ' +
-      'straight to Compare.</p>' +
-      '<p>It never invents: a field the page does not carry produces no row at all, and an asset ' +
-      'whose name cannot be read out of its URL is reported here rather than guessed at.</p></div>';
-  }
+  // ─── GENERATE A BRIEF (in QA) ────────────────────────────────────────────
+  // The other direction: read a built page — or an agency mockup, or the
+  // mock page Analyse built — and write the brief that describes it. The
+  // draft lands in the Brief box rather than in a read-only panel, so it can
+  // be edited on the spot, and Run QA then checks the page against it.
 
   function runBriefGen() {
     var html = el.html.value.trim();
@@ -803,15 +687,9 @@
     // the same page through the shared model, purely for this report.
     var model = state.pageModel.buildFromPage(html);
 
-    // No brief exists in this mode, so the Form Assembly ID check can only
-    // resolve the page's market from its own canonical domain — the same
-    // check Compare runs, called directly since there is no brief category
-    // list here for it to ride along in.
-    var formId = state.comparer.formIdFinding(null, state.comparer.readPage(html));
-
     el.output.innerHTML =
       section('Drafted from the page',
-        '<p class="coverage short">The draft is in the Brief box — edit it, then switch to Compare.</p>' +
+        '<p class="coverage short">The draft is in the Brief box — edit it, then Run QA to check the page against it.</p>' +
         counts +
         '<p class="region-note">Read the page content from: ' + esc(n.regionVia) + '</p>') +
       (gaps.length
@@ -820,38 +698,29 @@
               return '<li class="check"><p class="dev-note"><span class="sev-tag check">check</span>' + g + '</p></li>';
             }).join('') + '</ul>')
         : '') +
-      renderFormIdCheck(formId) +
       renderBriefFieldTables(model) +
       renderOpenItems(model);
     toast('Brief drafted from the page — it is in the Brief box.');
   }
 
-  // A page-only reading of the same check Compare runs as its sixth
-  // category — no brief here, so no category list to ride along in, but
-  // the same renderRows() table Compare's Metadata card already uses, so
-  // the id found (and the country it was checked against) is always on
-  // screen, not just when something's wrong.
-  function renderFormIdCheck(formId) {
-    if (!formId) return '';
-    var note = !formId.checked ? '<p class="note warn">' + esc(formId.note) + '</p>'
-      : formId.severity ? '<p class="dev-note"><span class="sev-tag break">break</span>' + esc(formId.note) + '</p>'
-      : '<p class="clean">No deviations.</p>';
-    return section('Form Assembly ID', note + renderRows([formId.row], true));
-  }
-
   // ─── QA ──────────────────────────────────────────────────────────────────
-  // The page on its own, no brief: is it sound by itself? Grouped under the
-  // QA framework's five categories, with the template's own known defects
-  // kept apart so a page is never failed for its template.
+  // A built page in, a brief optional. On its own, QA asks whether the page
+  // is sound by itself; with a brief it is also the comparison — the same
+  // five categories, the brief's findings and the page's own together, and
+  // "is everything the brief asked for on the page" as the headline. The
+  // template's own known defects are kept apart, so a page is never failed
+  // for its template.
 
   function renderQaEmpty() {
     el.output.innerHTML =
       '<div class="empty-state"><p>Paste the built page\'s HTML — or capture it with the bookmarklet — ' +
-      'then hit <strong>Run QA</strong>. No brief needed.</p>' +
-      '<p>It checks the page on its own, under the QA framework\'s five categories: metadata (title ' +
-      'duplication, robots against digitalData, hreflang, a single H1), images, hyperlinks (placeholder, ' +
+      'then hit <strong>Run QA</strong>.</p>' +
+      '<p>On its own it checks the page under the QA framework\'s five categories: metadata (the title\'s ' +
+      'site name, robots against digitalData, hreflang, a single H1), images, hyperlinks (placeholder, ' +
       'CME and staging links, link text a screen reader can use, mixed content) and structure (the Form ' +
       'Assembly ID for the market). The page\'s TCM ID comes back with links to open it in the CME.</p>' +
+      '<p><strong>Add a brief</strong> and the same run also checks that everything the brief asked for ' +
+      'is on the page, line by line. No brief? <strong>Generate brief</strong> writes one from the page.</p>' +
       '<p>Known template issues — the kind every page on a template shares — are listed apart and never ' +
       'counted against the page.</p></div>';
   }
@@ -863,14 +732,61 @@
         '<p class="note warn">Paste the built page\'s HTML first, or capture it with the bookmarklet.</p>');
       return;
     }
-    renderQa(state.qa.run(html));
+    var brief = el.brief.value.trim();
+    var analysis = null;
+    if (brief) {
+      updateMarketOptions(brief);
+      // Which playbook the brief is read with: the analyser's call, unless
+      // the work type has been set by hand.
+      analysis = state.engine.analyse(brief, {
+        cmsOverride: el.cms.value || null,
+        workTypeOverride: el.type.value || null,
+        marketOverride: state.market
+      });
+    }
+    renderQa(state.qa.run(html, { brief: brief, workTypeId: analysis && analysis.workType.id }), analysis);
   }
 
   function factLine(label, value) {
     return '<p class="dev-line"><b>' + esc(label) + '</b><span>' + value + '</span></p>';
   }
 
-  function renderQa(r) {
+  // What the brief contributed to this run: the playbook it was read with,
+  // and the coverage headline — or why there was nothing to compare.
+  function renderComparison(c, analysis) {
+    if (!c || !analysis) return '';
+    var head = section('Checked against the brief',
+      '<p class="headline">' + esc(analysis.workType.label) + '</p>' +
+      '<p class="sub">' + esc(analysis.workType.summary) + '</p>' +
+      (analysis.workType.confident || analysis.workType.overridden ? '' :
+        '<p class="note warn">The brief\'s type was not a confident call, so these expectations may be ' +
+        'read from the wrong playbook. Set the work type by hand on the left.</p>'));
+
+    if (!c.supported) {
+      return head + '<p class="note warn">' + esc(c.note) + ' The checks below come from the page alone.</p>';
+    }
+    // An unreadable brief must look nothing like a pass.
+    if (c.unreadable) {
+      return head + '<p class="note warn">' + esc(c.note) + '</p>';
+    }
+
+    // Word does not survive a paste. If the brief itself is damaged, say so
+    // here rather than letting it surface as deviations against the page.
+    var warnings = window.BriefReaders.briefWarnings(el.brief.value).map(function (w) {
+      return '<p class="brief-warning">' + esc(w) + '</p>';
+    }).join('');
+
+    var cov = c.coverage || { total: 0, found: 0, missing: 0, complete: false };
+    var coverage = cov.complete
+      ? '<p class="coverage ok">All ' + cov.total + ' item' + (cov.total === 1 ? '' : 's') +
+        ' from the brief are on the page.</p>'
+      : '<p class="coverage short"><span class="tick-up" data-to="' + cov.found + '">' + cov.found +
+        '</span> of ' + cov.total + ' items from the brief are on the page — <b>' + cov.missing + '</b> missing.</p>';
+    var suspect = c.suspectParse ? '<p class="note warn">' + esc(c.parseNote) + '</p>' : '';
+    return head + warnings + coverage + suspect;
+  }
+
+  function renderQa(r, analysis) {
     var f = r.facts;
     var tcm = f.tcmId
       ? esc(f.tcmId) +
@@ -894,20 +810,30 @@
       ? '<p class="tally"><b>' + r.breaks + '</b> to fix, <b>' + r.checks + '</b> to check by eye.</p>'
       : '<p class="coverage ok">Nothing to fix on this page from the checks QA runs.</p>';
 
-    var region = '<p class="region-note">Read the page content from: ' + esc(r.regionVia || 'the page body') + '</p>';
+    var c = r.comparison;
+    var region = '<p class="region-note">Read the page content from: ' + esc(r.regionVia || 'the page body') +
+      (c && c.supported && !c.unreadable
+        ? ' · brief read as <b>' + esc(c.mode || 'labelled') + '</b>, ' + c.expectations + ' things to check'
+        : '') + '</p>';
 
     var known = r.knownIssues.length
       ? renderCategory({ id: 'known', label: 'Known template issues — not counted against the page',
-          deviations: r.knownIssues, neutral: true })
+          deviations: r.knownIssues })
       : section('Known template issues', '<p class="clean">None found.</p>');
 
-    el.output.innerHTML = facts + tally + region +
-      r.categories.map(function (c) { c.neutral = true; return renderCategory(c); }).join('') + known;
+    el.output.innerHTML = facts + renderComparison(c, analysis) + tally + region +
+      r.categories.map(renderCategory).join('') + known;
   }
 
   el.output.addEventListener('click', function (e) {
-    var btn = e.target.closest && e.target.closest('.qa-copy');
+    if (!e.target.closest) return;
+    var btn = e.target.closest('.qa-copy');
     if (btn) copyPlain(btn.getAttribute('data-copy'));
+    if (e.target.closest('#send-to-qa') && state.mockHtml) {
+      el.html.value = state.mockHtml;
+      setMode('qa');
+      toast('Mock page loaded into QA — Run QA, or Generate brief from it.');
+    }
   });
 
   // ─── BRIEF MODE DEPTH — component-mapped field tables ──────────────────
@@ -972,64 +898,21 @@
       }).join('') + '</ul>');
   }
 
-  function renderCompareEmpty() {
-    el.output.innerHTML =
-      '<div class="empty-state"><p>Paste the brief and the built page\'s HTML, then hit <strong>Compare</strong>. ' +
-      'You get back only the differences, grouped as:</p>' +
-      '<ol><li>Metadata — title, description, keywords, canonical, H1</li>' +
-      '<li>Body text — wording that differs, missing or duplicated sections</li>' +
-      '<li>Images — assets named in the brief, and alt text</li>' +
-      '<li>Hyperlinks / CTAs — anchor text and destinations</li>' +
-      '<li>Structure — section order, omissions, duplicates</li></ol>' +
-      '<p>A category with nothing wrong says <strong>No deviations</strong>. The tool cannot fetch the page ' +
-      'itself, so it cannot tell you an image is broken — only that the brief named one the page does not carry.</p></div>';
-  }
-
-  // ─── FILL ────────────────────────────────────────────────────────────────
-
-  function runFill(worklistOnly) {
-    if (state.fillView === 'mock') runFillMock(worklistOnly);
-    else runFillLookup(worklistOnly);
-  }
-
-  function runFillLookup(worklistOnly) {
+  // ─── MOCK PAGE (in Analyse) ──────────────────────────────────────────────
+  // Builds a small mock of the page this brief describes, for the market
+  // chosen in Settings. page-model.js does the reading and inference;
+  // mock-page.js only draws what it was handed — this is wiring, nothing more.
+  function runMock() {
     var brief = el.brief.value.trim();
-    if (!brief) { if (worklistOnly !== true) toast('Load the brief first.'); renderFillEmpty(); return; }
-
-    updateMarketOptions(brief);
-
-    var rows = state.filler.rows(brief, { market: state.market });
-    if (!rows.length) {
-      el.output.innerHTML = section('Fill',
-        '<p class="note warn">No table rows found in this brief. The filler reads tab-separated rows — ' +
-        'upload the .docx or .xlsx rather than pasting, so the columns survive.</p>');
-      return;
-    }
-
-    var english = el.english.value.trim();
-    var head = '';
-
-    if (english) {
-      var result = state.filler.fill(brief, english, { market: state.market });
-      head = renderFillResult(result);
-    }
-
-    el.output.innerHTML = head + renderWorklist(rows, brief);
-    wireWorklist(brief);
-  }
-
-  // Builds a small mock of the page this brief describes, using the same
-  // market selector as Field lookup. page-model.js does the reading and
-  // inference; mock-page.js only draws what it was handed — this function
-  // is wiring, nothing more.
-  function runFillMock(worklistOnly) {
-    var brief = el.brief.value.trim();
-    if (!brief) { if (worklistOnly !== true) toast('Load the brief first.'); renderFillEmpty(); return; }
+    if (!brief) { toast('Paste a brief first.'); return; }
 
     updateMarketOptions(brief);
 
     var model = state.pageModel.build(brief, { market: state.market });
     var rendered = state.mockPage.render(model, { labels: true });
+    // The copy handed to QA carries no review labels: it is checked as a page.
+    state.mockHtml = state.mockPage.render(model, { labels: false }).html;
+    state.analyseView = 'mock';
 
     el.output.innerHTML = renderMockOutline(model) + renderMockPreview(rendered.html);
   }
@@ -1058,12 +941,13 @@
 
   function renderMockPreview(html) {
     return '<section class="card" id="mock-preview-card"><h3>Mock page</h3>' +
+      '<div class="input-actions"><button type="button" class="btn-ghost" id="send-to-qa">Send to QA</button></div>' +
       '<iframe id="mock-preview" sandbox="" srcdoc="' + esc(html) + '"></iframe></section>';
   }
 
   // A brief naming several markets has no "last column", only a target —
-  // taking the last one anyway is a confirmed defect (Fill handing back
-  // Portuguese for a Spain job). This is what lets the author see every
+  // taking the last one anyway is a confirmed defect (a mock page filled
+  // with Portuguese for a Spain job). This is what lets the author see every
   // market the brief declares and switch between them with no re-paste.
   function updateMarketOptions(brief) {
     var found = state.filler.marketsIn(brief);
@@ -1086,166 +970,10 @@
     state.market = pick;
   }
 
-  function renderFillResult(r) {
-    // Several rows can carry identical English master text — the same CTA
-    // label reused across components. Picking one silently used to hand back
-    // false certainty; every candidate is listed instead, by section and row,
-    // so the choice is the author's rather than a coin flip.
-    if (r.how === 'ambiguous') {
-      var options = r.candidates.map(function (c) {
-        var where = c.row.section ? esc(c.row.section) + ', ' : '';
-        return '<li><p class="dev-note">' + where + 'row ' + (c.row.index + 1) + '</p>' +
-          '<p class="work-local">' + esc(c.row.localized) + '</p>' +
-          '<button class="btn-ghost work-copy" type="button" data-copy-row="' + c.row.index + '">Copy</button></li>';
-      }).join('');
-      return section('More than one row matches',
-        '<p class="note warn">' + r.candidates.length + ' rows carry this exact English text — pick the one ' +
-        'for the component you are actually in:</p><ul class="devs">' + options + '</ul>');
-    }
-
-    if (!r.match) {
-      var why = r.how === 'no-english-column'
-        ? 'This brief has no English column, so there is nothing to match against. Work down the list below instead.'
-        : 'No row in the brief carries that English text. Check you copied the whole field, or find it in the list below.';
-      return section('No match', '<p class="note warn">' + esc(why) + '</p>');
-    }
-
-    var c = r.carried;
-    var confidence = '';
-    if (r.how === 'closest') {
-      confidence = '<p class="note warn">Closest match only (' + Math.round(r.confidence * 100) +
-        '% overlap) — check this is the right row before pasting.</p>';
-    } else if (r.how === 'contained') {
-      confidence = '<p class="note">Matched on part of the field rather than the whole of it.</p>';
-    }
-
-    var unplaced = '';
-    if (c.unplaced.length) {
-      unplaced = '<p class="note warn">Could not place ' + c.unplaced.length +
-        (c.unplaced.length === 1 ? ' piece of formatting' : ' pieces of formatting') +
-        ' — the text it wrapped was translated, so re-apply by hand:</p><ul class="questions">' +
-        c.unplaced.map(function (m) {
-          return '<li>' + (m.tag === 'a'
-            ? 'link to <code>' + esc(m.href || '') + '</code> was on “' + esc(m.text) + '”'
-            : '&lt;' + esc(m.tag) + '&gt; was on “' + esc(m.text) + '”') + '</li>';
-        }).join('') + '</ul>';
-    }
-
-    var restored = c.restored.length
-      ? '<p class="note">Carried ' + c.restored.length + ' formatting ' +
-        (c.restored.length === 1 ? 'run' : 'runs') + ' across automatically.</p>'
-      : '';
-
-    return section('Paste this',
-      '<p class="row-label">' + esc(r.match.label) + '</p>' +
-      '<p class="localized">' + c.html + '</p>' +
-      '<button class="btn-primary" type="button" data-copy-html="1">Copy</button>' +
-      confidence + restored + unplaced +
-      '<p class="english-was"><b>English was:</b> ' + esc(r.match.english || '') + '</p>');
-  }
-
-  function renderWorklist(rows, brief) {
-    var done = loadProgress(brief);
-    var doneCount = rows.filter(function (row) { return done[row.index]; }).length;
-
-    var items = rows.map(function (row) {
-      var isDone = !!done[row.index];
-      return '<li class="' + (isDone ? 'done' : '') + '" data-index="' + row.index + '">' +
-        '<input type="checkbox" ' + (isDone ? 'checked' : '') + ' aria-label="Done">' +
-        '<div class="work-body">' +
-        '<span class="row-label">' + esc(row.label) + '</span>' +
-        (row.untranslated ? '<span class="badge-untranslated">same both sides</span>' : '') +
-        (row.english ? '<p class="work-en">' + esc(row.english) + '</p>' : '') +
-        '<p class="work-local">' + esc(row.localized) + '</p>' +
-        '</div>' +
-        '<button class="btn-ghost work-copy" type="button" data-copy-row="' + row.index + '">Copy</button>' +
-        '</li>';
-    }).join('');
-
-    return '<section class="card"><h3>Worklist — ' + rows.length + ' rows</h3>' +
-      '<p class="progress"><b>' + doneCount + '</b> of <b>' + rows.length + '</b> done.</p>' +
-      '<ul class="worklist">' + items + '</ul></section>';
-  }
-
-  function wireWorklist(brief) {
-    var rows = state.filler.rows(brief, { market: state.market });
-    var byIndex = {};
-    rows.forEach(function (r) { byIndex[r.index] = r; });
-
-    var htmlBtn = el.output.querySelector('[data-copy-html]');
-    if (htmlBtn) {
-      htmlBtn.addEventListener('click', function () {
-        var node = el.output.querySelector('.localized');
-        copyRich(node.innerHTML, node.textContent);
-      });
-    }
-
-    Array.prototype.forEach.call(el.output.querySelectorAll('[data-copy-row]'), function (btn) {
-      btn.addEventListener('click', function () {
-        var row = byIndex[btn.getAttribute('data-copy-row')];
-        if (row) copyRich(null, row.localized);
-      });
-    });
-
-    Array.prototype.forEach.call(el.output.querySelectorAll('.worklist input[type=checkbox]'), function (box) {
-      box.addEventListener('change', function () {
-        var li = box.closest('li');
-        var done = loadProgress(brief);
-        if (box.checked) done[li.getAttribute('data-index')] = 1;
-        else delete done[li.getAttribute('data-index')];
-        saveProgress(brief, done);
-        li.classList.toggle('done', box.checked);
-        var total = rows.length;
-        var count = Object.keys(done).length;
-        var p = el.output.querySelector('.progress');
-        if (p) p.innerHTML = '<b>' + count + '</b> of <b>' + total + '</b> done.';
-      });
-    });
-  }
-
-  // Writing text/html as well as plain text is what lets a link survive the
-  // paste into a Tridion rich-text field instead of flattening to words.
-  function copyRich(html, text) {
-    if (html && window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
-      navigator.clipboard.write([new ClipboardItem({
-        'text/html': new Blob([html], { type: 'text/html' }),
-        'text/plain': new Blob([text], { type: 'text/plain' })
-      })]).then(function () { toast('Copied with formatting.'); },
-               function () { copyPlain(text); });
-      return;
-    }
-    copyPlain(text);
-  }
-
   function copyPlain(text) {
     navigator.clipboard.writeText(text)
       .then(function () { toast('Copied.'); })
       .catch(function () { toast('Could not copy — select and copy by hand.'); });
-  }
-
-  // Progress is per brief, so switching between two pages does not mix them up.
-  function progressKey(brief) {
-    var hash = 0;
-    for (var i = 0; i < brief.length; i++) { hash = ((hash << 5) - hash + brief.charCodeAt(i)) | 0; }
-    return 'wcm-fill-' + hash;
-  }
-  function loadProgress(brief) {
-    try { return JSON.parse(localStorage.getItem(progressKey(brief)) || '{}'); }
-    catch (e) { return {}; }
-  }
-  function saveProgress(brief, done) {
-    try { localStorage.setItem(progressKey(brief), JSON.stringify(done)); } catch (e) { /* private window */ }
-  }
-
-  function renderFillEmpty() {
-    el.output.innerHTML =
-      '<div class="empty-state"><p>Load a localization brief, then paste the English master sitting in the ' +
-      'Tridion component field. You get back:</p>' +
-      '<ol><li>The localized text for that row, on a Copy button</li>' +
-      '<li>Any links or formatting carried across automatically</li>' +
-      '<li>Anything that could not be placed, listed so it is not lost</li></ol>' +
-      '<p>Below that, the whole brief as a worklist you can tick down. The tool cannot read or write ' +
-      'Tridion fields — it finds the text, you paste it.</p></div>';
   }
 
   // ─── HELPERS ─────────────────────────────────────────────────────────────

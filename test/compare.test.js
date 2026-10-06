@@ -1893,7 +1893,8 @@ test('139. formIdFinding matches a brief\'s declared Market against the page\'s 
   // "No deviations" alone was never enough — the found id and the country it
   // was checked against must be on screen even when the match is clean.
   assert.deepStrictEqual(f.row,
-    { field: 'Form Assembly ID', source: 'Spain', expected: '758', found: '758', state: 'matches', soft: false });
+    { field: 'Form Assembly ID', source: 'Spain', expected: '758', found: '758', state: 'matches', soft: false,
+      basis: 'expected' });
 });
 
 test('140. formIdFinding reports a mismatch when the brief\'s market expects a different id', function () {
@@ -1969,7 +1970,7 @@ test('147. suggestFormId stays silent for a market with no configured id', funct
 test('148. a page override wins over the country default', function () {
   var cfg = {
     'work-types': JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'work-types.json'), 'utf8')),
-    'form-ids': {
+    'sites': {
       countries: { 'Spain': { domain: 'kone.es', formAssemblyId: '758' } },
       pageOverrides: [{ match: '/campania/finanziamento', formAssemblyId: '999', label: 'Spain financing campaign' }]
     }
@@ -1982,6 +1983,22 @@ test('148. a page override wins over the country default', function () {
   assert.strictEqual(f.severity, null, 'the override (999), not the country default (758), is what this page is checked against');
   assert.strictEqual(f.row.expected, '999');
   assert.strictEqual(f.row.source, 'Spain financing campaign', 'the override\'s own label, not the bare country name');
+});
+
+test('148b. a preview host is checked as the market of its live site', function () {
+  var page = comparer.readPage(pageWith('https://preview.kone.es/contacto/', DIGITALDATA_SCRIPT));
+  var f = comparer.formIdFinding(null, page);
+  assert.strictEqual(f.checked, true);
+  assert.strictEqual(f.country, 'Spain');
+  assert.strictEqual(f.severity, null);
+});
+
+test('148c. Compare\'s metadata rows are judged against the brief, the Form ID row against config', function () {
+  var r = comparer.compare(BRIEF, CLEAN, { workTypeId: 'new-page' });
+  var meta = r.categories.filter(function (c) { return c.id === 'metadata'; })[0];
+  var form = r.categories.filter(function (c) { return c.id === 'formId'; })[0];
+  meta.rows.forEach(function (row) { assert.strictEqual(row.basis, 'brief', row.field); });
+  assert.strictEqual(form.rows[0].basis, 'expected');
 });
 
 test('149. compare() carries the Form Assembly ID as its own sixth category', function () {

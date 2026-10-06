@@ -1274,7 +1274,8 @@
         expected: want || null,
         found: got || null,
         state: state,
-        soft: !!row.soft
+        soft: !!row.soft,
+        basis: 'brief'
       };
     });
   }
@@ -1753,66 +1754,67 @@
 
   // ─── FORM ASSEMBLY ID ────────────────────────────────────────────────────
   // Every KONE country site is expected to carry one FormAssembly id (a
-  // campaign/landing page can carry its own instead) — config/form-ids.json
+  // campaign/landing page can carry its own instead) — config/sites.json
   // is the authoritative table, supplied by the user; this is its in-code
   // mirror, read only when the file fails to load (DEFAULT_COMPONENTS in
   // page-model.js is the precedent for this exact fallback shape).
 
-  var DEFAULT_FORM_IDS = {
+  var DEFAULT_SITES = {
     countries: {
-      'Germany': { domain: 'kone.de', formAssemblyId: '924' },
-      'Austria': { domain: 'kone.at', formAssemblyId: '770' },
-      'Switzerland (DE)': { domain: 'kone.ch', langPath: 'de', formAssemblyId: '925' },
-      'Switzerland (FR)': { domain: 'kone.ch', langPath: 'fr', formAssemblyId: '926' },
-      'Poland': { domain: 'kone.pl', formAssemblyId: '1145' },
-      'Czech Republic': { domain: 'kone.cz', formAssemblyId: '1148' },
-      'Slovakia': { domain: 'kone.sk', formAssemblyId: '1147' },
-      'France': { domain: 'kone.fr', formAssemblyId: '1489' },
-      'Belgium (FR)': { domain: 'kone.be', langPath: 'fr', formAssemblyId: '754' },
-      'Belgium (NL)': { domain: 'kone.be', langPath: 'nl', formAssemblyId: '753' },
-      'Great Britain': { domain: 'kone.co.uk', formAssemblyId: '739' },
-      'Ireland': { domain: 'kone.ie', formAssemblyId: '794' },
-      'Netherlands': { domain: 'kone.nl', formAssemblyId: '810' },
-      'Spain': { domain: 'kone.es', formAssemblyId: '758' },
-      'Portugal': { domain: 'kone.pt', formAssemblyId: '777' },
-      'Italy': { domain: 'kone.it', formAssemblyId: '733' },
-      'Sweden': { domain: 'kone.se', formAssemblyId: '695' },
-      'Finland': { domain: 'kone.fi', formAssemblyId: '761' },
-      'Denmark': { domain: 'kone.dk', formAssemblyId: '780' },
-      'Norway': { domain: 'kone.no', formAssemblyId: '782' },
-      'Estonia': { domain: 'kone.ee', formAssemblyId: '877' },
-      'Latvia': { domain: 'kone.lv', formAssemblyId: '874' },
-      'Lithuania': { domain: 'kone.lt', formAssemblyId: '878' },
-      'Iceland': { domain: 'kone.is', formAssemblyId: '17' },
-      'United States': { domain: 'kone.us', formAssemblyId: '1488' },
-      'Canada (EN)': { domain: 'kone.ca', langPath: 'en', formAssemblyId: '779' },
-      'Canada (FR)': { domain: 'kone.ca', langPath: 'fr', formAssemblyId: '778' },
-      'India': { domain: 'kone.in', formAssemblyId: '1490' },
-      'UAE': { domain: 'kone.ae', formAssemblyId: '752' },
-      'Bahrain': { domain: 'kone.bh', formAssemblyId: '821' },
-      'Egypt': { domain: 'kone.eg', formAssemblyId: '818' },
-      'Kuwait': { domain: 'kone.com.kw', formAssemblyId: '1143' },
-      'Oman': { domain: 'kone.om', formAssemblyId: '820' },
-      'Qatar': { domain: 'kone.qa', formAssemblyId: '819' },
-      'Saudi Arabia': { domain: 'kone.sa', formAssemblyId: '817' },
-      'Turkey': { domain: 'kone.com.tr', formAssemblyId: '786' },
-      'Kenya': { domain: 'kone.co.ke', formAssemblyId: '846' },
-      'Morocco': { domain: 'kone.ma', formAssemblyId: '845' },
-      'South Africa': { domain: 'kone.co.za', formAssemblyId: '791' },
-      'Tunisia': { domain: 'kone.tn', formAssemblyId: '1054' },
-      'Uganda': { domain: 'kone.ug', formAssemblyId: '847' },
-      'Singapore': { domain: 'kone.sg', formAssemblyId: '784' },
-      'Indonesia': { domain: 'kone.co.id', formAssemblyId: '814' },
-      'Vietnam': { domain: 'kone.vn', formAssemblyId: '788' },
-      'Malaysia': { domain: 'kone.my', formAssemblyId: '830' },
-      'Thailand': { domain: 'kone.co.th', formAssemblyId: '832' },
-      'Philippines': { domain: 'kone.ph', formAssemblyId: '785' }
+      'Germany': { domain: 'kone.de', formAssemblyId: '924', siteNames: [], siteNamesDraft: ['Deutschland'] },
+      'Austria': { domain: 'kone.at', formAssemblyId: '770', siteNames: [], siteNamesDraft: ['Österreich'] },
+      'Switzerland (DE)': { domain: 'kone.ch', langPath: 'de', formAssemblyId: '925', siteNames: [], siteNamesDraft: ['Schweiz'] },
+      'Switzerland (FR)': { domain: 'kone.ch', langPath: 'fr', formAssemblyId: '926', siteNames: [], siteNamesDraft: ['Suisse'] },
+      'Poland': { domain: 'kone.pl', formAssemblyId: '1145', siteNames: [], siteNamesDraft: ['Polska'] },
+      'Czech Republic': { domain: 'kone.cz', formAssemblyId: '1148', siteNames: [], siteNamesDraft: ['Česká republika'] },
+      'Slovakia': { domain: 'kone.sk', formAssemblyId: '1147', siteNames: [], siteNamesDraft: ['Slovensko'] },
+      'France': { domain: 'kone.fr', formAssemblyId: '1489', siteNames: [], siteNamesDraft: ['France'] },
+      'Belgium (FR)': { domain: 'kone.be', langPath: 'fr', formAssemblyId: '754', siteNames: [], siteNamesDraft: ['Belgique'] },
+      'Belgium (NL)': { domain: 'kone.be', langPath: 'nl', formAssemblyId: '753', siteNames: [], siteNamesDraft: ['België'] },
+      'Great Britain': { domain: 'kone.co.uk', formAssemblyId: '739', siteNames: [], siteNamesDraft: ['UK', 'United Kingdom'] },
+      'Ireland': { domain: 'kone.ie', formAssemblyId: '794', siteNames: [], siteNamesDraft: ['Ireland'] },
+      'Netherlands': { domain: 'kone.nl', formAssemblyId: '810', siteNames: [], siteNamesDraft: ['Nederland'] },
+      'Spain': { domain: 'kone.es', formAssemblyId: '758', siteNames: ['España'], siteNamesDraft: [] },
+      'Portugal': { domain: 'kone.pt', formAssemblyId: '777', siteNames: [], siteNamesDraft: ['Portugal'] },
+      'Italy': { domain: 'kone.it', formAssemblyId: '733', siteNames: [], siteNamesDraft: ['Italia'] },
+      'Sweden': { domain: 'kone.se', formAssemblyId: '695', siteNames: [], siteNamesDraft: ['Sverige'] },
+      'Finland': { domain: 'kone.fi', formAssemblyId: '761', siteNames: [], siteNamesDraft: ['Suomi'] },
+      'Denmark': { domain: 'kone.dk', formAssemblyId: '780', siteNames: [], siteNamesDraft: ['Danmark'] },
+      'Norway': { domain: 'kone.no', formAssemblyId: '782', siteNames: [], siteNamesDraft: ['Norge'] },
+      'Estonia': { domain: 'kone.ee', formAssemblyId: '877', siteNames: [], siteNamesDraft: ['Eesti'] },
+      'Latvia': { domain: 'kone.lv', formAssemblyId: '874', siteNames: [], siteNamesDraft: ['Latvija'] },
+      'Lithuania': { domain: 'kone.lt', formAssemblyId: '878', siteNames: [], siteNamesDraft: ['Lietuva'] },
+      'Iceland': { domain: 'kone.is', formAssemblyId: '17', siteNames: [], siteNamesDraft: ['Ísland'] },
+      'United States': { domain: 'kone.us', formAssemblyId: '1488', siteNames: [], siteNamesDraft: ['USA', 'United States'] },
+      'Canada (EN)': { domain: 'kone.ca', langPath: 'en', formAssemblyId: '779', siteNames: [], siteNamesDraft: ['Canada'] },
+      'Canada (FR)': { domain: 'kone.ca', langPath: 'fr', formAssemblyId: '778', siteNames: [], siteNamesDraft: ['Canada'] },
+      'India': { domain: 'kone.in', formAssemblyId: '1490', siteNames: ['India'], siteNamesDraft: [] },
+      'UAE': { domain: 'kone.ae', formAssemblyId: '752', siteNames: [], siteNamesDraft: ['UAE', 'United Arab Emirates'] },
+      'Bahrain': { domain: 'kone.bh', formAssemblyId: '821', siteNames: [], siteNamesDraft: ['Bahrain'] },
+      'Egypt': { domain: 'kone.eg', formAssemblyId: '818', siteNames: [], siteNamesDraft: ['Egypt'] },
+      'Kuwait': { domain: 'kone.com.kw', formAssemblyId: '1143', siteNames: [], siteNamesDraft: ['Kuwait'] },
+      'Oman': { domain: 'kone.om', formAssemblyId: '820', siteNames: [], siteNamesDraft: ['Oman'] },
+      'Qatar': { domain: 'kone.qa', formAssemblyId: '819', siteNames: [], siteNamesDraft: ['Qatar'] },
+      'Saudi Arabia': { domain: 'kone.sa', formAssemblyId: '817', siteNames: [], siteNamesDraft: ['Saudi Arabia'] },
+      'Turkey': { domain: 'kone.com.tr', formAssemblyId: '786', siteNames: [], siteNamesDraft: ['Türkiye'] },
+      'Kenya': { domain: 'kone.co.ke', formAssemblyId: '846', siteNames: [], siteNamesDraft: ['Kenya'] },
+      'Morocco': { domain: 'kone.ma', formAssemblyId: '845', siteNames: [], siteNamesDraft: ['Maroc'] },
+      'South Africa': { domain: 'kone.co.za', formAssemblyId: '791', siteNames: [], siteNamesDraft: ['South Africa'] },
+      'Tunisia': { domain: 'kone.tn', formAssemblyId: '1054', siteNames: [], siteNamesDraft: ['Tunisie'] },
+      'Uganda': { domain: 'kone.ug', formAssemblyId: '847', siteNames: [], siteNamesDraft: ['Uganda'] },
+      'Singapore': { domain: 'kone.sg', formAssemblyId: '784', siteNames: [], siteNamesDraft: ['Singapore'] },
+      'Indonesia': { domain: 'kone.co.id', formAssemblyId: '814', siteNames: [], siteNamesDraft: ['Indonesia'] },
+      'Vietnam': { domain: 'kone.vn', formAssemblyId: '788', siteNames: [], siteNamesDraft: ['Việt Nam', 'Vietnam'] },
+      'Malaysia': { domain: 'kone.my', formAssemblyId: '830', siteNames: [], siteNamesDraft: ['Malaysia'] },
+      'Thailand': { domain: 'kone.co.th', formAssemblyId: '832', siteNames: [], siteNamesDraft: ['Thailand'] },
+      'Philippines': { domain: 'kone.ph', formAssemblyId: '785', siteNames: [], siteNamesDraft: ['Philippines'] },
+      'Slovenia': { domain: 'kone.si', siteNames: ['Slovenija'], siteNamesDraft: [] }
     },
     pageOverrides: []
   };
 
-  function formIdCountryEntries(formIdCfg) {
-    var countries = (formIdCfg && formIdCfg.countries) || {};
+  function siteEntries(sitesCfg) {
+    var countries = (sitesCfg && sitesCfg.countries) || {};
     return Object.keys(countries).map(function (name) {
       var c = countries[name] || {};
       return {
@@ -1820,7 +1822,9 @@
         base: name.replace(/\s*\([^)]*\)\s*$/, ''),
         domain: String(c.domain || '').toLowerCase(),
         langPath: c.langPath || null,
-        formAssemblyId: c.formAssemblyId != null ? String(c.formAssemblyId) : null
+        formAssemblyId: c.formAssemblyId != null ? String(c.formAssemblyId) : null,
+        siteNames: c.siteNames || [],
+        siteNamesDraft: c.siteNamesDraft || []
       };
     });
   }
@@ -1839,35 +1843,37 @@
 
   // Resolved from the brief's own declared Market row (e.g. "Italy") — the
   // literal, unambiguous value every real Tridion content brief carries.
-  function countryByMarketName(name, formIdCfg, page) {
+  function countryByMarketName(name, sitesCfg, page) {
     var wanted = String(name || '').trim().toLowerCase();
     if (!wanted) return null;
-    var hits = formIdCountryEntries(formIdCfg).filter(function (e) { return e.base.toLowerCase() === wanted; });
+    var hits = siteEntries(sitesCfg).filter(function (e) { return e.base.toLowerCase() === wanted; });
     return hits.length ? disambiguateByPath(hits, page) : null;
   }
 
   // Resolved from the page's own canonical URL — the only signal available
   // when no brief is present (Brief mode) or the brief carries no Market row.
-  function countryByDomain(page, formIdCfg) {
+  function countryByDomain(page, sitesCfg) {
     if (!page || !page.canonical) return null;
-    var host = pageHost(page.canonical);
-    var hits = formIdCountryEntries(formIdCfg).filter(function (e) { return e.domain === host; });
+    // A preview host is the same market as its live one: QA runs on
+    // preview.kone.es before kone.es exists, and it is still a Spain page.
+    var host = pageHost(page.canonical).replace(/^preview(-[a-z]+)?\./, '');
+    var hits = siteEntries(sitesCfg).filter(function (e) { return e.domain === host; });
     return hits.length ? disambiguateByPath(hits, page) : null;
   }
 
-  function resolveFormIdCountry(expect, page, formIdCfg) {
+  function resolveFormIdCountry(expect, page, sitesCfg) {
     var declared = expect && expect.metadata && expect.metadata.market;
     if (declared) {
-      var byMarket = countryByMarketName(declared, formIdCfg, page);
+      var byMarket = countryByMarketName(declared, sitesCfg, page);
       if (byMarket) return byMarket;
     }
-    return countryByDomain(page, formIdCfg);
+    return countryByDomain(page, sitesCfg);
   }
 
-  function formIdOverride(page, formIdCfg) {
+  function formIdOverride(page, sitesCfg) {
     if (!page || !page.canonical) return null;
     var p = pathOf(page.canonical);
-    var overrides = (formIdCfg && formIdCfg.pageOverrides) || [];
+    var overrides = (sitesCfg && sitesCfg.pageOverrides) || [];
     for (var i = 0; i < overrides.length; i++) {
       var mp = pathOf(overrides[i].match);
       if (p === mp || p.indexOf(mp + '/') === 0) return overrides[i];
@@ -1889,12 +1895,12 @@
   // clean or not — app.js's existing renderRows() needs no changes at all.
   function formIdRow(source, expected, found, state) {
     return { field: 'Form Assembly ID', source: source || null, expected: expected || null,
-      found: found || null, state: state, soft: false };
+      found: found || null, state: state, soft: false, basis: 'expected' };
   }
 
-  function formIdFinding(expect, page, formIdCfg) {
-    formIdCfg = formIdCfg || DEFAULT_FORM_IDS;
-    var country = resolveFormIdCountry(expect, page, formIdCfg);
+  function formIdFinding(expect, page, sitesCfg) {
+    sitesCfg = sitesCfg || DEFAULT_SITES;
+    var country = resolveFormIdCountry(expect, page, sitesCfg);
     if (!country) {
       var note1 = 'This page’s market could not be determined (no Market row in the ' +
         'brief, and its domain is not one of the configured country sites), so its Form Assembly ID was not checked.';
@@ -1905,7 +1911,7 @@
         'nothing here (brief or page path) says which one this page is, so its Form Assembly ID was not checked.';
       return { checked: false, country: null, note: note2, row: formIdRow(country.base, null, null, 'not-checked') };
     }
-    var override = formIdOverride(page, formIdCfg);
+    var override = formIdOverride(page, sitesCfg);
     var expectedId = override ? String(override.formAssemblyId) : country.formAssemblyId;
     var label = override ? (override.label || country.name + ' (page override)') : country.name;
     if (!expectedId) {
@@ -1930,23 +1936,21 @@
   // Analyse mode has no page at all — only the question "what should this
   // market's pages carry." Resolves the country only and never looks at a
   // real page, so it can only ever be a suggestion, never a mismatch.
-  function suggestFormId(marketName, formIdCfg) {
-    formIdCfg = formIdCfg || DEFAULT_FORM_IDS;
+  function suggestFormId(marketName, sitesCfg) {
+    sitesCfg = sitesCfg || DEFAULT_SITES;
     if (!marketName) return null;
-    var country = countryByMarketName(marketName, formIdCfg, null);
+    var country = countryByMarketName(marketName, sitesCfg, null);
     if (!country || country.ambiguous || !country.formAssemblyId) return null;
     return { market: country.name, formAssemblyId: country.formAssemblyId };
   }
 
-  function formIdCategory(expect, page, formIdCfg) {
-    var f = formIdFinding(expect, page, formIdCfg);
+  function formIdCategory(expect, page, sitesCfg) {
+    var f = formIdFinding(expect, page, sitesCfg);
     // rows renders in both of renderCategory()'s branches (clean and not) —
     // the same mechanism categories[0].rows already uses for Metadata — so
     // the found id and its country are on screen whether this is clean,
     // wrong, or never checked at all.
-    // neutral: the expected id comes from config/form-ids.json, not the
-    // brief, so the renderer must not label it "Brief".
-    var cat = { id: 'formId', label: 'Form Assembly ID', deviations: [], rows: [f.row], neutral: true };
+    var cat = { id: 'formId', label: 'Form Assembly ID', deviations: [], rows: [f.row] };
     if (!f.checked) { cat.note = f.note; return cat; }
     if (f.severity) cat.deviations.push({ severity: f.severity, note: f.note, expected: f.expected, found: f.found });
     return cat;
@@ -1982,7 +1986,7 @@
     var cfg = (config && config['work-types'] && config['work-types'].compare) || {};
     var supported = cfg.workTypes || ['new-page', 'localization', 'content-update', 'keyword-update'];
     var workTypesConfig = (config && config['work-types']) || {};
-    var formIdCfg = (config && config['form-ids']) || DEFAULT_FORM_IDS;
+    var sitesCfg = (config && config['sites']) || DEFAULT_SITES;
 
     function compare(briefText, html, options) {
       options = options || {};
@@ -2037,7 +2041,7 @@
       // like the five above, but "does this page carry the form its country
       // is supposed to." Kept out of coverage/briefFailures below (it never
       // sets d.fromBrief) so it cannot quietly inflate or dilute that number.
-      categories.push(formIdCategory(expect, page, formIdCfg));
+      categories.push(formIdCategory(expect, page, sitesCfg));
 
       // The question the tool exists to answer is not "what is different" but
       // "is everything the brief asked for actually on the page". Counting that
@@ -2205,13 +2209,18 @@
       // future bulk QA mode can run the same check compare() uses above,
       // without a brief: pass expect: null to resolve the country from the
       // page's own domain alone.
-      formIdFinding: function (expect, page) { return formIdFinding(expect, page, formIdCfg); },
+      formIdFinding: function (expect, page) { return formIdFinding(expect, page, sitesCfg); },
       // Every finding the page carries about itself, with no brief at all —
       // QA starts from these rather than re-implementing any of them.
       pageOnlyCategories: function (page) { return pageOnlyCategories(page, cfg); },
       // Analyse mode's equivalent, with no page to check against at all —
       // see suggestFormId's own comment for why it is a separate function.
-      suggestFormId: function (marketName) { return suggestFormId(marketName, formIdCfg); },
+      suggestFormId: function (marketName) { return suggestFormId(marketName, sitesCfg); },
+      // The page's market from the site registry — the brief's Market row
+      // first, else the canonical host and language path. One entry, an
+      // { ambiguous } marker, or null; never a guess.
+      marketOf: function (expect, page) { return resolveFormIdCountry(expect, page, sitesCfg); },
+      siteEntries: function () { return siteEntries(sitesCfg); },
       // Exposed so a test can assert a location without a defect to hang it
       // on — the id-less carousel ships no defect on the real page.
       placeIn: placeOf,
@@ -2222,5 +2231,5 @@
     };
   }
 
-  return { create: create };
+  return { create: create, DEFAULT_SITES: DEFAULT_SITES };
 }));

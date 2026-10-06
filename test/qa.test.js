@@ -14,7 +14,7 @@ function load(name) { return fs.readFileSync(path.join(__dirname, name), 'utf8')
 
 var config = {
   'work-types': JSON.parse(load('../config/work-types.json')),
-  'form-ids': JSON.parse(load('../config/form-ids.json'))
+  'sites': JSON.parse(load('../config/sites.json'))
 };
 var qa = BriefQA.create(config);
 
@@ -284,6 +284,167 @@ test('35. the in-code QA defaults mirror config/work-types.json, so a missing co
   assert.deepStrictEqual(config['work-types'].qa.internalHosts, BriefQA.DEFAULT_QA.internalHosts);
   assert.deepStrictEqual(config['work-types'].qa.genericLinkText, BriefQA.DEFAULT_QA.genericLinkText);
   assert.deepStrictEqual(config['work-types'].qa.cme, BriefQA.DEFAULT_QA.cme);
+});
+
+// ─── Title format: "Page Name | KONE Corporation" or "| KONE <country>" ───
+
+function formatRow(r, source) {
+  return cat(r, 'metadata').rows.filter(function (x) {
+    return x.field === 'Title format' && x.source === (source || 'page title');
+  })[0];
+}
+function titleFindingsOf(r) {
+  return cat(r, 'metadata').deviations.filter(function (d) { return d.field === 'Title format'; });
+}
+
+test('36. "| KONE Corporation" is green, and nothing to fix', function () {
+  var r = qa.run(page({ title: 'Contacto | KONE Corporation' }));
+  assert.strictEqual(formatRow(r).state, 'green');
+  assert.strictEqual(titleFindingsOf(r).length, 0);
+});
+
+test('37. the page\'s own market, in its confirmed spelling, is green — the real kone.es "KONE España"', function () {
+  var r = qa.run(page({ title: 'Contacto | KONE España' }));
+  assert.strictEqual(formatRow(r).state, 'green', formatRow(r).stateLabel);
+});
+
+test('38. another market\'s confirmed name is red and a break — "KONE India" on a kone.es page', function () {
+  var r = qa.run(page({ title: 'Contacto | KONE India' }));
+  assert.strictEqual(formatRow(r).state, 'red');
+  assert.ok(/India site's name, on a Spain page/.test(formatRow(r).stateLabel), formatRow(r).stateLabel);
+  assert.strictEqual(titleFindingsOf(r)[0].severity, 'break');
+});
+
+test('39. "| KONE" with no country is amber and a check', function () {
+  var r = qa.run(page({ title: 'Contacto | KONE' }));
+  assert.strictEqual(formatRow(r).state, 'amber');
+  assert.ok(/no country/.test(formatRow(r).stateLabel));
+  assert.strictEqual(titleFindingsOf(r)[0].severity, 'check');
+});
+
+test('40. a bare page name with no site name is amber', function () {
+  var r = qa.run(page({ title: 'Contacto' }));
+  assert.strictEqual(formatRow(r).state, 'amber');
+  assert.ok(/no site name/.test(formatRow(r).stateLabel));
+});
+
+test('41. a drafted, unconfirmed spelling is amber, never red', function () {
+  var r = qa.run(page({ title: 'Contatti | KONE Italia', canonical: 'https://www.kone.it/contatti/',
+    hreflang: '<link rel="alternate" hreflang="it-IT" href="https://www.kone.it/contatti/">' }));
+  assert.strictEqual(formatRow(r).state, 'amber');
+  assert.ok(/draft spelling for Italy/.test(formatRow(r).stateLabel), formatRow(r).stateLabel);
+});
+
+test('42. with no market to check against, a country name is amber, not verified', function () {
+  var r = qa.run(page({ title: 'Contact | KONE España', canonical: 'https://www.example.com/contact/', hreflang: '' }));
+  assert.strictEqual(formatRow(r).state, 'amber');
+  assert.ok(/not verified/.test(formatRow(r).stateLabel));
+});
+
+test('43. a site name after " - " instead of " | " is amber', function () {
+  var r = qa.run(page({ title: 'Contacto - KONE España' }));
+  assert.strictEqual(formatRow(r).state, 'amber');
+  assert.ok(/not after " \| "/.test(formatRow(r).stateLabel));
+});
+
+test('44. no title at all is a red row', function () {
+  var r = qa.run(page({ title: '' }));
+  assert.strictEqual(formatRow(r).state, 'red');
+});
+
+test('45. a doubled site name is red, and only a known issue — not a second finding', function () {
+  var r = qa.run(page({ title: 'Contacto | KONE España - KONE España' }));
+  assert.strictEqual(formatRow(r).state, 'red');
+  assert.strictEqual(titleFindingsOf(r).length, 0);
+  assert.ok(/double title/.test(notes(r.knownIssues)));
+});
+
+test('46. og:title is scored on its own when it says something different', function () {
+  var r = qa.run(page({ title: 'Contacto | KONE España', head: '<meta property="og:title" content="Contacto | KONE">' }));
+  assert.strictEqual(formatRow(r).state, 'green');
+  assert.strictEqual(formatRow(r, 'og:title').state, 'amber');
+});
+
+test('47. the real Slovenia preview page resolves to its market through the preview host', function () {
+  var r = qa.run(SI);
+  assert.strictEqual(r.facts.market, 'Slovenia');
+  assert.strictEqual(formatRow(r).state, 'red', 'its title doubles the site name');
+  assert.strictEqual(formatRow(r, 'og:title').state, 'amber', 'its og:title ends in a bare "| KONE"');
+});
+
+test('48. a brief\'s Market row decides the market over the page\'s domain', function () {
+  var r = qa.run(page({ title: 'Contact | KONE España', canonical: 'https://www.example.com/contact/', hreflang: '' }),
+    { brief: 'Market: Spain\nMeta Title: Contact | KONE España\n', workTypeId: 'new-page' });
+  assert.strictEqual(r.facts.market, 'Spain');
+  assert.strictEqual(formatRow(r).state, 'green');
+});
+
+// ─── QA with a brief: one report ──────────────────────────────────────────
+
+var SI_BRIEF = require('../compare.js').create(config).briefFrom(SI).text;
+
+test('49. a page against the brief generated from it lands with complete coverage — the round trip, inside QA', function () {
+  var r = qa.run(SI, { brief: SI_BRIEF, workTypeId: 'new-page' });
+  assert.ok(r.comparison.supported && !r.comparison.unreadable);
+  assert.strictEqual(r.comparison.coverage.complete, true, JSON.stringify(r.comparison.coverage));
+});
+
+test('50. with a brief, the brief\'s findings land in the same five categories, labelled as the brief\'s', function () {
+  var brief = SI_BRIEF + '\nA paragraph the brief asks for that this page has never carried, long enough to count.';
+  var r = qa.run(SI, { brief: brief, workTypeId: 'new-page' });
+  assert.deepStrictEqual(r.categories.map(function (c) { return c.id; }), ['metadata', 'body', 'images', 'links', 'structure']);
+  var fromBrief = cat(r, 'body').deviations.filter(function (d) { return d.fromBrief; });
+  assert.ok(fromBrief.length >= 1, notes(cat(r, 'body').deviations));
+  assert.strictEqual(r.comparison.coverage.complete, false);
+  assert.ok(cat(r, 'body').ledger, 'the row-by-row ledger comes across too');
+});
+
+test('51. merging never reports a page-only finding twice', function () {
+  var r = qa.run(SI, { brief: SI_BRIEF, workTypeId: 'new-page' });
+  var cme = cat(r, 'links').deviations.filter(function (d) { return /tcm:151-146823/.test(d.found || ''); });
+  assert.strictEqual(cme.length, 1, notes(cme));
+  var h1 = cat(r, 'metadata').deviations.filter(function (d) { return d.field === 'H1'; });
+  assert.ok(h1.length <= 1);
+  var formRows = cat(r, 'structure').rows.filter(function (x) { return x.field === 'Form Assembly ID'; });
+  assert.strictEqual(formRows.length, 1);
+  assert.ok(!r.categories.some(function (c) { return c.id === 'formId'; }), 'Compare\'s own Form ID category is folded in, not repeated');
+});
+
+test('52. with a brief, Compare\'s brief-aware rows lead the Metadata table, QA\'s own rows follow', function () {
+  var rows = cat(qa.run(SI, { brief: SI_BRIEF, workTypeId: 'new-page' }), 'metadata').rows;
+  assert.strictEqual(rows[0].basis, 'brief');
+  assert.ok(rows.some(function (x) { return x.field === 'Robots'; }));
+  assert.ok(rows.some(function (x) { return x.field === 'Title format'; }));
+});
+
+test('53. an unreadable brief says so, and QA still runs on the page alone', function () {
+  var r = qa.run(page(), { brief: '???', workTypeId: 'new-page' });
+  assert.strictEqual(r.comparison.unreadable, true);
+  assert.ok(/nothing here was checked/.test(cat(r, 'body').note || ''));
+});
+
+test('54. a brief for a job with no page to read says so, and QA still runs on the page', function () {
+  var r = qa.run(page(), { brief: 'https://www.kone.es/a\thttps://www.kone.es/b', workTypeId: 'redirect' });
+  assert.strictEqual(r.comparison.supported, false);
+  assert.strictEqual(r.categories.length, 5);
+});
+
+test('55. without a brief there is no comparison at all', function () {
+  assert.strictEqual(qa.run(page()).comparison, null);
+});
+
+// ─── The site registry ────────────────────────────────────────────────────
+
+test('56. config/sites.json and the in-code mirror are the same table', function () {
+  assert.deepStrictEqual(config.sites.countries, require('../compare.js').DEFAULT_SITES.countries);
+});
+
+test('57. every market carries confirmed and draft site names, and no name is both', function () {
+  Object.keys(config.sites.countries).forEach(function (name) {
+    var c = config.sites.countries[name];
+    assert.ok(Array.isArray(c.siteNames) && Array.isArray(c.siteNamesDraft), name);
+    c.siteNames.forEach(function (n) { assert.ok(c.siteNamesDraft.indexOf(n) === -1, name + ': ' + n); });
+  });
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

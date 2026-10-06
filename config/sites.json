@@ -1,0 +1,400 @@
+{
+  "version": 1,
+  "note": "The KONE site registry: one entry per country site (or language variant of one). domain and langPath identify a page's market — kone.be, kone.ch and kone.ca carry two languages each and are told apart by the first path segment; a preview host (preview.kone.es) resolves to the same market as its live one. formAssemblyId is the FormAssembly form every page on that site is expected to carry (read from the page's 'var digitalData' script); a market with no formAssemblyId is not form-checked. siteNames are the confirmed 'KONE <name>' site names a page title may end in, in the market's own spelling — a title ending in one scores green. siteNamesDraft are unconfirmed spellings: a title using one scores amber, never red, until it is moved into siteNames. pageOverrides lets a campaign/landing page carry its own form id; match is a path prefix.",
+  "countries": {
+    "Germany": {
+      "domain": "kone.de",
+      "formAssemblyId": "924",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Deutschland"
+      ]
+    },
+    "Austria": {
+      "domain": "kone.at",
+      "formAssemblyId": "770",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Österreich"
+      ]
+    },
+    "Switzerland (DE)": {
+      "domain": "kone.ch",
+      "langPath": "de",
+      "formAssemblyId": "925",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Schweiz"
+      ]
+    },
+    "Switzerland (FR)": {
+      "domain": "kone.ch",
+      "langPath": "fr",
+      "formAssemblyId": "926",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Suisse"
+      ]
+    },
+    "Poland": {
+      "domain": "kone.pl",
+      "formAssemblyId": "1145",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Polska"
+      ]
+    },
+    "Czech Republic": {
+      "domain": "kone.cz",
+      "formAssemblyId": "1148",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Česká republika"
+      ]
+    },
+    "Slovakia": {
+      "domain": "kone.sk",
+      "formAssemblyId": "1147",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Slovensko"
+      ]
+    },
+    "France": {
+      "domain": "kone.fr",
+      "formAssemblyId": "1489",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "France"
+      ]
+    },
+    "Belgium (FR)": {
+      "domain": "kone.be",
+      "langPath": "fr",
+      "formAssemblyId": "754",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Belgique"
+      ]
+    },
+    "Belgium (NL)": {
+      "domain": "kone.be",
+      "langPath": "nl",
+      "formAssemblyId": "753",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "België"
+      ]
+    },
+    "Great Britain": {
+      "domain": "kone.co.uk",
+      "formAssemblyId": "739",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "UK",
+        "United Kingdom"
+      ]
+    },
+    "Ireland": {
+      "domain": "kone.ie",
+      "formAssemblyId": "794",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Ireland"
+      ]
+    },
+    "Netherlands": {
+      "domain": "kone.nl",
+      "formAssemblyId": "810",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Nederland"
+      ]
+    },
+    "Spain": {
+      "domain": "kone.es",
+      "formAssemblyId": "758",
+      "siteNames": [
+        "España"
+      ],
+      "siteNamesDraft": []
+    },
+    "Portugal": {
+      "domain": "kone.pt",
+      "formAssemblyId": "777",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Portugal"
+      ]
+    },
+    "Italy": {
+      "domain": "kone.it",
+      "formAssemblyId": "733",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Italia"
+      ]
+    },
+    "Sweden": {
+      "domain": "kone.se",
+      "formAssemblyId": "695",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Sverige"
+      ]
+    },
+    "Finland": {
+      "domain": "kone.fi",
+      "formAssemblyId": "761",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Suomi"
+      ]
+    },
+    "Denmark": {
+      "domain": "kone.dk",
+      "formAssemblyId": "780",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Danmark"
+      ]
+    },
+    "Norway": {
+      "domain": "kone.no",
+      "formAssemblyId": "782",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Norge"
+      ]
+    },
+    "Estonia": {
+      "domain": "kone.ee",
+      "formAssemblyId": "877",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Eesti"
+      ]
+    },
+    "Latvia": {
+      "domain": "kone.lv",
+      "formAssemblyId": "874",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Latvija"
+      ]
+    },
+    "Lithuania": {
+      "domain": "kone.lt",
+      "formAssemblyId": "878",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Lietuva"
+      ]
+    },
+    "Iceland": {
+      "domain": "kone.is",
+      "formAssemblyId": "17",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Ísland"
+      ]
+    },
+    "United States": {
+      "domain": "kone.us",
+      "formAssemblyId": "1488",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "USA",
+        "United States"
+      ]
+    },
+    "Canada (EN)": {
+      "domain": "kone.ca",
+      "langPath": "en",
+      "formAssemblyId": "779",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Canada"
+      ]
+    },
+    "Canada (FR)": {
+      "domain": "kone.ca",
+      "langPath": "fr",
+      "formAssemblyId": "778",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Canada"
+      ]
+    },
+    "India": {
+      "domain": "kone.in",
+      "formAssemblyId": "1490",
+      "siteNames": [
+        "India"
+      ],
+      "siteNamesDraft": []
+    },
+    "UAE": {
+      "domain": "kone.ae",
+      "formAssemblyId": "752",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "UAE",
+        "United Arab Emirates"
+      ]
+    },
+    "Bahrain": {
+      "domain": "kone.bh",
+      "formAssemblyId": "821",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Bahrain"
+      ]
+    },
+    "Egypt": {
+      "domain": "kone.eg",
+      "formAssemblyId": "818",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Egypt"
+      ]
+    },
+    "Kuwait": {
+      "domain": "kone.com.kw",
+      "formAssemblyId": "1143",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Kuwait"
+      ]
+    },
+    "Oman": {
+      "domain": "kone.om",
+      "formAssemblyId": "820",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Oman"
+      ]
+    },
+    "Qatar": {
+      "domain": "kone.qa",
+      "formAssemblyId": "819",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Qatar"
+      ]
+    },
+    "Saudi Arabia": {
+      "domain": "kone.sa",
+      "formAssemblyId": "817",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Saudi Arabia"
+      ]
+    },
+    "Turkey": {
+      "domain": "kone.com.tr",
+      "formAssemblyId": "786",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Türkiye"
+      ]
+    },
+    "Kenya": {
+      "domain": "kone.co.ke",
+      "formAssemblyId": "846",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Kenya"
+      ]
+    },
+    "Morocco": {
+      "domain": "kone.ma",
+      "formAssemblyId": "845",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Maroc"
+      ]
+    },
+    "South Africa": {
+      "domain": "kone.co.za",
+      "formAssemblyId": "791",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "South Africa"
+      ]
+    },
+    "Tunisia": {
+      "domain": "kone.tn",
+      "formAssemblyId": "1054",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Tunisie"
+      ]
+    },
+    "Uganda": {
+      "domain": "kone.ug",
+      "formAssemblyId": "847",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Uganda"
+      ]
+    },
+    "Singapore": {
+      "domain": "kone.sg",
+      "formAssemblyId": "784",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Singapore"
+      ]
+    },
+    "Indonesia": {
+      "domain": "kone.co.id",
+      "formAssemblyId": "814",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Indonesia"
+      ]
+    },
+    "Vietnam": {
+      "domain": "kone.vn",
+      "formAssemblyId": "788",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Việt Nam",
+        "Vietnam"
+      ]
+    },
+    "Malaysia": {
+      "domain": "kone.my",
+      "formAssemblyId": "830",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Malaysia"
+      ]
+    },
+    "Thailand": {
+      "domain": "kone.co.th",
+      "formAssemblyId": "832",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Thailand"
+      ]
+    },
+    "Philippines": {
+      "domain": "kone.ph",
+      "formAssemblyId": "785",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Philippines"
+      ]
+    },
+    "Slovenia": {
+      "domain": "kone.si",
+      "siteNames": [
+        "Slovenija"
+      ],
+      "siteNamesDraft": []
+    }
+  },
+  "pageOverrides": []
+}
