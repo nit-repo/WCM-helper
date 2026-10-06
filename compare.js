@@ -116,6 +116,17 @@
     return host.toLowerCase().replace(/^www\./, '');
   }
 
+  // A link into the CME editor rather than to a published page. The first
+  // pattern this shipped with matched neither real CME URL: the new UI opens
+  // web-cms.kone.com/ui/editor/page?activeItem=…, the old one
+  // web-cms.kone.com/WebUI/item.aspx?tcm=…, so the defect it exists to catch
+  // went unreported on both.
+  var DEFAULT_EDITOR_LINK = 'web-cms\\.kone\\.com|/ui/editor/(item|page)\\?|/WebUI/item\\.aspx';
+
+  function editorLinkRe(cfg) {
+    return new RegExp((cfg && cfg.editorLinkPattern) || DEFAULT_EDITOR_LINK, 'i');
+  }
+
   // ─── ASSET IDENTITY ──────────────────────────────────────────────────────
   // A brief names an asset ("KONE_Feat_Handrail_B_Landscape-004"); the page
   // carries a DAM or Scene7 embed URL that may be cropped, renamed with a
@@ -386,8 +397,21 @@
   function digitalDataIn(html) {
     var sm = /<script\b[^>]*>([\s\S]*?var\s+digitalData\s*=[\s\S]*?)<\/script>/i.exec(html);
     if (!sm) return null;
-    var idm = /FormAssemblyId["']?\s*:\s*["']?([\w.-]+)/i.exec(sm[1]);
-    return idm ? { formAssemblyId: idm[1] } : null;
+    function field(name) {
+      var m = new RegExp(name + '["\']?\\s*:\\s*["\']([^"\']*)["\']', 'i').exec(sm[1]) ||
+        new RegExp(name + '["\']?\\s*:\\s*([\\w.-]+)', 'i').exec(sm[1]);
+      return m && m[1] !== '' ? m[1] : null;
+    }
+    // The same script also states the page's indexing intent, which QA
+    // checks against the page's own <meta name="robots">. Every key may be
+    // absent; a script with none of them is still reported as present.
+    return {
+      formAssemblyId: field('FormAssemblyId'),
+      pageID: field('pageID'),
+      pageType: field('pageType'),
+      indexOptions: field('indexOptions'),
+      followLinksOptions: field('followLinksOptions')
+    };
   }
 
   // The one place a location string is built. What is stable lives in the
@@ -1021,8 +1045,7 @@
       // A link into the CME, or an unpublished author path, is a defect the
       // comparer reports on this very page. Briefing it would be asking the
       // next page to reproduce the bug.
-      var editor = (cfg && cfg.editorLinkPattern) || '/ui/editor/item\\?item=';
-      if (new RegExp(editor, 'i').test(href)) return;
+      if (editorLinkRe(cfg).test(href)) return;
       if (/^https?:\/\/[^/]*author|\/content\//i.test(href)) return;
       var key = pathOf(href);
       if (!key || seen[key]) return;
@@ -1585,8 +1608,7 @@
       }
       // The Tridion twin of the same defect: a link into the CME editor,
       // authored into body copy where a document link belongs.
-      var editor = (cfg && cfg.editorLinkPattern) || '/ui/editor/item\\?item=';
-      if (new RegExp(editor, 'i').test(l.href)) {
+      if (editorLinkRe(cfg).test(l.href)) {
         out.push(at({
           expected: null, found: l.href,
           note: 'this links into the CMS editor, not to a published page — an author pasted a CME URL',
@@ -1922,7 +1944,9 @@
     // the same mechanism categories[0].rows already uses for Metadata — so
     // the found id and its country are on screen whether this is clean,
     // wrong, or never checked at all.
-    var cat = { id: 'formId', label: 'Form Assembly ID', deviations: [], rows: [f.row] };
+    // neutral: the expected id comes from config/form-ids.json, not the
+    // brief, so the renderer must not label it "Brief".
+    var cat = { id: 'formId', label: 'Form Assembly ID', deviations: [], rows: [f.row], neutral: true };
     if (!f.checked) { cat.note = f.note; return cat; }
     if (f.severity) cat.deviations.push({ severity: f.severity, note: f.note, expected: f.expected, found: f.found });
     return cat;
@@ -2182,6 +2206,9 @@
       // without a brief: pass expect: null to resolve the country from the
       // page's own domain alone.
       formIdFinding: function (expect, page) { return formIdFinding(expect, page, formIdCfg); },
+      // Every finding the page carries about itself, with no brief at all —
+      // QA starts from these rather than re-implementing any of them.
+      pageOnlyCategories: function (page) { return pageOnlyCategories(page, cfg); },
       // Analyse mode's equivalent, with no page to check against at all —
       // see suggestFormId's own comment for why it is a separate function.
       suggestFormId: function (marketName) { return suggestFormId(marketName, formIdCfg); },

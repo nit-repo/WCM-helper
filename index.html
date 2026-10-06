@@ -343,7 +343,7 @@
     ul.ledger-rows > li.check .ledger-where { font-weight: 600; }
     .ledger-text { margin: 2px 0 0; font-size: 13px; }
     .dev-line { margin-top: 4px; font-size: 13px; }
-    .dev-line b { color: var(--black-60); font-weight: 600; display: inline-block; min-width: 62px; }
+    .dev-line b { color: var(--black-60); font-weight: 600; display: inline-block; min-width: 62px; margin-right: 10px; }
     .dev-line span { color: var(--black); }
     section.card.dirty { border-left: 4px solid var(--amber); }
     .region-note { font-size: 12px; color: var(--black-60); margin: 0 0 16px; }
@@ -504,13 +504,14 @@
       <button class="tab" id="tab-compare" role="tab" aria-selected="false" type="button">Compare</button>
       <button class="tab" id="tab-fill" role="tab" aria-selected="false" type="button">Fill</button>
       <button class="tab" id="tab-brief" role="tab" aria-selected="false" type="button">Brief</button>
+      <button class="tab" id="tab-qa" role="tab" aria-selected="false" type="button">QA</button>
     </nav>
   </aside>
 
   <div class="workspace">
   <main>
     <div class="pane-input">
-      <section class="card">
+      <section class="card" id="brief-card">
       <h3>Brief</h3>
       <textarea id="brief" placeholder="Paste the brief here — a ticket, an email, a spreadsheet of URLs, a page of copy."></textarea>
 
@@ -536,6 +537,7 @@
         <p class="field-label">Page HTML</p>
         <textarea id="html" placeholder="Paste the built page's source here — View Source, select all, paste."></textarea>
         <div class="input-actions">
+          <button id="qa-btn" class="btn-primary" type="button" hidden disabled>Run QA</button>
           <button id="html-upload-btn" class="btn-ghost" type="button">Upload .html</button>
           <button id="html-clear-btn" class="btn-ghost" type="button">Clear HTML</button>
           <input type="file" id="html-file" accept=".html,.htm,.txt" hidden>
@@ -596,14 +598,15 @@
        entry belonging to the old one. app.js reads the same value back out of
        its own src and shows it in the sidebar, so there is one string to bump
        and what it displays is necessarily the file that is running. -->
-  <script src="brief.js?v=2026-10-06a"></script>
-  <script src="engine.js?v=2026-10-06a"></script>
-  <script src="compare.js?v=2026-10-06a"></script>
-  <script src="readers.js?v=2026-10-06a"></script>
-  <script src="filler.js?v=2026-10-06a"></script>
-  <script src="page-model.js?v=2026-10-06a"></script>
-  <script src="mock-page.js?v=2026-10-06a"></script>
-  <script src="app.js?v=2026-10-06a"></script>
+  <script src="brief.js?v=2026-10-07a"></script>
+  <script src="engine.js?v=2026-10-07a"></script>
+  <script src="compare.js?v=2026-10-07a"></script>
+  <script src="readers.js?v=2026-10-07a"></script>
+  <script src="filler.js?v=2026-10-07a"></script>
+  <script src="page-model.js?v=2026-10-07a"></script>
+  <script src="mock-page.js?v=2026-10-07a"></script>
+  <script src="qa.js?v=2026-10-07a"></script>
+  <script src="app.js?v=2026-10-07a"></script>
 </body>
 
 </html>

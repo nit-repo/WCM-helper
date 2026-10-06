@@ -1855,7 +1855,26 @@ function pageWith(canonical, script) {
 
 test('137. digitalDataIn reads the real FormAssemblyId out of the script, verbatim', function () {
   var page = comparer.readPage(pageWith('https://www.kone.es/contacto/', DIGITALDATA_SCRIPT));
-  assert.deepStrictEqual(page.digitalData, { formAssemblyId: '758' });
+  assert.deepStrictEqual(page.digitalData, {
+    formAssemblyId: '758', pageID: '17685', pageType: 'Generic Page',
+    indexOptions: 'INDEX', followLinksOptions: 'FOLLOW'
+  });
+});
+
+test('137b. a digitalData script with no FormAssemblyId is still read, its id null', function () {
+  var script = '<script>var digitalData = { page: { pageInfo: { "indexOptions": "NOINDEX" } } };</script>';
+  var page = comparer.readPage(pageWith('https://www.kone.es/contacto/', script));
+  assert.strictEqual(page.digitalData.formAssemblyId, null);
+  assert.strictEqual(page.digitalData.indexOptions, 'NOINDEX');
+});
+
+test('137c. a link into the CME is caught in both real URL shapes, new UI and old', function () {
+  ['https://web-cms.kone.com/ui/editor/page?activeItem=tcm:117-17589-64&item=tcm:117-17589-64&tab=general.constraints',
+   'https://web-cms.kone.com/WebUI/item.aspx?tcm=64#id=tcm:117-17589-64'].forEach(function (cme) {
+    var html = page({ main: CLEAN_MAIN + '<p><a href="' + cme + '">the brochure</a></p>' });
+    var r = comparer.compare(BRIEF, html, { workTypeId: 'new-page' });
+    assert.ok(/CMS editor/.test(textOf(cat(r, 'links'))), 'missed ' + cme);
+  });
 });
 
 test('138. digitalDataIn returns null on a page with no digitalData script at all', function () {

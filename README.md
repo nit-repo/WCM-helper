@@ -114,6 +114,24 @@ Writing the generator turned up three faults in extraction that had been quietly
 
 **Component-mapped field tables.** The plain draft above is what Compare actually reads, untouched. Alongside it, the results pane shows the same page read a second way — through the shared model Fill's Mock page already uses — laid out the way a person writes a Tridion content brief by hand: one card per component, headed by how it was identified (`HeroBanner (Component Field marker)` on a CMS preview page, `HeroBanner (.hero-banner-wrapper › CSS-class match)` on a live one, or `hero (read from page structure — no named component identified)` on a page with neither, from `config/tridion-taxonomy.json`'s real component/field-slot data), a Field slot | Content table in the component's own documented order, an image placeholder wherever it carries one, and any quoted text flagged *do not paraphrase*. Content that fits no documented slot — a stat row or a bullet list built from bare `<div>`s, which no `<p>`/`<li>`-only reading ever sees — is never dropped or forced into the wrong field: it lands in its own **Unmapped content** block, always shown. An **Open items** section below it collects both the component-placement failures and any literal `to be aligned with KONE`/`to confirm`/`TBD`-style note already in the text, never invented. Verified against a real eleven-page agency mockup the tool has never seen a KONE class name or Tridion marker in — the generic tier that makes this work on any pasted page, not only KONE's own markup.
 
+## QA
+
+Compare asks whether a page matches its brief. QA asks the other question a release needs: **is this page sound on its own?** Paste or upload the page's HTML (or capture it with the bookmarklet while the QA tab is open) and hit **Run QA** — no brief.
+
+The results follow the WCM Page QA Framework's own layout:
+
+- **The page itself, first.** Its environment, read off the canonical host — Tridion preview, AEM author preview, or production, and "unknown" when there is no canonical rather than assuming live. Its **TCM ID** from `<meta name="pagetcmid">`, with links that open it straight in the CME, new UI and old (patterns in `config/work-types.json` under `qa.cme`), and a copy button. Its market and language.
+- **The framework's five categories** — Metadata, Body text, Images, Hyperlinks, Structure. Every finding the page makes about itself that Compare already knew (placeholder links, dead CTAs, CME and author links, images with no alt, a field published empty, duplicate headings, the Form Assembly ID for the market) plus the framework's must-haves: robots against the `digitalData` object's own INDEX/FOLLOW, title duplication, links and resources pointing at preview, staging or CMS hosts, mixed content on an `https` page, hreflang (missing, invalid, repeated, or not pointing back at the page), exactly one visible H1 counted across the whole document rather than only the main region, and link text a screen reader can use — "Leer más" and an icon link with no alt are both caught, in six languages.
+- **Known template issues, kept apart.** The framework's own list of defects a template causes on every page — a doubled `- KONE India` title suffix, an empty keywords tag, an `.aspx` canonical, robots disagreeing with `digitalData` — are listed in their own card and never counted against the page. A page is not failed for its template.
+
+Metadata always shows what the page carries — title, `og:title`, description, canonical, robots, the `digitalData` indexing values, hreflang — whether anything is wrong with it or not. A category QA cannot judge from the page alone says so instead of reading "No deviations": body copy is checked against a brief, in Compare, so on a page with no Tridion field markers Body text states that nothing was checked.
+
+A preview build is read as one. `noindex` is expected there and stays silent; links to preview hosts are expected too, and QA says to run it on the live page rather than flagging each one.
+
+**Building it turned up a bug in Compare.** The check for a link pasted straight from the CME only recognised `/ui/editor/item?item=`. Neither real CME URL matches that — the new UI is `web-cms.kone.com/ui/editor/page?activeItem=…`, the old one `web-cms.kone.com/WebUI/item.aspx?tcm=…` — so the defect it exists to catch went unreported on both. It now recognises all three.
+
+QA does not fetch anything. Live status, SSL and site crawling come with the backend, in a later pass; until then the page arrives by paste, upload or bookmarklet, the same as everywhere else in the tool.
+
 ## Fill
 
 Localizing in Tridion means opening each component, reading the English master in the field, and finding that row in a brief that may run to a hundred rows. The finding is the slow part. Paste the English you are looking at and the Fill tab returns the localized text on a Copy button, plus the whole brief as a worklist you can tick down — progress is remembered per brief.
@@ -232,7 +250,7 @@ A missing row is placed by the rows around it that did match — the nearest loc
 ## Structure
 
 ```
-index.html                    UI, four tabs — Analyse, Compare, Fill, Brief
+index.html                    UI, five tabs — Analyse, Compare, Fill, Brief, QA
 app.js                        renders what the modules return — no analysis of its own
 brief.js                      one parse shared by the others: rows, sections, markets, target
 engine.js                     classify → detect CMS → check needs → return steps
@@ -241,16 +259,18 @@ filler.js                     find the row from its English master → carry the
 readers.js                    .docx / .xlsx / .csv → text, with no dependencies
 page-model.js                 one neutral component model, from a brief or from a page
 mock-page.js                  draws the page-model.js model as a sandboxed HTML preview
+qa.js                         QA a page on its own: the framework's must-have checks, no brief
 config/work-types.json        the six playbooks, the compare settings, the market list
 config/mock-components.json   the render-type vocabulary page-model.js infers components into
 config/tridion-taxonomy.json  real Tridion component names → their documented field slots
 test/brief.test.js            22 cases, the shared parse alone
 test/engine.test.js           53 cases, fixtures are real briefs
-test/compare.test.js          144 cases, deviations planted one per category,
+test/compare.test.js          160 cases, deviations planted one per category,
                                plus excerpts of real KONE pages as fixtures
 test/readers.test.js          10 cases, run against real ZIP bytes
 test/filler.test.js           26 cases, including markup that must never be guessed
 test/page-model.test.js       48 cases, including a real agency mockup with no Tridion markup at all
 test/mock-page.test.js        26 cases, safety-first: escaping, hrefs, no external requests
+test/qa.test.js               35 cases, the real Slovenia preview and Italian landing pages among them
 serve.js                      local static server
 ```

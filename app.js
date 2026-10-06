@@ -20,7 +20,7 @@
   function buildTag() { return BUILD; }
 
   var state = {
-    engine: null, comparer: null, filler: null, pageModel: null, mockPage: null,
+    engine: null, comparer: null, filler: null, pageModel: null, mockPage: null, qa: null,
     analysis: null, mode: 'analyse', market: null, fillView: 'lookup'
   };
 
@@ -58,7 +58,11 @@
     fillViewLookup: document.getElementById('fill-view-lookup'),
     fillViewMock: document.getElementById('fill-view-mock'),
     fillLookupFields: document.getElementById('fill-lookup-fields'),
-    fillMockFields: document.getElementById('fill-mock-fields')
+    fillMockFields: document.getElementById('fill-mock-fields'),
+    tabQa: document.getElementById('tab-qa'),
+    qaBtn: document.getElementById('qa-btn'),
+    briefCard: document.getElementById('brief-card'),
+    settingsCard: document.getElementById('settings-card')
   };
 
   // ─── MOTION ──────────────────────────────────────────────────────────────
@@ -177,6 +181,13 @@
   function acceptCapture(data) {
     if (!data || data.type !== 'WCM_PAGE_CAPTURE' || typeof data.html !== 'string') return;
     el.html.value = data.html;
+    // A capture made while QA is open is for QA: stay there and run it,
+    // rather than dropping the user back into Compare.
+    if (state.mode === 'qa') {
+      runQa();
+      toast('Captured ' + shortHost(data.url) + ' — QA run on it.');
+      return;
+    }
     setMode('compare');
     toast('Captured ' + shortHost(data.url) + ' — brief kept, ready to Compare.');
   }
@@ -235,6 +246,7 @@
       var comparerConfig = { 'work-types': workTypes };
       if (formIds) comparerConfig['form-ids'] = formIds;
       state.comparer = window.BriefCompare.create(comparerConfig);
+      state.qa = window.BriefQA.create(comparerConfig);
       // Unwrapped, unlike engine/compare above — Filler.create passes this
       // straight to Brief.parse, which reads config.markets.list directly.
       state.filler = window.BriefFiller.create(workTypes);
@@ -250,6 +262,7 @@
       });
       el.analyse.disabled = false;
       el.compareBtn.disabled = false;
+      el.qaBtn.disabled = false;
       el.fillBtn.disabled = false;
       el.briefgenBtn.disabled = false;
     })
@@ -315,6 +328,8 @@
   el.fillViewLookup.addEventListener('click', function () { setFillView('lookup'); });
   el.fillViewMock.addEventListener('click', function () { setFillView('mock'); });
   el.tabBrief.addEventListener('click', function () { setMode('brief'); });
+  el.tabQa.addEventListener('click', function () { setMode('qa'); });
+  el.qaBtn.addEventListener('click', runQa);
   el.briefgenBtn.addEventListener('click', runBriefGen);
   el.marketSelect.addEventListener('change', function () {
     state.market = el.marketSelect.value;
@@ -357,15 +372,20 @@
     el.tabCompare.setAttribute('aria-selected', String(mode === 'compare'));
     el.tabFill.setAttribute('aria-selected', String(mode === 'fill'));
     el.tabBrief.setAttribute('aria-selected', String(mode === 'brief'));
+    el.tabQa.setAttribute('aria-selected', String(mode === 'qa'));
 
     el.analyse.hidden = mode !== 'analyse';
     el.compareBtn.hidden = mode !== 'compare';
     el.fillBtn.hidden = mode !== 'fill';
     el.briefgenBtn.hidden = mode !== 'brief';
+    el.qaBtn.hidden = mode !== 'qa';
     // Brief mode reads the page and writes into the brief box, so it needs
     // the page card on screen too — and the brief box is its output, which is
     // what makes the draft editable and Compare ready to run straight after.
-    el.compareInput.hidden = mode !== 'compare' && mode !== 'brief';
+    el.compareInput.hidden = mode !== 'compare' && mode !== 'brief' && mode !== 'qa';
+    // QA reads the page alone: no brief, and none of the brief's settings.
+    el.briefCard.hidden = mode === 'qa';
+    if (el.settingsCard) el.settingsCard.hidden = mode === 'qa';
     el.fillInput.hidden = mode !== 'fill';
     el.copy.hidden = mode !== 'analyse';
 
@@ -376,6 +396,7 @@
     if (mode === 'compare') renderCompareEmpty();
     else if (mode === 'fill') runFill(true);
     else if (mode === 'brief') renderBriefGenEmpty();
+    else if (mode === 'qa') renderQaEmpty();
     else renderEmpty();
   }
 
@@ -606,14 +627,18 @@
   // What the page actually carries, listed whether or not the brief mentions
   // it. An author asked to see the meta title, page name and path on every
   // run — a blank Metadata block tells them nothing about the page.
-  function renderRows(rows) {
+  // neutral: the rows were judged against an expected value, not a brief —
+  // QA and Brief mode have no brief, and saying so would be false.
+  function renderRows(rows, neutral) {
     if (!rows || !rows.length) return '';
     var STATE = {
-      'matches': ['ok', 'matches the brief'],
-      'differs': ['bad', 'differs from the brief'],
+      'matches': ['ok', neutral ? 'matches the expected value' : 'matches the brief'],
+      'differs': ['bad', neutral ? 'differs from the expected value' : 'differs from the brief'],
       'missing': ['bad', 'not on the page'],
       'not-in-brief': ['idle', 'not defined in the brief'],
-      'not-checked': ['idle', 'market could not be determined']
+      'not-checked': ['idle', 'market could not be determined'],
+      'present': ['ok', 'on the page'],
+      'absent': ['idle', 'not on the page']
     };
     return '<table class="meta-rows">' + rows.map(function (r) {
       var s = STATE[r.state] || ['idle', r.state];
@@ -676,7 +701,7 @@
   }
 
   function renderCategory(c) {
-    var rows = renderRows(c.rows);
+    var rows = renderRows(c.rows, c.neutral);
     var ledger = renderLedger(c);
 
     if (!c.deviations.length) {
@@ -704,7 +729,7 @@
       if (d.componentId) refs.push(d.componentId);
       if (d.anchor) refs.push(d.anchor);
       if (refs.length) lines += '<p class="dev-ref">' + esc(refs.join('  ·  ')) + '</p>';
-      if (d.expected) lines += '<p class="dev-line"><b>Brief</b><span>' + esc(d.expected) + '</span></p>';
+      if (d.expected) lines += '<p class="dev-line"><b>' + (c.neutral ? 'Expected' : 'Brief') + '</b><span>' + esc(d.expected) + '</span></p>';
       if (d.found) lines += '<p class="dev-line"><b>Page</b><span>' + esc(d.found) + '</span></p>';
       return '<li class="' + (check ? 'check' : 'break') + '">' + lines + '</li>';
     }).join('');
@@ -811,8 +836,79 @@
     var note = !formId.checked ? '<p class="note warn">' + esc(formId.note) + '</p>'
       : formId.severity ? '<p class="dev-note"><span class="sev-tag break">break</span>' + esc(formId.note) + '</p>'
       : '<p class="clean">No deviations.</p>';
-    return section('Form Assembly ID', note + renderRows([formId.row]));
+    return section('Form Assembly ID', note + renderRows([formId.row], true));
   }
+
+  // ─── QA ──────────────────────────────────────────────────────────────────
+  // The page on its own, no brief: is it sound by itself? Grouped under the
+  // QA framework's five categories, with the template's own known defects
+  // kept apart so a page is never failed for its template.
+
+  function renderQaEmpty() {
+    el.output.innerHTML =
+      '<div class="empty-state"><p>Paste the built page\'s HTML — or capture it with the bookmarklet — ' +
+      'then hit <strong>Run QA</strong>. No brief needed.</p>' +
+      '<p>It checks the page on its own, under the QA framework\'s five categories: metadata (title ' +
+      'duplication, robots against digitalData, hreflang, a single H1), images, hyperlinks (placeholder, ' +
+      'CME and staging links, link text a screen reader can use, mixed content) and structure (the Form ' +
+      'Assembly ID for the market). The page\'s TCM ID comes back with links to open it in the CME.</p>' +
+      '<p>Known template issues — the kind every page on a template shares — are listed apart and never ' +
+      'counted against the page.</p></div>';
+  }
+
+  function runQa() {
+    var html = el.html.value.trim();
+    if (!html) {
+      el.output.innerHTML = section('Nothing to check',
+        '<p class="note warn">Paste the built page\'s HTML first, or capture it with the bookmarklet.</p>');
+      return;
+    }
+    renderQa(state.qa.run(html));
+  }
+
+  function factLine(label, value) {
+    return '<p class="dev-line"><b>' + esc(label) + '</b><span>' + value + '</span></p>';
+  }
+
+  function renderQa(r) {
+    var f = r.facts;
+    var tcm = f.tcmId
+      ? esc(f.tcmId) +
+        ' · <a href="' + esc(f.cmeNewUi) + '" target="_blank" rel="noopener noreferrer">Open in CME</a>' +
+        ' · <a href="' + esc(f.cmeOldUi) + '" target="_blank" rel="noopener noreferrer">old UI</a>' +
+        ' · <button type="button" class="btn-ghost qa-copy" data-copy="' + esc(f.tcmId) + '">Copy</button>'
+      : '<i>' + (f.tcmRaw ? 'not a TCM ID: ' + esc(f.tcmRaw) : 'no pagetcmid on the page') + '</i>';
+    var lang = f.lang || f.dataLang
+      ? esc(f.lang || '—') + (f.dataLang ? ' (template data-lang ' + esc(f.dataLang) + ')' : '')
+      : '<i>not declared</i>';
+
+    var facts = section('Page',
+      '<p class="headline">' + esc(f.environment.label) + '</p>' +
+      '<p class="sub">' + esc(f.environment.why) + '</p>' +
+      factLine('Canonical', f.canonical ? esc(f.canonical) : '<i>none on the page</i>') +
+      factLine('TCM ID', tcm) +
+      factLine('Market', f.market ? esc(f.market) : '<i>could not be determined</i>') +
+      factLine('Language', lang));
+
+    var tally = r.breaks + r.checks
+      ? '<p class="tally"><b>' + r.breaks + '</b> to fix, <b>' + r.checks + '</b> to check by eye.</p>'
+      : '<p class="coverage ok">Nothing to fix on this page from the checks QA runs.</p>';
+
+    var region = '<p class="region-note">Read the page content from: ' + esc(r.regionVia || 'the page body') + '</p>';
+
+    var known = r.knownIssues.length
+      ? renderCategory({ id: 'known', label: 'Known template issues — not counted against the page',
+          deviations: r.knownIssues, neutral: true })
+      : section('Known template issues', '<p class="clean">None found.</p>');
+
+    el.output.innerHTML = facts + tally + region +
+      r.categories.map(function (c) { c.neutral = true; return renderCategory(c); }).join('') + known;
+  }
+
+  el.output.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.qa-copy');
+    if (btn) copyPlain(btn.getAttribute('data-copy'));
+  });
 
   // ─── BRIEF MODE DEPTH — component-mapped field tables ──────────────────
   // A second reading of the same page, through page-model.js's shared
