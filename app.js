@@ -220,12 +220,21 @@
     // localized text" behaviour, which does not need it at all.
     fetch('config/mock-components.json?v=' + buildTag())
       .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; }),
+    // Same nice-to-have shape: compare.js carries its own in-code mirror of
+    // this table, so a missing or broken copy only means the Form Assembly
+    // ID check runs on stale/incomplete country data, never that Compare or
+    // Brief mode stop working.
+    fetch('config/form-ids.json?v=' + buildTag())
+      .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; })
   ])
     .then(function (results) {
-      var workTypes = results[0], mockComponents = results[1];
+      var workTypes = results[0], mockComponents = results[1], formIds = results[2];
       state.engine = window.BriefEngine.create({ 'work-types': workTypes });
-      state.comparer = window.BriefCompare.create({ 'work-types': workTypes });
+      var comparerConfig = { 'work-types': workTypes };
+      if (formIds) comparerConfig['form-ids'] = formIds;
+      state.comparer = window.BriefCompare.create(comparerConfig);
       // Unwrapped, unlike engine/compare above — Filler.create passes this
       // straight to Brief.parse, which reads config.markets.list directly.
       state.filler = window.BriefFiller.create(workTypes);
@@ -381,8 +390,22 @@
       workTypeOverride: el.type.value || null,
       marketOverride: state.market
     });
+    state.analysis.formIdSuggestion = formIdSuggestionFor(text, state.market);
     el.copy.disabled = state.analysis.questions.length === 0;
     render(state.analysis);
+  }
+
+  // There is no page here, only the question "what should this market's
+  // pages carry." Fires only when the brief both declares a resolvable
+  // Market row and carries a Form component — otherwise there is nothing
+  // real to suggest, and it stays silent rather than guessing either half.
+  function formIdSuggestionFor(text, marketOverride) {
+    var model = state.pageModel.build(text, { market: marketOverride });
+    var market = model.page.market;
+    if (!market) return null;
+    var hasForm = model.components.some(function (c) { return c.type === 'form'; });
+    if (!hasForm) return null;
+    return state.comparer.suggestFormId(market);
   }
 
   // ─── RENDER ──────────────────────────────────────────────────────────────
@@ -393,8 +416,20 @@
       renderNeeds(a),
       renderRowQuality(a),
       renderSteps(a),
-      renderMissing(a)
+      renderMissing(a),
+      renderFormIdSuggestion(a)
     ].join('');
+  }
+
+  // A suggestion, never a check — Analyse has no real page to compare
+  // against, so this only ever names the id that market's pages should
+  // carry, for the author to verify once the page exists.
+  function renderFormIdSuggestion(a) {
+    var s = a.formIdSuggestion;
+    if (!s) return '';
+    return section('Form Assembly ID',
+      '<p class="note">This brief declares a Form component for ' + esc(s.market) +
+      ' — pages in that market are expected to carry Form Assembly ID ' + esc(s.formAssemblyId) + '.</p>');
   }
 
   function renderType(a) {
@@ -742,6 +777,12 @@
     // the same page through the shared model, purely for this report.
     var model = state.pageModel.buildFromPage(html);
 
+    // No brief exists in this mode, so the Form Assembly ID check can only
+    // resolve the page's market from its own canonical domain — the same
+    // check Compare runs, called directly since there is no brief category
+    // list here for it to ride along in.
+    var formId = state.comparer.formIdFinding(null, state.comparer.readPage(html));
+
     el.output.innerHTML =
       section('Drafted from the page',
         '<p class="coverage short">The draft is in the Brief box — edit it, then switch to Compare.</p>' +
@@ -753,9 +794,28 @@
               return '<li class="check"><p class="dev-note"><span class="sev-tag check">check</span>' + g + '</p></li>';
             }).join('') + '</ul>')
         : '') +
+      renderFormIdCheck(formId) +
       renderBriefFieldTables(model) +
       renderOpenItems(model);
     toast('Brief drafted from the page — it is in the Brief box.');
+  }
+
+  // A page-only reading of the same check Compare runs as its sixth
+  // category — no brief here, so no category list to ride along in, but
+  // the same three outcomes (not checked / clean / mismatch) apply.
+  function renderFormIdCheck(formId) {
+    if (!formId) return '';
+    if (!formId.checked) {
+      return section('Form Assembly ID', '<p class="note warn">' + esc(formId.note) + '</p>');
+    }
+    if (!formId.severity) {
+      return section('Form Assembly ID', '<p class="clean">No deviations.</p>');
+    }
+    return section('Form Assembly ID',
+      '<ul class="devs"><li class="break"><p class="dev-note"><span class="sev-tag break">break</span>' +
+      esc(formId.note) + '</p>' +
+      '<p class="dev-line"><b>Expected</b><span>' + esc(formId.expected) + '</span></p>' +
+      '<p class="dev-line"><b>Found</b><span>' + esc(formId.found) + '</span></p></li></ul>');
   }
 
   // ─── BRIEF MODE DEPTH — component-mapped field tables ──────────────────

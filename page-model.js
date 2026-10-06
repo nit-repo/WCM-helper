@@ -1356,6 +1356,11 @@
         description: expect.metadata.description || null,
         path: expect.metadata.canonical || null,
         keywords: expect.metadata.keywords || null,
+        // The brief's own declared Market row (e.g. "Italy") — distinct from
+        // the top-level market field above, which is the UI's column-select
+        // override for the fields-by-market/markets-by-field orientations
+        // and has nothing to do with a labelled brief's front matter.
+        market: expect.metadata.market || null,
         template: inferTemplate(result.components, templates)
       };
 

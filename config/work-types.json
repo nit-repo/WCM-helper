@@ -74,6 +74,7 @@
       "description": ["meta description", "meta tag", "meta description/meta tag"],
       "keywords": ["meta keywords", "keywords"],
       "canonical": ["url path", "url", "page url"],
+      "market": ["market"],
       "topic": ["blog topic", "blog topic/title", "topic", "h1"],
       "image": ["cover image", "image link", "hero image"],
       "links": ["internal links", "links"]

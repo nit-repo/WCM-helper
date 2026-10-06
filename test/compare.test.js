@@ -71,6 +71,12 @@ function page(parts) {
     '<meta name="description" content="' + (parts.description || 'Learn about the key safety features of modern high-rise elevators.') + '">' +
     '<meta name="keywords" content="elevator safety, high rise lifts">' +
     '<link rel="canonical" href="https://www.kone.in/blog/lift-safety-features">' +
+    // India's own expected Form Assembly ID, so every fixture built through
+    // this helper is clean on that axis too unless a test deliberately
+    // changes it — same idea as the clean metadata/images/links above.
+    '<script>var digitalData = { page: { pageInfo: {\n' +
+    '  "FormAssemblyId": "' + (parts.formAssemblyId === undefined ? '1490' : parts.formAssemblyId) + '"\n' +
+    '} } };</script>' +
     '</head><body>' + NAV + '<main>' + parts.main + '</main>' + FOOTER + '</body></html>';
 }
 
@@ -430,12 +436,12 @@ test('15. determinism — the same pair compares identically twice', function ()
   assert.deepStrictEqual(first, second);
 });
 
-test('16. all five categories are always reported, structure before body', function () {
+test('16. all six categories are always reported, structure before body, Form Assembly ID last', function () {
   var r = comparer.compare(BRIEF, CLEAN, { workTypeId: 'new-page' });
 
   assert.deepStrictEqual(
     r.categories.map(function (c) { return c.id; }),
-    ['metadata', 'structure', 'body', 'images', 'links']
+    ['metadata', 'structure', 'body', 'images', 'links', 'formId']
   );
 });
 
@@ -1821,6 +1827,130 @@ test('136. page.paragraphs reads body copy in place, with its offset', function 
   var offsets = page.paragraphs.map(function (p) { return p.at; });
   assert.deepStrictEqual(offsets.slice().sort(function (a, b) { return a - b; }), offsets,
     'in document order');
+});
+
+// ─── FORM ASSEMBLY ID ──────────────────────────────────────────────────
+
+var DIGITALDATA_SCRIPT =
+  '<script>\n' +
+  '    var digitalData = {\n' +
+  '        page : {\n' +
+  '            pageInfo : {\n' +
+  '  "FormAssemblyId": "758",\n' +
+  '  "pageID": "17685",\n' +
+  '  "pageType": "Generic Page",\n' +
+  '  "windowTitle": "Contacte con nosotros- KONE España",\n' +
+  '  "indexOptions": "INDEX",\n' +
+  '  "followLinksOptions": "FOLLOW"\n' +
+  '}\n' +
+  '            }\n' +
+  '    };\n' +
+  '</script>';
+
+function pageWith(canonical, script) {
+  return '<!DOCTYPE html><html><head><title>Contact</title>' +
+    '<link rel="canonical" href="' + canonical + '">' +
+    (script || '') + '</head><body><main><h1>Contact</h1><p>Contact us.</p></main></body></html>';
+}
+
+test('137. digitalDataIn reads the real FormAssemblyId out of the script, verbatim', function () {
+  var page = comparer.readPage(pageWith('https://www.kone.es/contacto/', DIGITALDATA_SCRIPT));
+  assert.deepStrictEqual(page.digitalData, { formAssemblyId: '758' });
+});
+
+test('138. digitalDataIn returns null on a page with no digitalData script at all', function () {
+  var page = comparer.readPage(pageWith('https://www.kone.es/contacto/'));
+  assert.strictEqual(page.digitalData, null);
+});
+
+test('139. formIdFinding matches a brief\'s declared Market against the page\'s real id', function () {
+  var brief = 'Market: Spain\nMeta Title: Contacto\n';
+  var expect = comparer.readBrief(brief, 'new-page');
+  var page = comparer.readPage(pageWith('https://www.kone.es/contacto/', DIGITALDATA_SCRIPT));
+  var f = comparer.formIdFinding(expect, page);
+  assert.strictEqual(f.checked, true);
+  assert.strictEqual(f.severity, null, 'Spain expects 758 and the page carries 758 — a clean match');
+});
+
+test('140. formIdFinding reports a mismatch when the brief\'s market expects a different id', function () {
+  var brief = 'Market: Germany\nMeta Title: Contact\n';
+  var expect = comparer.readBrief(brief, 'new-page');
+  var page = comparer.readPage(pageWith('https://www.kone.de/kontakt/', DIGITALDATA_SCRIPT));
+  var f = comparer.formIdFinding(expect, page);
+  assert.strictEqual(f.checked, true);
+  assert.strictEqual(f.severity, 'break');
+  assert.strictEqual(f.expected, '924');
+  assert.strictEqual(f.found, '758');
+});
+
+test('141. formIdFinding resolves the country from the page\'s own domain when no brief is present', function () {
+  var page = comparer.readPage(pageWith('https://www.kone.it/contatti/',
+    DIGITALDATA_SCRIPT.replace('"758"', '"733"')));
+  var f = comparer.formIdFinding(null, page);
+  assert.strictEqual(f.checked, true);
+  assert.strictEqual(f.severity, null, 'Italy expects 733 and the page carries 733');
+});
+
+test('142. a shared domain (kone.be) is disambiguated by the first path segment', function () {
+  var frPage = comparer.readPage(pageWith('https://www.kone.be/fr/contact/',
+    DIGITALDATA_SCRIPT.replace('"758"', '"754"')));
+  var nlPage = comparer.readPage(pageWith('https://www.kone.be/nl/contact/',
+    DIGITALDATA_SCRIPT.replace('"758"', '"753"')));
+  assert.strictEqual(comparer.formIdFinding(null, frPage).severity, null, 'FR path expects 754');
+  assert.strictEqual(comparer.formIdFinding(null, nlPage).severity, null, 'NL path expects 753');
+});
+
+test('143. a page with no digitalData at all is a real mismatch, not a silent skip', function () {
+  var page = comparer.readPage(pageWith('https://www.kone.es/contacto/'));
+  var f = comparer.formIdFinding(null, page);
+  assert.strictEqual(f.checked, true);
+  assert.strictEqual(f.severity, 'break');
+  assert.strictEqual(f.found, 'none');
+});
+
+test('144. a page whose market cannot be determined is not checked, never a false pass', function () {
+  var page = comparer.readPage(pageWith('https://www.example.com/contact/', DIGITALDATA_SCRIPT));
+  var f = comparer.formIdFinding(null, page);
+  assert.strictEqual(f.checked, false);
+  assert.ok(f.note, 'says why, rather than staying quiet');
+});
+
+test('145. suggestFormId names the expected id for a resolvable market, with no page at all', function () {
+  assert.deepStrictEqual(comparer.suggestFormId('Spain'), { market: 'Spain', formAssemblyId: '758' });
+});
+
+test('146. suggestFormId stays silent for an ambiguous market with no page to disambiguate it', function () {
+  assert.strictEqual(comparer.suggestFormId('Switzerland'), null);
+});
+
+test('147. suggestFormId stays silent for a market with no configured id', function () {
+  assert.strictEqual(comparer.suggestFormId('Australia'), null);
+});
+
+test('148. a page override wins over the country default', function () {
+  var cfg = {
+    'work-types': JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'work-types.json'), 'utf8')),
+    'form-ids': {
+      countries: { 'Spain': { domain: 'kone.es', formAssemblyId: '758' } },
+      pageOverrides: [{ match: '/campania/finanziamento', formAssemblyId: '999', label: 'Spain financing campaign' }]
+    }
+  };
+  var overriddenComparer = BriefCompare.create(cfg);
+  var page = overriddenComparer.readPage(pageWith('https://www.kone.es/campania/finanziamento/',
+    DIGITALDATA_SCRIPT.replace('"758"', '"999"')));
+  var f = overriddenComparer.formIdFinding(null, page);
+  assert.strictEqual(f.checked, true);
+  assert.strictEqual(f.severity, null, 'the override (999), not the country default (758), is what this page is checked against');
+});
+
+test('149. compare() carries the Form Assembly ID as its own sixth category', function () {
+  var brief = 'Market: Spain\nMeta Title: Contacto\nMeta Description: Contacte con KONE España.\n';
+  var html = pageWith('https://www.kone.es/contacto/', DIGITALDATA_SCRIPT).replace('<title>Contact</title>',
+    '<title>Contacto</title><meta name="description" content="Contacte con KONE España.">');
+  var result = comparer.compare(brief, html, { workTypeId: 'new-page' });
+  var formIdCat = result.categories.filter(function (c) { return c.id === 'formId'; })[0];
+  assert.ok(formIdCat, 'the sixth category is present');
+  assert.strictEqual(formIdCat.deviations.length, 0, 'Spain expects 758 and the page carries 758');
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
