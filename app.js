@@ -612,7 +612,8 @@
       'matches': ['ok', 'matches the brief'],
       'differs': ['bad', 'differs from the brief'],
       'missing': ['bad', 'not on the page'],
-      'not-in-brief': ['idle', 'not defined in the brief']
+      'not-in-brief': ['idle', 'not defined in the brief'],
+      'not-checked': ['idle', 'market could not be determined']
     };
     return '<table class="meta-rows">' + rows.map(function (r) {
       var s = STATE[r.state] || ['idle', r.state];
@@ -802,20 +803,15 @@
 
   // A page-only reading of the same check Compare runs as its sixth
   // category — no brief here, so no category list to ride along in, but
-  // the same three outcomes (not checked / clean / mismatch) apply.
+  // the same renderRows() table Compare's Metadata card already uses, so
+  // the id found (and the country it was checked against) is always on
+  // screen, not just when something's wrong.
   function renderFormIdCheck(formId) {
     if (!formId) return '';
-    if (!formId.checked) {
-      return section('Form Assembly ID', '<p class="note warn">' + esc(formId.note) + '</p>');
-    }
-    if (!formId.severity) {
-      return section('Form Assembly ID', '<p class="clean">No deviations.</p>');
-    }
-    return section('Form Assembly ID',
-      '<ul class="devs"><li class="break"><p class="dev-note"><span class="sev-tag break">break</span>' +
-      esc(formId.note) + '</p>' +
-      '<p class="dev-line"><b>Expected</b><span>' + esc(formId.expected) + '</span></p>' +
-      '<p class="dev-line"><b>Found</b><span>' + esc(formId.found) + '</span></p></li></ul>');
+    var note = !formId.checked ? '<p class="note warn">' + esc(formId.note) + '</p>'
+      : formId.severity ? '<p class="dev-note"><span class="sev-tag break">break</span>' + esc(formId.note) + '</p>'
+      : '<p class="clean">No deviations.</p>';
+    return section('Form Assembly ID', note + renderRows([formId.row]));
   }
 
   // ─── BRIEF MODE DEPTH — component-mapped field tables ──────────────────

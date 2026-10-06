@@ -1870,6 +1870,11 @@ test('139. formIdFinding matches a brief\'s declared Market against the page\'s 
   var f = comparer.formIdFinding(expect, page);
   assert.strictEqual(f.checked, true);
   assert.strictEqual(f.severity, null, 'Spain expects 758 and the page carries 758 — a clean match');
+  assert.strictEqual(f.country, 'Spain');
+  // "No deviations" alone was never enough — the found id and the country it
+  // was checked against must be on screen even when the match is clean.
+  assert.deepStrictEqual(f.row,
+    { field: 'Form Assembly ID', source: 'Spain', expected: '758', found: '758', state: 'matches', soft: false });
 });
 
 test('140. formIdFinding reports a mismatch when the brief\'s market expects a different id', function () {
@@ -1905,7 +1910,10 @@ test('143. a page with no digitalData at all is a real mismatch, not a silent sk
   var f = comparer.formIdFinding(null, page);
   assert.strictEqual(f.checked, true);
   assert.strictEqual(f.severity, 'break');
-  assert.strictEqual(f.found, 'none');
+  assert.strictEqual(f.found, null, 'null, not the string "none" — renderRows() renders a null found as "nothing on the page"');
+  assert.strictEqual(f.row.state, 'missing');
+  assert.strictEqual(f.row.expected, '758');
+  assert.strictEqual(f.row.found, null);
 });
 
 test('144. a page whose market cannot be determined is not checked, never a false pass', function () {
@@ -1913,6 +1921,18 @@ test('144. a page whose market cannot be determined is not checked, never a fals
   var f = comparer.formIdFinding(null, page);
   assert.strictEqual(f.checked, false);
   assert.ok(f.note, 'says why, rather than staying quiet');
+  assert.strictEqual(f.row.state, 'not-checked');
+  assert.strictEqual(f.row.found, null);
+  assert.strictEqual(f.row.expected, null);
+});
+
+test('144b. an ambiguous market with no page to disambiguate it is also not-checked, naming the base country', function () {
+  var brief = 'Market: Switzerland\nMeta Title: Kontakt\n';
+  var expect = comparer.readBrief(brief, 'new-page');
+  var f = comparer.formIdFinding(expect, null);
+  assert.strictEqual(f.checked, false);
+  assert.strictEqual(f.row.state, 'not-checked');
+  assert.strictEqual(f.row.source, 'Switzerland');
 });
 
 test('145. suggestFormId names the expected id for a resolvable market, with no page at all', function () {
@@ -1941,6 +1961,8 @@ test('148. a page override wins over the country default', function () {
   var f = overriddenComparer.formIdFinding(null, page);
   assert.strictEqual(f.checked, true);
   assert.strictEqual(f.severity, null, 'the override (999), not the country default (758), is what this page is checked against');
+  assert.strictEqual(f.row.expected, '999');
+  assert.strictEqual(f.row.source, 'Spain financing campaign', 'the override\'s own label, not the bare country name');
 });
 
 test('149. compare() carries the Form Assembly ID as its own sixth category', function () {
@@ -1951,6 +1973,11 @@ test('149. compare() carries the Form Assembly ID as its own sixth category', fu
   var formIdCat = result.categories.filter(function (c) { return c.id === 'formId'; })[0];
   assert.ok(formIdCat, 'the sixth category is present');
   assert.strictEqual(formIdCat.deviations.length, 0, 'Spain expects 758 and the page carries 758');
+  // The whole point of this fix: a clean category still carries its row, so
+  // renderCategory() shows what was found even when there is nothing to break.
+  assert.strictEqual(formIdCat.rows.length, 1);
+  assert.strictEqual(formIdCat.rows[0].state, 'matches');
+  assert.strictEqual(formIdCat.rows[0].found, '758');
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

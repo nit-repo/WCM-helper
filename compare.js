@@ -1859,35 +1859,50 @@
   // conflated: checked-and-clean (no severity), checked-and-wrong
   // (severity + expected/found), or not checked at all (its own note, so a
   // skip can never read like a pass).
+  // "No deviations" alone was never enough — a check whose outcome is never
+  // shown reads identically to a check that never ran. Every path below
+  // carries a ready-made `row`, in the exact shape metadataRows() already
+  // established ({field, source, expected, found, state, soft}), so the
+  // found id and the country it was checked against are always on screen,
+  // clean or not — app.js's existing renderRows() needs no changes at all.
+  function formIdRow(source, expected, found, state) {
+    return { field: 'Form Assembly ID', source: source || null, expected: expected || null,
+      found: found || null, state: state, soft: false };
+  }
+
   function formIdFinding(expect, page, formIdCfg) {
     formIdCfg = formIdCfg || DEFAULT_FORM_IDS;
     var country = resolveFormIdCountry(expect, page, formIdCfg);
     if (!country) {
-      return { checked: false, note: 'This page’s market could not be determined (no Market row in the ' +
-        'brief, and its domain is not one of the configured country sites), so its Form Assembly ID was not checked.' };
+      var note1 = 'This page’s market could not be determined (no Market row in the ' +
+        'brief, and its domain is not one of the configured country sites), so its Form Assembly ID was not checked.';
+      return { checked: false, country: null, note: note1, row: formIdRow(null, null, null, 'not-checked') };
     }
     if (country.ambiguous) {
-      return { checked: false, note: country.base + ' has more than one language variant configured, and ' +
-        'nothing here (brief or page path) says which one this page is, so its Form Assembly ID was not checked.' };
+      var note2 = country.base + ' has more than one language variant configured, and ' +
+        'nothing here (brief or page path) says which one this page is, so its Form Assembly ID was not checked.';
+      return { checked: false, country: null, note: note2, row: formIdRow(country.base, null, null, 'not-checked') };
     }
     var override = formIdOverride(page, formIdCfg);
     var expectedId = override ? String(override.formAssemblyId) : country.formAssemblyId;
-    if (!expectedId) {
-      return { checked: false, note: 'No expected Form Assembly ID is configured for ' + country.name + ' yet.' };
-    }
     var label = override ? (override.label || country.name + ' (page override)') : country.name;
+    if (!expectedId) {
+      var note3 = 'No expected Form Assembly ID is configured for ' + country.name + ' yet.';
+      return { checked: false, country: label, note: note3, row: formIdRow(label, null, null, 'not-checked') };
+    }
     var actual = page && page.digitalData && page.digitalData.formAssemblyId;
     if (!actual) {
-      return { checked: true, severity: 'break',
-        note: label + ' pages are expected to carry Form Assembly ID ' + expectedId + ', but this page carries no digitalData/FormAssemblyId at all.',
-        expected: expectedId, found: 'none' };
+      var note4 = label + ' pages are expected to carry Form Assembly ID ' + expectedId + ', but this page carries no digitalData/FormAssemblyId at all.';
+      return { checked: true, severity: 'break', country: label, note: note4,
+        expected: expectedId, found: null, row: formIdRow(label, expectedId, null, 'missing') };
     }
     if (String(actual) !== expectedId) {
-      return { checked: true, severity: 'break',
-        note: 'This page carries Form Assembly ID ' + actual + ', but ' + label + ' pages are expected to use ' + expectedId + '.',
-        expected: expectedId, found: String(actual) };
+      var note5 = 'This page carries Form Assembly ID ' + actual + ', but ' + label + ' pages are expected to use ' + expectedId + '.';
+      return { checked: true, severity: 'break', country: label, note: note5,
+        expected: expectedId, found: String(actual), row: formIdRow(label, expectedId, String(actual), 'differs') };
     }
-    return { checked: true, severity: null };
+    return { checked: true, severity: null, country: label, expected: expectedId, found: String(actual),
+      row: formIdRow(label, expectedId, String(actual), 'matches') };
   }
 
   // Analyse mode has no page at all — only the question "what should this
@@ -1903,7 +1918,11 @@
 
   function formIdCategory(expect, page, formIdCfg) {
     var f = formIdFinding(expect, page, formIdCfg);
-    var cat = { id: 'formId', label: 'Form Assembly ID', deviations: [] };
+    // rows renders in both of renderCategory()'s branches (clean and not) —
+    // the same mechanism categories[0].rows already uses for Metadata — so
+    // the found id and its country are on screen whether this is clean,
+    // wrong, or never checked at all.
+    var cat = { id: 'formId', label: 'Form Assembly ID', deviations: [], rows: [f.row] };
     if (!f.checked) { cat.note = f.note; return cat; }
     if (f.severity) cat.deviations.push({ severity: f.severity, note: f.note, expected: f.expected, found: f.found });
     return cat;
