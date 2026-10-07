@@ -5,6 +5,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WCM Helper</title>
+  <!-- Hidden until app.js has checked the sign-in (when a backend is set),
+       so the tool never flashes up before bouncing to login.html. -->
+  <script>document.documentElement.className += ' gating';</script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><g fill='%231450F5'><rect x='1' y='6' width='6' height='20'/><rect x='9' y='6' width='6' height='20'/><rect x='17' y='6' width='6' height='20'/><rect x='25' y='6' width='6' height='20'/></g></svg>">
 
   <!-- Zero external requests: no CDN, no analytics. Both faces are
@@ -206,6 +209,10 @@
     }
 
     .reveal { opacity: 0; will-change: opacity, transform; }
+    /* A crawl re-renders its results several times a second; only its
+       first appearance rolls in, or the pane would never sit still. */
+    .reveal.settled, .reveal.in-view.settled { opacity: 1; animation: none; }
+    .reveal.in-view.settled.card::before { animation: none; display: none; }
     .reveal.in-view {
       animation: roll-in 560ms cubic-bezier(.16, .84, .44, 1) both;
       animation-delay: calc(var(--i, 0) * 65ms);
@@ -440,6 +447,66 @@
        which also reads correctly as a page rather than an inline block. */
     #mock-preview { width: 100%; height: 70vh; border: 1px solid var(--hairline); border-radius: var(--radius-md); background: var(--white); }
 
+
+    /* ─── Sign-in gate, live fetch and crawl ─────────────────────────── */
+    html.gating body { visibility: hidden; }
+    .signout { margin-top: auto; background: transparent; color: var(--white); border-color: rgba(255,255,255,0.3); font-weight: 400; font-size: 13px; }
+    .signout:hover:not(:disabled) { background: rgba(255,255,255,0.08); }
+
+    /* A segmented choice: which source QA reads from. */
+    .seg { display: inline-flex; border: 1px solid var(--black-20); border-radius: var(--radius-md); overflow: hidden; flex-wrap: wrap; }
+    .seg button { border: 0; border-radius: 0; background: var(--white); color: var(--black); font-weight: 400; padding: 8px 16px; }
+    .seg button + button { border-left: 1px solid var(--black-20); }
+    .seg button[aria-pressed="true"] { background: var(--kone-blue); color: var(--white); font-weight: 600; }
+    .seg.small button { padding: 6px 12px; font-size: 13px; }
+    .panel { margin-top: 4px; }
+    label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--black); margin-top: 10px; font-weight: 400; }
+    label.opt input { margin: 0; }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip {
+      font-weight: 400; font-size: 13px; padding: 5px 10px; border-radius: var(--radius-md);
+      background: var(--white); color: var(--black); border: 1px solid var(--black-20);
+    }
+    .chip .n { color: var(--black-60); margin-left: 4px; font-size: 12px; }
+    .chip[aria-pressed="true"] { background: var(--kone-blue); border-color: var(--kone-blue); color: var(--white); }
+    .chip[aria-pressed="true"] .n { color: var(--white); opacity: 0.8; }
+    .chip.some { border-color: var(--kone-blue); }
+    details.markets { margin-top: 12px; font-size: 13px; }
+    details.markets summary { cursor: pointer; color: var(--black-60); }
+    .market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; margin-top: 8px; }
+    .market-grid label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+    .crawl-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin-top: 16px; }
+    .crawl-opts > label:not(.opt) { font-size: 13px; color: var(--black-60); display: block; }
+    .crawl-opts > label.opt { grid-column: 1 / -1; margin-top: 0; }
+    .crawl-opts input[type="number"], .crawl-opts input[type="text"], .panel input[type="url"].wide, textarea.short {
+      width: 100%; margin-top: 4px; padding: 8px 10px; font: inherit; font-size: 14px;
+      border: 1px solid var(--black-20); border-radius: var(--radius-md); background: var(--white); color: var(--black);
+    }
+    textarea.short { min-height: 110px; font-size: 13px; resize: vertical; }
+
+    .prog { height: 6px; background: var(--hairline); border-radius: 3px; overflow: hidden; margin: 10px 0 6px; }
+    .prog > span { display: block; height: 100%; background: var(--kone-blue); transition: width 200ms ease; }
+    .prog-text { font-size: 13px; color: var(--black-60); margin: 0; }
+    .crawl-notes { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--amber); }
+
+    .filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+    .table-wrap { overflow-x: auto; }
+    table.crawl { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.crawl th { text-align: left; font-family: var(--font-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-size: 11px; font-weight: 400; color: var(--black-60); padding: 6px 8px; border-bottom: 1px solid var(--black-20); white-space: nowrap; }
+    table.crawl td { padding: 7px 8px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+    table.crawl tr.open-row { cursor: pointer; }
+    table.crawl tr.open-row:hover td { background: var(--bg-blue); }
+    table.crawl td.url { max-width: 360px; word-break: break-all; }
+    table.crawl td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; white-space: nowrap; }
+    .pill.ok, .pill.green, .pill.matches { background: var(--green-bg); color: var(--green); }
+    .pill.dead, .pill.red, .pill.differs, .pill.missing, .pill.refused { background: #FFEFE9; color: #B83A0E; }
+    .pill.unverified, .pill.amber, .pill.pending { background: var(--amber-bg); color: var(--amber); }
+    .pill.idle, .pill.not-checked { background: var(--hairline); color: var(--black-60); }
+    .back-row { margin: 0 0 16px; }
+    .caution { font-size: 12px; color: var(--black-60); margin: 10px 0 0; }
+
     .toast {
       position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
       background: var(--black); color: var(--white); padding: 10px 18px; border-radius: 8px;
@@ -463,11 +530,69 @@
       <button class="tab" id="tab-analyse" role="tab" aria-selected="true" type="button">Analyse</button>
       <button class="tab" id="tab-qa" role="tab" aria-selected="false" type="button">QA</button>
     </nav>
+    <button class="signout" id="signout-btn" type="button" hidden>Sign out</button>
   </aside>
 
   <div class="workspace">
   <main>
     <div class="pane-input">
+      <section class="card" id="qa-source" hidden>
+        <h3>What to QA</h3>
+        <div class="seg" role="group" aria-label="What to QA">
+          <button type="button" data-source="page" aria-pressed="true">Pasted page</button>
+          <button type="button" data-source="live" aria-pressed="false">Live URL</button>
+          <button type="button" data-source="crawl" aria-pressed="false">Crawl sites</button>
+        </div>
+
+        <div class="panel" id="live-panel" hidden>
+          <p class="field-label">Page URL</p>
+          <div class="launch-row">
+            <input type="url" id="live-url" placeholder="https://www.kone.es/contacto/">
+            <button id="live-btn" class="btn-primary" type="button">Fetch and QA</button>
+          </div>
+          <label class="opt"><input type="checkbox" id="live-links"> Check its links too — KONE and external, status only</label>
+          <p class="hint">Fetched by WCM Helper's backend from KONE's own servers — only KONE sites are fetched. A preview page behind login comes back unverified: open it below and use the bookmarklet instead.</p>
+        </div>
+
+        <div class="panel" id="crawl-panel" hidden>
+          <p class="field-label">Crawl from</p>
+          <div class="seg small" role="group" aria-label="Crawl from">
+            <button type="button" data-crawl-src="sites" aria-pressed="true">KONE sites</button>
+            <button type="button" data-crawl-src="sitemap" aria-pressed="false">One sitemap</button>
+            <button type="button" data-crawl-src="list" aria-pressed="false">URL list</button>
+          </div>
+          <div id="crawl-sites">
+            <p class="field-label">Scope</p>
+            <div class="chips" id="crawl-scope"></div>
+            <p class="field-label">Area</p>
+            <div class="chips" id="crawl-areas"></div>
+            <p class="field-label">Frontline</p>
+            <div class="chips" id="crawl-frontlines"></div>
+            <details class="markets"><summary>Markets — <span id="crawl-picked">none picked</span></summary>
+              <div class="market-grid" id="crawl-markets"></div>
+            </details>
+          </div>
+          <div id="crawl-sitemap" hidden>
+            <p class="field-label">Sitemap URL</p>
+            <input type="url" class="wide" id="crawl-sitemap-url" placeholder="https://www.kone.es/sitemap.xml">
+          </div>
+          <div id="crawl-list" hidden>
+            <p class="field-label">URLs — one per line</p>
+            <textarea class="short" id="crawl-urls" placeholder="https://www.kone.es/contacto/&#10;https://www.kone.es/nuevos-edificios/"></textarea>
+          </div>
+          <div class="crawl-opts">
+            <label>Pages per site<input type="number" id="crawl-limit" min="0" step="1" value="50"></label>
+            <label>Path prefix<input type="text" id="crawl-prefix" placeholder="/new-buildings/"></label>
+            <label class="opt"><input type="checkbox" id="crawl-links"> Check links — every link found, checked once across the run (slower)</label>
+          </div>
+          <div class="input-actions">
+            <button id="crawl-btn" class="btn-primary" type="button">Run crawl</button>
+            <button id="crawl-stop" class="btn-ghost" type="button" hidden>Stop</button>
+          </div>
+          <p class="hint">0 pages per site reads every page its sitemap lists. Pages are fetched by the backend, a few at a time, and judged here in the browser by the same checks as a pasted page.</p>
+        </div>
+      </section>
+
       <section class="card" id="compare-input" hidden>
         <h3>Page</h3>
         <div class="launch-row">
@@ -483,7 +608,7 @@
           <button id="html-clear-btn" class="btn-ghost" type="button">Clear HTML</button>
           <input type="file" id="html-file" accept=".html,.htm,.txt" hidden>
         </div>
-        <p class="hint">Nothing leaves the browser. The tool cannot fetch the page itself, so paste or upload it — or <a href="bookmarklet.html">install the bookmarklet</a>: open the page above, click the bookmarklet on it, and it lands here without touching this tab or the brief.</p>
+        <p class="hint" id="page-hint">Nothing leaves the browser. The tool cannot fetch the page itself, so paste or upload it — or <a href="bookmarklet.html">install the bookmarklet</a>: open the page above, click the bookmarklet on it, and it lands here without touching this tab or the brief.</p>
       </section>
 
       <section class="card" id="brief-card">
@@ -539,15 +664,16 @@
        entry belonging to the old one. app.js reads the same value back out of
        its own src and shows it in the sidebar, so there is one string to bump
        and what it displays is necessarily the file that is running. -->
-  <script src="brief.js?v=2026-10-08a"></script>
-  <script src="engine.js?v=2026-10-08a"></script>
-  <script src="compare.js?v=2026-10-08a"></script>
-  <script src="readers.js?v=2026-10-08a"></script>
-  <script src="filler.js?v=2026-10-08a"></script>
-  <script src="page-model.js?v=2026-10-08a"></script>
-  <script src="mock-page.js?v=2026-10-08a"></script>
-  <script src="qa.js?v=2026-10-08a"></script>
-  <script src="app.js?v=2026-10-08a"></script>
+  <script src="brief.js?v=2026-10-09a"></script>
+  <script src="engine.js?v=2026-10-09a"></script>
+  <script src="compare.js?v=2026-10-09a"></script>
+  <script src="readers.js?v=2026-10-09a"></script>
+  <script src="filler.js?v=2026-10-09a"></script>
+  <script src="page-model.js?v=2026-10-09a"></script>
+  <script src="mock-page.js?v=2026-10-09a"></script>
+  <script src="qa.js?v=2026-10-09a"></script>
+  <script src="backend-client.js?v=2026-10-09a"></script>
+  <script src="app.js?v=2026-10-09a"></script>
 </body>
 
 </html>

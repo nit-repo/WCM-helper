@@ -447,5 +447,129 @@ test('57. every market carries confirmed and draft site names, and no name is bo
   });
 });
 
+// ─── LIVE FETCH, LINK STATUSES, CRAWL ROWS ─────────────────────────────────
+// The backend's fetch result is data to these checks, nothing more — so
+// they are tested with plain objects, no network.
+
+var LIVE_PAGE = '<!DOCTYPE html><html lang="es"><head><title>Contacto | KONE España</title>' +
+  '<link rel="canonical" href="https://www.kone.es/contacto/"></head><body><main><h1>Contacto</h1>' +
+  '<a href="/productos/">Ver productos</a> <a href="https://www.youtube.com/kone">YouTube</a> ' +
+  '<a href="mailto:x@kone.com">Correo</a> <a href="#top">Arriba</a> <a href="/productos/#a">Productos</a></main></body></html>';
+function live(extra) {
+  return Object.assign({ url: 'https://www.kone.es/contacto/', finalUrl: 'https://www.kone.es/contacto/', status: 200,
+    verdict: 'ok', redirects: [], tls: { valid: true, validTo: '2027-06-01T00:00:00.000Z', daysLeft: 240, issuer: 'DigiCert Inc', error: null },
+    ms: 420, bytes: 9000 }, extra || {});
+}
+function fieldsOf(r) {
+  var out = [];
+  r.categories.forEach(function (c) { c.deviations.forEach(function (d) { out.push(c.id + ':' + d.severity + ':' + d.field); }); });
+  return out;
+}
+
+test('58. live: a sound fetch adds its facts and no findings of its own', function () {
+  var r = qa.run(LIVE_PAGE, { live: live() });
+  assert.strictEqual(r.facts.live.status, 200);
+  assert.strictEqual(r.facts.live.tls.issuer, 'DigiCert Inc');
+  ['Certificate', 'HTTPS', 'Redirect chain', 'Canonical'].forEach(function (f) {
+    assert.ok(!fieldsOf(r).some(function (x) { return x.split(':')[2] === f; }), f + ' should be silent');
+  });
+});
+
+test('59. live: an invalid certificate breaks; one expiring within 30 days is a check', function () {
+  var bad = qa.run(LIVE_PAGE, { live: live({ tls: { valid: false, error: 'CERT_HAS_EXPIRED', daysLeft: -3 } }) });
+  assert.ok(fieldsOf(bad).indexOf('structure:break:Certificate') !== -1, fieldsOf(bad).join(', '));
+  var soon = qa.run(LIVE_PAGE, { live: live({ tls: { valid: true, validTo: '2026-10-20T00:00:00Z', daysLeft: 12, error: null } }) });
+  assert.ok(fieldsOf(soon).indexOf('structure:check:Certificate') !== -1);
+});
+
+test('60. live: plain http breaks; two redirects is a check; one is fine', function () {
+  var http = qa.run(LIVE_PAGE, { live: live({ finalUrl: 'http://www.kone.es/contacto/', tls: null }) });
+  assert.ok(fieldsOf(http).indexOf('structure:break:HTTPS') !== -1);
+  var two = qa.run(LIVE_PAGE, { live: live({ redirects: [{}, {}] }) });
+  assert.ok(fieldsOf(two).indexOf('links:check:Redirect chain') !== -1);
+  var one = qa.run(LIVE_PAGE, { live: live({ redirects: [{}] }) });
+  assert.ok(fieldsOf(one).indexOf('links:check:Redirect chain') === -1);
+});
+
+test('61. live: served at one URL, canonical naming another, is a check — but not on a preview build', function () {
+  var other = qa.run(LIVE_PAGE, { live: live({ finalUrl: 'https://www.kone.es/contact-us/' }) });
+  assert.ok(fieldsOf(other).indexOf('metadata:check:Canonical') !== -1);
+  var www = qa.run(LIVE_PAGE, { live: live({ finalUrl: 'https://kone.es/contacto' }) });
+  assert.ok(fieldsOf(www).indexOf('metadata:check:Canonical') === -1, 'www and a trailing slash are the same page');
+  var preview = qa.run(LIVE_PAGE, { live: live({ finalUrl: 'https://preview.kone.es/contacto/' }) });
+  assert.ok(fieldsOf(preview).indexOf('metadata:check:Canonical') === -1);
+});
+
+test('62. live: a page with no canonical is placed in its market by the URL it was served at', function () {
+  var r = qa.run(LIVE_PAGE.replace(/<link rel="canonical"[^>]*>/, ''), { live: live() });
+  assert.strictEqual(r.facts.market, 'Spain');
+  assert.strictEqual(r.facts.environment.id, 'production');
+  assert.ok(/served from/.test(r.facts.environment.why));
+});
+
+test('63. linksToCheck: absolute, resolved, deduped; no mailto, no fragments', function () {
+  assert.deepStrictEqual(BriefQA.linksToCheck(LIVE_PAGE, 'https://www.kone.es/contacto/'),
+    ['https://www.kone.es/productos/', 'https://www.youtube.com/kone']);
+});
+
+test('64. link statuses: broken breaks, unverified checks, each labelled KONE or external', function () {
+  var r = qa.run(LIVE_PAGE, { links: [
+    { url: 'https://www.kone.es/productos/', verdict: 'dead', status: 404, reason: 'answered 404' },
+    { url: 'https://www.youtube.com/kone', verdict: 'unverified', status: 429, reason: 'rate-limited (429)' },
+    { url: 'https://www.kone.es/ok/', verdict: 'ok', status: 200 }
+  ] });
+  var f = fieldsOf(r);
+  assert.ok(f.indexOf('links:break:Broken link (KONE)') !== -1, f.join(', '));
+  assert.ok(f.indexOf('links:check:Link not verified (external)') !== -1);
+  assert.deepStrictEqual(r.facts.linkCheck, { checked: 3, ok: 1, dead: 1, unverified: 1 });
+});
+
+test('65. crawlRow: one scannable line per page', function () {
+  var r = qa.run(LIVE_PAGE, { live: live() });
+  var row = qa.crawlRow(r, live());
+  assert.strictEqual(row.url, 'https://www.kone.es/contacto/');
+  assert.strictEqual(row.status, 200);
+  assert.strictEqual(row.title, 'Contacto | KONE España');
+  assert.strictEqual(row.titleFormat, 'green');
+  assert.strictEqual(row.formId, 'missing');
+  assert.strictEqual(row.market, 'Spain');
+  assert.strictEqual(row.breaks, r.breaks);
+});
+
+test('66. regions: every market sits in exactly one frontline, every frontline in one area', function () {
+  var regions = config.sites.regions;
+  var markets = Object.keys(config.sites.countries);
+  var placed = {};
+  Object.keys(regions.frontlines).forEach(function (fl) {
+    regions.frontlines[fl].forEach(function (m) {
+      assert.ok(markets.indexOf(m) !== -1, m + ' is not a market');
+      assert.ok(!placed[m], m + ' is in two frontlines');
+      placed[m] = fl;
+    });
+  });
+  markets.forEach(function (m) { assert.ok(placed[m], m + ' is in no frontline'); });
+  var inArea = {};
+  Object.keys(regions.areas).forEach(function (a) {
+    regions.areas[a].forEach(function (fl) {
+      assert.ok(regions.frontlines[fl], fl + ' is not a frontline');
+      assert.ok(!inArea[fl], fl + ' is in two areas');
+      inArea[fl] = a;
+    });
+  });
+  Object.keys(regions.frontlines).forEach(function (fl) { assert.ok(inArea[fl], fl + ' is in no area'); });
+});
+
+test('67. withLinkStatuses: a crawl\'s link statuses fold into a page\'s report and its tally', function () {
+  var r = qa.run(LIVE_PAGE, { live: live() });
+  var statuses = [{ url: 'https://www.kone.es/productos/', verdict: 'dead', status: 404, reason: 'answered 404' }];
+  var folded = qa.withLinkStatuses(r, statuses);
+  assert.strictEqual(folded.breaks, r.breaks + 1);
+  assert.ok(fieldsOf(folded).indexOf('links:break:Broken link (KONE)') !== -1);
+  assert.strictEqual(fieldsOf(r).indexOf('links:break:Broken link (KONE)'), -1, 'the original report is untouched');
+  var direct = qa.run(LIVE_PAGE, { live: live(), links: statuses });
+  assert.strictEqual(folded.breaks, direct.breaks, 'the same as checking the links up front');
+  assert.strictEqual(folded.checks, direct.checks);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

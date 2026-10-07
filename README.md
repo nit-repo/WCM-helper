@@ -3,7 +3,7 @@
 Two tools behind one page, one per input.
 
 **Analyse** — a work brief in: what kind of job it is, how to do it, what is missing — and a mock of the page it describes.
-**QA** — a built page in: is it sound on its own, and, with the brief alongside, is everything the brief asked for on it. Or, with no brief, write one from the page.
+**QA** — a built page in: is it sound on its own, and, with the brief alongside, is everything the brief asked for on it. Or, with no brief, write one from the page. With the backend deployed, QA can also fetch a live URL itself, or crawl whole sites.
 
 ## Analyse
 
@@ -52,7 +52,16 @@ A preview build is read as one. `noindex` is expected there and stays silent; li
 
 **Building it turned up a bug in the comparison.** The check for a link pasted straight from the CME only recognised `/ui/editor/item?item=`. Neither real CME URL matches that — the new UI is `web-cms.kone.com/ui/editor/page?activeItem=…`, the old one `web-cms.kone.com/WebUI/item.aspx?tcm=…` — so the defect it exists to catch went unreported on both. It now recognises all three.
 
-QA does not fetch anything. Live status, SSL and site crawling come with the backend, in a later pass; until then the page arrives by paste, upload or bookmarklet, the same as everywhere else in the tool.
+### Live URL and crawl
+
+With the backend deployed (see [The backend](#the-backend)), QA has three sources instead of one — **Pasted page**, **Live URL** and **Crawl sites**. The backend only ever *fetches*; every page is still judged here in the browser, by the same checks as a pasted one, so there is one rulebook.
+
+- **Live URL** fetches one KONE page. Its HTML lands in the page box — so a brief comparison and Generate brief work on it exactly as on a paste — and the fetch joins the report: the HTTP status, where it was served after redirects, and the certificate it was served with. A certificate that is not valid is a break, one expiring within 30 days a check; plain `http` is a break; more than one redirect hop is a check; a page served at one URL whose canonical names another is a check (not on a preview build, whose canonical names the live page on purpose). **Check its links** sends every link on the page — KONE and external — for a status check: broken is a break, no usable answer is a check, each labelled KONE or external.
+- **Crawl sites** works the way the sample site auditor does. Pick **every site, an area, a frontline, or single markets** (or give one sitemap, or a list of URLs), set **pages per site** (default 50; 0 = every page its sitemap lists) and an optional path prefix. The backend reads each site's `robots.txt` and sitemaps — following sitemap indexes, keeping only the site's own host and, on `kone.be`, `kone.ch` and `kone.ca`, its own language path — and fetches the pages a few at a time, never more than two at once per site. Results stream into a table you can filter (dead, unverified, to fix, title format, Form ID wrong, broken links), with a per-site rollup when more than one site was crawled. Click a row for that page's full QA report. **Check links** adds a second pass: every link found anywhere in the run is checked once, and broken links and links that could not be verified are listed apart, each with the pages that carry it. **Export CSV** writes one row per page — it carries CME edit links, so keep it within the team. **Stop** works at any point.
+
+Every fetch has one of four outcomes, kept apart on purpose: **ok**; **dead** (404, 410 or 5xx); **unverified** (blocked, rate-limited, timed out, or behind a login — never counted as broken, never as fine); **refused** (the backend would not fetch it, and says why). A preview page behind login comes back *"behind login — capture it with the bookmarklet instead"*, never a pass. URLs a site's `robots.txt` disallows are skipped and counted.
+
+The areas and frontlines in `config/sites.json` under `regions` are **a draft**, grouped from the order of the form-ID list rather than an official KONE org chart — correct the names and memberships there, then set `draft` to `false`.
 
 **Title format, scored.** KONE's naming rule for a page title is `Page Name | KONE Corporation`, or `Page Name | KONE <country>` with the page's own country in that market's own spelling. Each title the page carries (the window title, and og:title when it differs) gets a row in Metadata:
 
@@ -171,10 +180,38 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 404 verification cases across the eight modules
+npm test      # 443 verification cases across the nine modules
 ```
 
-No dependencies, no build step, no backend. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`.
+No dependencies, no build step. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`. The page itself needs no backend: with none configured it is paste and bookmarklet only, as it always was.
+
+## The backend
+
+`backend/` is a small service that fetches live KONE pages, sitemaps and link statuses for QA — Node core only, no dependencies, deployed as **its own Vercel project** from this same repo. It does no judging: it fetches, and the browser runs the checks.
+
+| Endpoint | Does |
+|---|---|
+| `GET /api/health` | `{ ok, configured }` |
+| `POST /api/login {password}` | the shared password → a signed session token (12 h) |
+| `GET /api/session` | is this token still good |
+| `POST /api/fetch {url}` | one KONE page: status, final URL, redirects, certificate, HTML |
+| `POST /api/discover {site, perSiteLimit, pathPrefix}` | a site's URLs, from its robots.txt and sitemaps |
+| `POST /api/sitemap {url}` | the URLs in one sitemap |
+| `POST /api/link-status {urls}` | up to 40 links, any public host, status only — the body is never read |
+
+**What it will fetch.** Page bodies and sitemaps come only from KONE: a host that is a domain in `config/sites.json` (or `kone.com`), or a subdomain of one — the backend reads the same file the browser does, so adding a market there is what makes it crawlable. Only `http`/`https` on ports 80 and 443, no credentials in a URL, no bare IP addresses. Every host is resolved first and refused if any of its addresses is private, loopback, link-local, CGNAT or multicast (IPv4, IPv6 and IPv4-mapped forms alike), and the connection goes to the address that was checked, so a DNS answer that changes in between cannot slip past. Redirects are followed by hand, at most five, each hop checked again; a page that redirects off KONE stops there, with no body. Ten seconds to the first byte, fifteen in all, 4 MB per page. It identifies itself honestly (`WCM-Helper-QA/1.0`) and never logs a page or the password.
+
+**Sign-in.** One shared password, no user names. Once `config/backend.json` names a backend, the whole tool sits behind it: `login.html` asks for the password, the backend checks it (constant-time, with a pause after a wrong one and a lock-out after five), and hands back a signed token that every call carries. The token is kept in the browser for 12 hours; **Sign out** in the sidebar drops it. The page's own code is public in this repository, so what the password truly protects is the fetching. If the backend is down, nobody can get in. A backend with no password set refuses everyone rather than running open.
+
+**Deploying it** — once:
+
+1. In Vercel, create a second project from this repository, with **Root Directory** `backend`.
+2. Set its environment variables: `WCM_PASSWORD` (the team's password), `WCM_SESSION_SECRET` (32 or more random characters — `openssl rand -hex 32`), and `ALLOWED_ORIGINS` (WCM Helper's own URL, comma-separated if more than one; `*` stands for one run of host-name characters, so `https://wcm-helper-*-nit-repos-projects.vercel.app` covers every preview build).
+3. Put the backend's URL in `config/backend.json` as `url`, and deploy the tool.
+
+To run it locally: `WCM_PASSWORD=… WCM_SESSION_SECRET=… node backend/server.js` serves the same routes on :3700, and setting `devUrl` in `config/backend.json` to `http://localhost:3700` points the tool at it while it is served from localhost.
+
+**Still out, permanently** — whatever the backend can reach: submitting forms, testing where a form routes, observing consent banners or tags firing, rendering pages across breakpoints, Core Web Vitals, and anything inside a cross-origin iframe.
 
 **Which build am I looking at?** The sidebar says, under the wordmark — `BUILD 2026-09-11A`. It is worth knowing, because a deployed page that looks current can still be running older code: the shell comes from `index.html` and the behaviour comes from six separate `.js` files, and a browser can hold an old copy of any one of them. So every script is referenced with the version on its URL (`<script src="compare.js?v=2026-09-11a">`) — a changed query is a different URL, which no cache can satisfy from the old entry — and `app.js` reads that same value back out of its own `src` to display it. One string to bump, in `index.html`, and what the sidebar shows is necessarily the file that ran. `vercel.json` sets `Cache-Control: public, max-age=0, must-revalidate` for the one file the query strings cannot protect, `index.html` itself.
 
@@ -255,7 +292,9 @@ A missing row is placed by the rows around it that did match — the nearest loc
 
 ```
 index.html                    UI, two tabs — Analyse, QA
+login.html                    the password page, once a backend is configured
 app.js                        renders what the modules return — no analysis of its own
+backend-client.js             the browser's one way to the backend: sign-in, fetch, crawl, link status
 brief.js                      one parse shared by the others: rows, sections, markets, target
 engine.js                     classify → detect CMS → check needs → return steps
 compare.js                    read the page → read the brief → diff → group by category
@@ -267,7 +306,12 @@ qa.js                         QA a page: the framework's checks, the title forma
 config/work-types.json        the six playbooks, the compare settings, the market list
 config/mock-components.json   the render-type vocabulary page-model.js infers components into
 config/tridion-taxonomy.json  real Tridion component names → their documented field slots
-config/sites.json             the site registry: market, domain, Form Assembly ID, accepted site names
+config/sites.json             the site registry: market, domain, Form Assembly ID, accepted site names,
+                               areas and frontlines for the crawl picker
+config/backend.json           where the backend is — empty means none, and no sign-in
+backend/                      the live-fetch service: lib/guard.js (what may be fetched), lib/fetcher.js,
+                               lib/sitemap.js, lib/auth.js, lib/handlers.js (the routes); api/index.js
+                               for Vercel, server.js for plain Node
 test/brief.test.js            22 cases, the shared parse alone
 test/engine.test.js           53 cases, fixtures are real briefs
 test/compare.test.js          162 cases, deviations planted one per category,
@@ -276,6 +320,8 @@ test/readers.test.js          10 cases, run against real ZIP bytes
 test/filler.test.js           26 cases, including markup that must never be guessed
 test/page-model.test.js       48 cases, including a real agency mockup with no Tridion markup at all
 test/mock-page.test.js        26 cases, safety-first: escaping, hrefs, no external requests
-test/qa.test.js               57 cases, the real Slovenia preview and Italian landing pages among them
+test/qa.test.js               67 cases, the real Slovenia preview and Italian landing pages among them
+test/backend.test.js          29 cases against a local stand-in for www.kone.es — and the shipping guard
+                               refusing that same 127.0.0.1
 serve.js                      local static server
 ```

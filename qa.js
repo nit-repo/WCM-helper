@@ -390,6 +390,90 @@
 
   // ─── ASSEMBLY ────────────────────────────────────────────────────────────
 
+
+  // ─── LIVE FETCH ──────────────────────────────────────────────────────────
+  // What the backend learned fetching the page — status, redirects, the
+  // certificate — as findings. Pure: the fetch result is just data here.
+
+  function sameUrl(a, b, pathOf) {
+    return hostOf(a) === hostOf(b) && pathOf(a) === pathOf(b);
+  }
+
+  function liveFindings(live, facts, pathOf) {
+    var out = [];
+    if (!live) return out;
+    var finalUrl = live.finalUrl || live.url || '';
+    if (/^http:\/\//i.test(finalUrl)) {
+      out.push({ category: 'structure', severity: 'break', field: 'HTTPS',
+        found: finalUrl, note: 'the page was served over plain http — browsers mark it not secure' });
+    }
+    var tls = live.tls;
+    if (tls && !tls.valid) {
+      out.push({ category: 'structure', severity: 'break', field: 'Certificate',
+        found: tls.error || 'not valid',
+        note: 'the site\'s certificate is not valid (' + (tls.error || 'unknown reason') + ') — browsers show a not-secure warning' });
+    } else if (tls && tls.daysLeft !== null && tls.daysLeft < 30) {
+      out.push({ category: 'structure', severity: 'check', field: 'Certificate',
+        found: 'valid until ' + String(tls.validTo).slice(0, 10),
+        note: 'the certificate expires in ' + tls.daysLeft + ' day' + (tls.daysLeft === 1 ? '' : 's') + ' — make sure it renews' });
+    }
+    var hops = (live.redirects || []).length;
+    if (hops > 1) {
+      out.push({ category: 'links', severity: 'check', field: 'Redirect chain',
+        found: live.url, note: 'reached through ' + hops + ' redirects — links to it should point at the final URL' });
+    }
+    // On a preview build the canonical names the live page on purpose.
+    if (facts.canonical && finalUrl && !/^preview(-[a-z]+)?\./.test(hostOf(finalUrl).replace(/^www\./, '')) &&
+        !/^https?:\/\/preview(-[a-z]+)?\./i.test(finalUrl) && !sameUrl(finalUrl, facts.canonical, pathOf)) {
+      out.push({ category: 'metadata', severity: 'check', field: 'Canonical', expected: finalUrl, found: facts.canonical,
+        note: 'the page is served at one URL and its canonical names another — fine for a duplicate, wrong for an original' });
+    }
+    return out;
+  }
+
+  // Every link worth a status check: absolute http(s) targets of the page's
+  // anchors, relative ones resolved against where the page was served.
+  function linksToCheck(html, baseUrl) {
+    var out = [], seen = {}, m, re = /<a\b[^>]*>/gi;
+    while ((m = re.exec(String(html || ''))) !== null) {
+      var href = attr(m[0], 'href');
+      if (!href) continue;
+      href = href.trim();
+      if (!href || /^(#|mailto:|tel:|javascript:|data:)/i.test(href)) continue;
+      var abs;
+      try { abs = new URL(href.replace(/&amp;/g, '&'), baseUrl || undefined).href; } catch (e) { continue; }
+      if (!/^https?:\/\//i.test(abs)) continue;
+      abs = abs.replace(/#.*$/, '');
+      if (seen[abs]) continue;
+      seen[abs] = true;
+      out.push(abs);
+    }
+    return out;
+  }
+
+  function isKone(url, domains) {
+    var h = hostOf(url);
+    return domains.some(function (d) { return h === d || h.slice(-(d.length + 1)) === '.' + d; });
+  }
+
+  // Link statuses from the backend, as Hyperlinks findings. Broken is a
+  // break; a link that could not be verified is a check — never counted as
+  // broken, never as fine.
+  function linkStatusFindings(statuses, domains) {
+    var out = [];
+    (statuses || []).forEach(function (s) {
+      var where = isKone(s.url, domains) ? 'KONE' : 'external';
+      if (s.verdict === 'dead') {
+        out.push({ category: 'links', severity: 'break', field: 'Broken link (' + where + ')', found: s.url,
+          note: s.reason || ('answered ' + s.status) });
+      } else if (s.verdict === 'unverified' || s.verdict === 'refused') {
+        out.push({ category: 'links', severity: 'check', field: 'Link not verified (' + where + ')', found: s.url,
+          note: (s.reason || 'no answer') + ' — open it by hand' });
+      }
+    });
+    return out;
+  }
+
   function create(config) {
     config = config || {};
     var wt = config['work-types'] || {};
@@ -403,10 +487,18 @@
 
     function cmeLink(pattern, id) { return id ? pattern.split('{id}').join(id) : null; }
 
+    // Every KONE domain in the registry, for telling KONE links from external.
+    var koneDomains = comparer.siteEntries().map(function (e) { return String(e.domain || '').toLowerCase(); })
+      .concat(['kone.com']).filter(function (d, i, all) { return d && all.indexOf(d) === i; });
+
     // options.brief (optional): with a brief, QA is also the comparison —
     // one report, the brief's findings and the page's own in the same five
     // categories, coverage on top. Without one it is QA on the page alone.
     // options.workTypeId decides which playbook the brief is read with.
+    // options.live (optional): the backend's fetch result for this page —
+    // status, final URL, redirects, certificate — which adds its own facts
+    // and findings. options.links (optional): link statuses from the
+    // backend's link check, reported under Hyperlinks.
     function run(html, options) {
       options = options || {};
       html = String(html == null ? '' : html);
@@ -427,16 +519,23 @@
       var tcmTag = metaTag(headHtml, 'pagetcmid');
       var tcmRaw = tcmTag ? (attr(tcmTag, 'content') || '').trim() : '';
       var tcmId = /^tcm:\d+-\d+(-\d+)?$/i.test(tcmRaw) ? tcmRaw : null;
-      var formId = comparer.formIdFinding(expect, page);
-      var market = comparer.marketOf(expect, page);
+      // A page with no canonical still has a market when it was fetched
+      // live: the URL it was served at says which site it is on.
+      var placed = page;
+      if (!page.canonical && options.live && options.live.finalUrl) placed = Object.assign({}, page, { canonical: options.live.finalUrl });
+      var formId = comparer.formIdFinding(expect, placed);
+      var market = comparer.marketOf(expect, placed);
 
       var facts = {
         canonical: page.canonical || null,
-        environment: environmentOf(page.canonical),
+        environment: page.canonical || !(options.live && options.live.finalUrl)
+          ? environmentOf(page.canonical)
+          : (function (env) { env.why = 'no canonical; served from ' + hostOf(options.live.finalUrl); return env; }(environmentOf(options.live.finalUrl))),
         tcmId: tcmId,
         tcmRaw: tcmRaw || null,
         cmeNewUi: cmeLink(cme.newUi, tcmId),
         cmeOldUi: cmeLink(cme.oldUi, tcmId),
+        pageTitle: page.pageName || null,
         lang: page.lang || null,
         dataLang: page.dataLang || null,
         market: market ? (market.ambiguous ? market.base + ' (language version not determined)' : market.name) : null,
@@ -479,7 +578,20 @@
         .concat(aspxFindings(facts))
         .concat(keywordFindings(page))
         .concat(h1Findings(html, normalise))
-        .concat(linkTextFindings(comparer.mainRegion(html).html, qaCfg, normalise));
+        .concat(linkTextFindings(comparer.mainRegion(html).html, qaCfg, normalise))
+        .concat(liveFindings(options.live, facts, pathOf))
+        .concat(linkStatusFindings(options.links, koneDomains));
+
+      if (options.live) {
+        var lv = options.live;
+        facts.live = { url: lv.url, finalUrl: lv.finalUrl, status: lv.status, verdict: lv.verdict,
+          redirects: lv.redirects || [], tls: lv.tls || null, ms: lv.ms, bytes: lv.bytes };
+      }
+      if (options.links) {
+        var tallyOf = function (v) { return options.links.filter(function (l) { return l.verdict === v; }).length; };
+        facts.linkCheck = { checked: options.links.length, ok: tallyOf('ok'), dead: tallyOf('dead'),
+          unverified: tallyOf('unverified') + tallyOf('refused') };
+      }
 
       // The title naming rule, scored for each title the page carries.
       var entries = comparer.siteEntries();
@@ -580,8 +692,65 @@
       };
     }
 
-    return { run: run };
+    // One line per crawled page, for the crawl table and its CSV: what a
+    // reader scans for before opening the full report.
+    function crawlRow(r, live) {
+      var worst = function (rows, field) {
+        var rank = { red: 3, amber: 2, green: 1 }, best = null;
+        (rows || []).forEach(function (row) {
+          if (row.field !== field) return;
+          if (!best || (rank[row.state] || 0) > (rank[best] || 0)) best = row.state;
+        });
+        return best;
+      };
+      var meta = r.categories.filter(function (c) { return c.id === 'metadata'; })[0] || {};
+      var structure = r.categories.filter(function (c) { return c.id === 'structure'; })[0] || {};
+      var form = (structure.rows || []).filter(function (row) { return row.field === 'Form Assembly ID'; })[0] || null;
+      return {
+        url: live ? live.url : (r.facts.canonical || ''),
+        finalUrl: live ? live.finalUrl : null,
+        status: live ? live.status : null,
+        verdict: live ? live.verdict : 'ok',
+        title: r.facts.pageTitle || null,
+        titleFormat: worst(meta.rows, 'Title format'),
+        formId: form ? form.state : null,
+        formIdFound: form ? form.found : null,
+        breaks: r.breaks,
+        checks: r.checks,
+        known: r.knownIssues.length,
+        tcmId: r.facts.tcmId,
+        cme: r.facts.cmeNewUi,
+        market: r.facts.market,
+        environment: r.facts.environment.label
+      };
+    }
+
+    // A crawl checks every link once across the whole run, after the pages
+    // were judged — so the statuses for one page arrive after its report was
+    // built. Folded in here rather than by re-running the page, whose HTML a
+    // long crawl does not keep.
+    function withLinkStatuses(r, statuses) {
+      var findings = linkStatusFindings(statuses, koneDomains);
+      var out = Object.assign({}, r, { facts: Object.assign({}, r.facts), categories: r.categories.map(function (c) {
+        if (c.id !== 'links') return c;
+        var added = findings.map(function (f) { return { severity: f.severity, field: f.field, note: f.note, found: f.found }; });
+        var devs = c.deviations.concat(added).sort(function (a, b) {
+          return (a.severity === 'check' ? 1 : 0) - (b.severity === 'check' ? 1 : 0);
+        });
+        return Object.assign({}, c, { deviations: devs });
+      }) });
+      var tallyOf = function (v) { return statuses.filter(function (l) { return l.verdict === v; }).length; };
+      out.facts.linkCheck = { checked: statuses.length, ok: tallyOf('ok'), dead: tallyOf('dead'),
+        unverified: tallyOf('unverified') + tallyOf('refused') };
+      out.breaks = 0; out.checks = 0;
+      out.categories.forEach(function (c) {
+        c.deviations.forEach(function (d) { if (d.severity === 'check') out.checks++; else out.breaks++; });
+      });
+      return out;
+    }
+
+    return { run: run, crawlRow: crawlRow, linksToCheck: linksToCheck, withLinkStatuses: withLinkStatuses };
   }
 
-  return { create: create, DEFAULT_QA: DEFAULT_QA };
+  return { create: create, DEFAULT_QA: DEFAULT_QA, linksToCheck: linksToCheck };
 }));

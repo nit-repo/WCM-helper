@@ -396,5 +396,96 @@
       "siteNamesDraft": []
     }
   },
+  "regions": {
+    "draft": true,
+    "note": "Areas and frontlines group the markets for the crawl picker in QA. DRAFTED from the order of the form-ID list, not from an official KONE org chart — correct the names and memberships here, then set draft to false. Every market belongs to exactly one frontline, every frontline to exactly one area.",
+    "areas": {
+      "Europe": [
+        "Central Europe",
+        "West Europe",
+        "South Europe",
+        "North Europe"
+      ],
+      "Middle East & Africa": [
+        "Middle East",
+        "Africa"
+      ],
+      "Americas": [
+        "North America"
+      ],
+      "Asia-Pacific": [
+        "India",
+        "Southeast Asia"
+      ]
+    },
+    "frontlines": {
+      "Central Europe": [
+        "Germany",
+        "Austria",
+        "Switzerland (DE)",
+        "Switzerland (FR)",
+        "Poland",
+        "Czech Republic",
+        "Slovakia",
+        "Slovenia"
+      ],
+      "West Europe": [
+        "France",
+        "Belgium (FR)",
+        "Belgium (NL)",
+        "Great Britain",
+        "Ireland",
+        "Netherlands"
+      ],
+      "South Europe": [
+        "Spain",
+        "Portugal",
+        "Italy"
+      ],
+      "North Europe": [
+        "Sweden",
+        "Finland",
+        "Denmark",
+        "Norway",
+        "Estonia",
+        "Latvia",
+        "Lithuania",
+        "Iceland"
+      ],
+      "North America": [
+        "United States",
+        "Canada (EN)",
+        "Canada (FR)"
+      ],
+      "India": [
+        "India"
+      ],
+      "Middle East": [
+        "UAE",
+        "Bahrain",
+        "Egypt",
+        "Kuwait",
+        "Oman",
+        "Qatar",
+        "Saudi Arabia",
+        "Turkey"
+      ],
+      "Africa": [
+        "Kenya",
+        "Morocco",
+        "South Africa",
+        "Tunisia",
+        "Uganda"
+      ],
+      "Southeast Asia": [
+        "Singapore",
+        "Indonesia",
+        "Vietnam",
+        "Malaysia",
+        "Thailand",
+        "Philippines"
+      ]
+    }
+  },
   "pageOverrides": []
 }

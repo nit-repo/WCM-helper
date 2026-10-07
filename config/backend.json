@@ -1,0 +1,5 @@
+{
+  "url": "",
+  "devUrl": "",
+  "note": "Where WCM Helper's backend runs — the service in backend/ that fetches live pages, sitemaps and link statuses. url is the deployed backend (e.g. https://wcm-helper-backend.vercel.app). devUrl, when set, is used instead while the tool is served from localhost — http://localhost:3700 for `node backend/server.js`. With no url to use, the tool runs without a backend: no sign-in, no live fetching, paste and the bookmarklet only. Once one is set, the whole tool sits behind the backend's password."
+}

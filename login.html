@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in — WCM Helper</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><g fill='%231450F5'><rect x='1' y='6' width='6' height='20'/><rect x='9' y='6' width='6' height='20'/><rect x='17' y='6' width='6' height='20'/><rect x='25' y='6' width='6' height='20'/></g></svg>">
+  <style>
+    @font-face {
+      font-family: 'KONE Information';
+      src: url('assets/fonts/KONE_Information.ttf') format('truetype');
+      font-weight: 400;
+      font-display: swap;
+    }
+    :root {
+      --kone-blue: #1450F5; --blue-80: #4373F7; --white: #FFFFFF; --black: #141414;
+      --black-60: #727272; --black-20: #D0D0D0; --hairline: #E6E6E6; --red: #FF5F28;
+      --font-primary: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      --font-secondary: 'KONE Information', Inter, system-ui, Arial, sans-serif;
+      --radius-md: 8px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: stretch;
+      background: var(--white); color: var(--black); font-family: var(--font-primary);
+      font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+    }
+    .rail { flex: none; width: 236px; background: var(--black); color: var(--white); padding: 24px 26px; }
+    .rail img { height: 22px; width: auto; display: block; }
+    .rail h1 { font-size: 18px; margin: 14px 0 0; font-weight: 400; }
+    .rail p { font-family: var(--font-secondary); text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; margin: 6px 0 0; opacity: 0.7; }
+    main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+    .card { width: 100%; max-width: 380px; border: 1px solid var(--hairline); border-radius: var(--radius-md); padding: 24px; }
+    .card h2 {
+      margin: 0 0 16px; font-family: var(--font-secondary); text-transform: uppercase;
+      letter-spacing: 0.06em; font-size: 13px; font-weight: 400; color: var(--kone-blue);
+    }
+    label { display: block; font-size: 13px; color: var(--black-60); margin-bottom: 6px; }
+    input {
+      width: 100%; font: inherit; padding: 10px 12px; border: 1px solid var(--black-20);
+      border-radius: var(--radius-md); background: var(--white); color: var(--black);
+    }
+    input:focus { outline: 2px solid var(--kone-blue); outline-offset: 1px; border-color: var(--kone-blue); }
+    button {
+      margin-top: 14px; width: 100%; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer;
+      background: var(--kone-blue); color: var(--white); border: 1px solid var(--kone-blue);
+      border-radius: var(--radius-md); padding: 10px 18px;
+    }
+    button:hover { background: var(--blue-80); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .error { color: var(--red); font-size: 14px; margin: 12px 0 0; min-height: 1.5em; }
+    .hint { color: var(--black-60); font-size: 13px; margin: 16px 0 0; }
+    @media (max-width: 700px) {
+      body { flex-direction: column; }
+      .rail { width: 100%; padding: 18px 16px; }
+    }
+  </style>
+</head>
+
+<body>
+  <aside class="rail">
+    <img src="assets/brand/kone-logo-white.svg" alt="KONE" width="118" height="22">
+    <h1>WCM Helper</h1>
+    <p>Analyse briefs, QA and crawl KONE pages</p>
+  </aside>
+  <main>
+    <form class="card" id="login-form" autocomplete="on">
+      <h2>Sign in</h2>
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required autofocus>
+      <button type="submit" id="login-btn" disabled>Sign in</button>
+      <p class="error" id="login-error" role="alert"></p>
+      <p class="hint">One shared password for the team. It is checked by WCM Helper's backend, which fetches live KONE pages for QA — pasted pages and briefs still never leave your browser.</p>
+    </form>
+  </main>
+
+  <script src="backend-client.js?v=2026-10-09a"></script>
+  <script>
+    (function () {
+      'use strict';
+      var form = document.getElementById('login-form');
+      var input = document.getElementById('password');
+      var btn = document.getElementById('login-btn');
+      var error = document.getElementById('login-error');
+
+      // Only ever back to a page of this tool — never to an address handed in
+      // through the query string.
+      var next = new URLSearchParams(location.search).get('next') || 'index.html';
+      if (!/^[a-z0-9_-]+\.html$/i.test(next)) next = 'index.html';
+
+      WcmBackend.load().then(function (client) {
+        if (!client.enabled) { location.replace(next); return; }
+        client.session().then(function (s) {
+          if (s.ok) { location.replace(next); return; }
+          if (s.offline) error.textContent = 'The backend is not answering at ' + client.base + ' — sign-in will fail until it is back.';
+          btn.disabled = false;
+        });
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          btn.disabled = true;
+          error.textContent = '';
+          client.login(input.value).then(function () { location.replace(next); }, function (err) {
+            error.textContent = err.status === 401 ? 'Wrong password.' : err.message.charAt(0).toUpperCase() + err.message.slice(1) + '.';
+            btn.disabled = false;
+            input.select();
+          });
+        });
+      });
+    }());
+  </script>
+</body>
+
+</html>
