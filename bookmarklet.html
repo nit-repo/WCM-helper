@@ -130,7 +130,7 @@
         <li>
           <span class="chip-num">2</span>
           <div class="step-body">
-            <p>In WCM Helper's Compare tab, paste the page URL and click <strong>Open page</strong>.</p>
+            <p>In WCM Helper's QA tab, paste the page URL and click <strong>Open page</strong>.</p>
             <p class="detail">Opening it from there is what lets the page report back into the tab you are already working in, so the brief you pasted stays put.</p>
           </div>
         </li>
@@ -138,12 +138,12 @@
           <span class="chip-num">3</span>
           <div class="step-body">
             <p>On that page, click the bookmarklet.</p>
-            <p class="detail">The page is sent back to WCM Helper and lands in Compare, brief intact — just click Compare. Nothing opens and nothing navigates: the capture goes into the tab you are already working in.</p>
+            <p class="detail">The page is sent back to WCM Helper and lands in QA, which runs on it straight away — against your brief too, if one is pasted. Nothing opens and nothing navigates: the capture goes into the tab you are already working in.</p>
           </div>
         </li>
       </ol>
 
-      <p class="note">Step 2 is not optional. Opening the page from Compare is what gives the bookmarklet somewhere to send to — a browser gives a page no other way to reach a tab on a different site. Click it on a page opened any other way and it will tell you so rather than quietly opening a tab.</p>
+      <p class="note">Step 2 is not optional. Opening the page from QA is what gives the bookmarklet somewhere to send to — a browser gives a page no other way to reach a tab on a different site. Click it on a page opened any other way and it will tell you so rather than quietly opening a tab.</p>
 
       <p><a href="index.html">&larr; Back to WCM Helper</a></p>
     </main>
@@ -161,7 +161,7 @@
       //
       //   1. window.opener.postMessage — the only channel that can cross
       //      origins, which is why the page has to be opened from
-      //      Compare's launcher for this to have anywhere to go.
+      //      QA's launcher for this to have anywhere to go.
       //   2. BroadcastChannel — origin-scoped, so it only ever reaches
       //      tabs on the page's own origin. Included because it costs
       //      nothing and covers the same-origin case.
@@ -187,8 +187,8 @@
             '+\'<div style="font-size:16px;font-weight:600;margin-bottom:6px;word-break:break-word">\'+esc(document.title||"This page")+\'</div>\'' +
             '+\'<div style="font-size:12px;color:#727272;margin-bottom:14px;word-break:break-all">\'+esc(u)+\'</div>\'' +
             '+(sent' +
-              '?\'<div style="font-size:13px;color:#141414">\'+kb+\' KB of markup is now in the Compare tab, with your brief still there.</div>\'' +
-              ':\'<div style="font-size:13px;color:#141414;line-height:1.55">This page was not opened from WCM Helper, so there is no tab to send it to.<br><br>In WCM Helper, go to <b>Compare</b>, paste this URL into <b>Page</b>, click <b>Open page</b>, then click the bookmarklet on the tab that opens.</div>\')' +
+              '?\'<div style="font-size:13px;color:#141414">\'+kb+\' KB of markup is now in the QA tab, with your brief still there.</div>\'' +
+              ':\'<div style="font-size:13px;color:#141414;line-height:1.55">This page was not opened from WCM Helper, so there is no tab to send it to.<br><br>In WCM Helper, go to <b>QA</b>, paste this URL into <b>Page</b>, click <b>Open page</b>, then click the bookmarklet on the tab that opens.</div>\')' +
             '+\'</div>\';' +
           'var prev=document.getElementById("__wcmh__");if(prev)prev.remove();' +
           'var shown=false;' +

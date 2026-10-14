@@ -1,0 +1,13 @@
+Market	Italy
+Line	SERV
+Copy language	Italian, informal tu
+Target searches	costo manutenzione ascensore, preventivo manutenzione ascensore
+Monthly search volumes	manutenzione ascensore costi 140, costo manutenzione ascensore 70, preventivo manutenzione ascensore 20, category head manutenzione ascensori 480
+URL Path	https://www.kone.it/edifici-esistenti/nuova-offerta-manutenzione/preventivo-manutenzione/
+Sources	https://www.kone.it/edifici-esistenti/nuova-offerta-manutenzione/manutenzione-ascensori-contratto/
+●	https://www.kone.it/edifici-esistenti/nuova-offerta-manutenzione/preventive/
+●	https://www.kone.it/edifici-esistenti/nuova-offerta-manutenzione/manutenzione-predittiva-ascensori-con-IoT/
+●	https://www.kone.it/edifici-esistenti/nuova-offerta-manutenzione/your-maintenance-journey/
+●	https://www.kone.it/edifici-esistenti/nuova-offerta-manutenzione/manutenzione-ascensori-obblighi-di-legge-normativa/
+●	https://www.kone.it/edifici-esistenti/nuova-offerta-manutenzione/customer-service/
+Verification notes	the steps come from the KONE maintenance journey page, the legal FAQ is based on D.P.R. 162/1999 as published on the KONE legal obligations page, and the contract table comes from the KONE contract page. The three hero statistics are KONE Remote Service figures published on kone.es as global service data: KONE to confirm their use for the Italian market.

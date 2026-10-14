@@ -2,6 +2,8 @@
 
 How a KONE page is built, in three layers, and how each layer appears to this tool.
 
+**Machine-readable form**: `config/tridion-taxonomy.json` carries the "Component reference" table below as structured data — each component's field slots normalised to the eight canonical `slotTypes` names (never a raw XPath field name like `bodytext`, never the human phrase "body text" — the two spellings this document itself mixes further down). `page-model.js`'s `fieldTableFor()` reads that file (falling back to an in-code mirror, `DEFAULT_TAXONOMY`, when it's missing or broken) to build Brief mode's component-mapped field tables. Keep the two in step by hand: a component added here belongs in the JSON too, normalised the same way.
+
 **Layer 1 — Component.** Tridion's authoring unit. A page is an ordered list of Component Presentations; each one is an instance of a component type (`HeroBanner`, `Accordion`, `ContentBlocks`, …). 49 component types are documented on `preview-training.kone.com/brand-refresh/`.
 
 **Layer 2 — Field slot.** Each component exposes named content fields to the author (`heading`, `introduction`, `actiontext`, …). These are what a content brief's rows actually correspond to: a brief's "Headline" row is a heading-type slot, its "Introduction" row an intro-type slot.

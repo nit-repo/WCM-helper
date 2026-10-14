@@ -1,0 +1,106 @@
+<!-- A real single built page, extracted from the eleven-page agency mockup the
+     user pasted directly into chat (a bespoke `.ld-*` template, not KONE's own
+     AEM/Tridion markup — no Tridion markers, no config-recognised CSS classes
+     anywhere). Only the page itself is kept here, not the internal review
+     document's own wrapper (nav, per-panel brief front matter, JS tab
+     switcher) that surrounded it in the original paste — a real captured page
+     would never carry that either. This is the healthcare-elevators page
+     (Italy · NBS), kept whole because it carries every shape this feature
+     needs to prove itself against on real material: a hero with a stat row
+     and a right-side bullet card (both bare <div>s, neither <p> nor <li>), a
+     3-card problem grid, a 6-item benefit grid, a spec table, a 4-step flow,
+     a 3-item FAQ, and a CTA band with its own bullet list and a lead form —
+     plus the brief's own real "to be aligned with KONE" open item, still
+     present in the verification-notes text further up the original document,
+     not duplicated here since this fixture is the page only. -->
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Ascensori per ospedali, cliniche e RSA | KONE</title>
+<style>
+:root{--blue:#1450F5;--black:#141414;--sand:#F4F4F2;--sand2:#E5E5E3;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'KONE Information','Helvetica Neue',Arial,Helvetica,sans-serif;color:var(--black);line-height:1.55;}
+.ld-hero{display:grid;grid-template-columns:1.15fr 1fr;background:var(--blue);color:#fff;}
+.ld-hero-l{padding:54px 40px 44px 34px;}
+.ld-label{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-bottom:16px;}
+.ld-h1{font-size:38px;line-height:1.12;font-weight:normal;letter-spacing:-.01em;margin-bottom:16px;}
+.ld-sub{font-size:15.5px;line-height:1.6;color:rgba(255,255,255,.82);max-width:430px;margin-bottom:26px;}
+.ld-actions{display:flex;gap:12px;flex-wrap:wrap;}
+.ld-btn{background:#fff;color:var(--blue);padding:13px 26px;font-size:14px;text-decoration:none;}
+.ld-btn-ghost{border:1px solid rgba(255,255,255,.5);color:#fff;padding:13px 20px;font-size:14px;text-decoration:none;}
+.ld-herostats{display:flex;gap:36px;margin-top:42px;padding-top:26px;border-top:1px solid rgba(255,255,255,.25);flex-wrap:wrap;}
+.ld-hs-n{font-size:30px;line-height:1;}
+.ld-hs-l{font-size:11px;color:rgba(255,255,255,.6);max-width:140px;margin-top:5px;}
+.ld-hero-r{position:relative;display:flex;align-items:center;justify-content:center;padding:40px 28px;}
+.ld-hcard{position:relative;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.22);padding:26px;width:300px;}
+.ld-hcard h6{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.55);margin-bottom:14px;font-weight:normal;}
+.ld-hci{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.14);font-size:12.5px;color:rgba(255,255,255,.85);}
+.ld-sec{padding:52px 34px;}
+.ld-sec-sand{background:var(--sand);}
+.ld-sec-gray{background:#F7F7F6;}
+.ld-sec-blue{background:var(--blue);color:#fff;}
+.ld-sec-black{background:#141414;color:#fff;}
+.ld-slabel{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--blue);margin-bottom:12px;}
+.ld-sec-blue .ld-slabel,.ld-sec-black .ld-slabel{color:rgba(255,255,255,.55);}
+.ld-stitle{font-size:27px;font-weight:normal;line-height:1.15;letter-spacing:-.01em;margin-bottom:14px;}
+.ld-sbody{font-size:14.5px;line-height:1.65;color:#666;max-width:560px;}
+.ld-sec-blue .ld-sbody{color:rgba(255,255,255,.72);}
+.ld-probgrid{display:grid;grid-template-columns:1fr 1.1fr;gap:44px;align-items:center;}
+.ld-probcards{display:flex;flex-direction:column;gap:2px;}
+.ld-probcard{background:#fff;padding:18px 22px;display:flex;gap:16px;}
+.ld-pnum{font-size:24px;color:#C7D4FC;line-height:1;min-width:34px;}
+.ld-probcard h5{font-size:14px;margin-bottom:4px;font-weight:normal;}
+.ld-probcard p{font-size:12.5px;color:#666;line-height:1.55;}
+.ld-bengrid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;margin-top:36px;}
+.ld-ben{background:#F7F7F6;padding:26px 22px;}
+.ld-bnum{font-size:26px;color:#C7D4FC;line-height:1;margin-bottom:14px;}
+.ld-ben h5{font-size:14.5px;margin-bottom:7px;font-weight:normal;}
+.ld-ben p{font-size:12.5px;color:#666;line-height:1.6;}
+.ld-pkghead{display:grid;grid-template-columns:1.2fr 1fr;gap:36px;margin-bottom:32px;align-items:start;}
+.ld-pkgnote{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);padding:20px 22px;font-size:12.5px;color:rgba(255,255,255,.78);line-height:1.6;}
+.ld-pkgnote b{display:block;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:rgba(255,255,255,.5);margin-bottom:8px;font-weight:normal;}
+.ld-tbl{width:100%;border-collapse:collapse;}
+.ld-tbl th{background:#fff;color:var(--black);text-align:left;padding:11px 16px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:normal;}
+.ld-tbl td{padding:14px 16px;font-size:13px;color:rgba(255,255,255,.82);line-height:1.5;border-bottom:1px solid rgba(255,255,255,.12);vertical-align:top;}
+.ld-tbl td:first-child{color:#fff;}
+.ld-steps{display:grid;grid-template-columns:repeat(4,1fr);margin-top:40px;}
+.ld-step{padding-right:20px;}
+.ld-stepnum{width:42px;height:42px;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;margin-bottom:16px;}
+.ld-step h5{font-size:14px;margin-bottom:7px;font-weight:normal;}
+.ld-step p{font-size:12.5px;color:#666;line-height:1.6;}
+.ld-faq{margin-top:32px;max-width:760px;}
+.ld-faq details{background:#fff;border:1px solid var(--sand2);margin-bottom:8px;padding:14px 18px;}
+.ld-faq summary{cursor:pointer;font-size:14.5px;}
+.ld-faq p{font-size:13px;color:#555;margin-top:9px;line-height:1.6;max-width:640px;}
+.ld-ctagrid{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:start;}
+.ld-trust{display:flex;flex-direction:column;gap:12px;margin-top:26px;}
+.ld-trust div{display:flex;gap:12px;font-size:13px;color:rgba(255,255,255,.7);line-height:1.5;}
+.ld-form{background:#fff;padding:28px 26px;color:var(--black);}
+.ld-form h5{font-size:17px;font-weight:normal;margin-bottom:4px;}
+.ld-form .fsub{font-size:12px;color:#777;margin-bottom:18px;}
+.ld-fg{display:flex;flex-direction:column;gap:5px;margin-bottom:11px;}
+.ld-fg label{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--black);}
+.ld-fg input,.ld-fg textarea,.ld-fg select{font-family:inherit;font-size:13px;padding:10px 12px;border:1px solid #D0D0D0;background:#fff;}
+.ld-frow{display:grid;grid-template-columns:1fr 1fr;gap:11px;}
+.ld-submit{width:100%;background:var(--blue);color:#fff;border:none;padding:13px;font-family:inherit;font-size:14px;margin-top:4px;}
+.ld-fnote{font-size:10.5px;color:#888;margin-top:9px;line-height:1.5;}
+</style>
+</head>
+<body>
+<main class="ld">
+<div class="ld-hero"><div class="ld-hero-l">
+<div class="ld-label">Nuovi impianti · Sanità</div><h2 class="ld-h1">Ascensori per ospedali, cliniche e RSA</h2><p class="ld-sub">Impianti pensati per il traffico intenso delle strutture sanitarie, con la portata e l'affidabilità che servono ogni giorno.</p>
+<div class="ld-actions"><a class="ld-btn" href="#">Richiedi una valutazione →</a><a class="ld-btn-ghost" href="#">Scopri di più ↓</a></div>
+<div class="ld-herostats"><div><div class="ld-hs-n">2.500 kg</div><div class="ld-hs-l">portata in configurazione mista passeggeri/merci</div></div><div><div class="ld-hs-n">40 m</div><div class="ld-hs-l">di corsa, fino a 12 piani</div></div><div><div class="ld-hs-n">1,6 m/s</div><div class="ld-hs-l">velocità massima</div></div></div>
+</div><div class="ld-hero-r"><div class="ld-hcard"><h6>Pensato per la sanità</h6><div class="ld-hci">Traffico molto intenso, uso continuo</div><div class="ld-hci">Barelle, letti e materiali ogni giorno</div><div class="ld-hci">Porte ampie e livellamento preciso al piano</div></div></div></div>
+<div class="ld-sec ld-sec-sand"><div class="ld-probgrid"><div><div class="ld-slabel">Il problema</div><h3 class="ld-stitle">In ospedale l'ascensore non può fermarsi</h3><p class="ld-sbody">Un impianto sottodimensionato o inaffidabile rallenta barelle, letti e personale, tutti i giorni. La scelta giusta parte dal traffico reale della struttura.</p></div><div class="ld-probcards"><div class="ld-probcard"><div class="ld-pnum">01</div><div><h5>Traffico continuo</h5><p>l'impianto lavora tutto il giorno, tutti i giorni: conta la durata, non la prestazione di punta.</p></div></div><div class="ld-probcard"><div class="ld-pnum">02</div><div><h5>Carichi importanti</h5><p>barelle e letti richiedono portata, aperture ampie e livellamento preciso al piano.</p></div></div><div class="ld-probcard"><div class="ld-pnum">03</div><div><h5>Fermi non ammessi</h5><p>ogni fermo rallenta i reparti e il percorso dei pazienti.</p></div></div></div></div></div>
+<div class="ld-sec"><div class="ld-slabel">La soluzione</div><h3 class="ld-stitle">KONE TranSys DX, l'ascensore per il traffico intenso</h3><p class="ld-sbody">KONE indica TranSys DX per gli edifici dal traffico molto intenso, come gli ospedali: un ascensore per passeggeri e merci costruito per durare, con aperture ampie e livellamento preciso al piano.</p><div class="ld-bengrid"><div class="ld-ben"><div class="ld-bnum">01</div><h5>Progettato per gli ospedali</h5><p>KONE TranSys DX è indicato da KONE per gli edifici ad altissimo traffico, come gli ospedali.</p></div><div class="ld-ben"><div class="ld-bnum">02</div><h5>Portata fino a 2.500 kg</h5><p>in configurazione mista passeggeri/merci; fino a 5.000 kg nella versione merci.</p></div><div class="ld-ben"><div class="ld-bnum">03</div><h5>Porte ampie</h5><p>aperture larghe che facilitano carico e scarico.</p></div><div class="ld-ben"><div class="ld-bnum">04</div><h5>Livellamento preciso</h5><p>arrivo al piano accurato, senza dislivelli.</p></div><div class="ld-ben"><div class="ld-bnum">05</div><h5>Materiali resistenti</h5><p>durata eccezionale anche con uso intenso.</p></div><div class="ld-ben"><div class="ld-bnum">06</div><h5>Senza locale macchine</h5><p>motore KONE EcoDisc, meno spazio tecnico richiesto.</p></div></div></div>
+<div class="ld-sec ld-sec-blue"><div class="ld-pkghead"><div><div class="ld-slabel">La scheda</div><h3 class="ld-stitle">KONE TranSys DX in numeri</h3></div><div class="ld-pkgnote"><b>Configurabile</b>Puoi esplorare configurazioni e dimensioni con lo strumento KONE Studio, anche prima del progetto.</div></div><table class="ld-tbl"><thead><tr><th>Caratteristica</th><th>Valore</th></tr></thead><tbody><tr><td>Portata (merci)</td><td>fino a 5.000 kg / 53 persone</td></tr><tr><td>Portata (mista)</td><td>fino a 2.500 kg / 33 persone</td></tr><tr><td>Velocità</td><td>fino a 1,6 m/s</td></tr><tr><td>Corsa</td><td>fino a 40 m / 12 piani</td></tr><tr><td>Locale macchine</td><td>non necessario: motore KONE EcoDisc</td></tr></tbody></table></div>
+<div class="ld-sec ld-sec-gray"><div class="ld-slabel">Come funziona</div><h3 class="ld-stitle">Dal progetto all'impianto in 4 passi</h3><div class="ld-steps"><div class="ld-step"><div class="ld-stepnum">01</div><h5>Parlaci della struttura</h5><p>reparti, piani, flussi e vincoli del progetto.</p></div><div class="ld-step"><div class="ld-stepnum">02</div><h5>Configura l'impianto</h5><p>anche online, con KONE Studio.</p></div><div class="ld-step"><div class="ld-stepnum">03</div><h5>Proposta tecnica</h5><p>specifiche e dimensionamento per il tuo edificio.</p></div><div class="ld-step"><div class="ld-stepnum">04</div><h5>Installazione</h5><p>pianificata insieme alla direzione lavori. Lo step finale resta da confermare con KONE prima della pubblicazione.</p></div></div></div>
+<div class="ld-sec"><div class="ld-slabel">Domande frequenti</div><h3 class="ld-stitle">Le cose che tutti chiedono</h3><div class="ld-faq"><details><summary>Quale ascensore per un ospedale?</summary><p>KONE indica TranSys DX per gli edifici dal traffico molto intenso, come gli ospedali: è un ascensore per passeggeri e merci, con materiali resistenti e durata eccezionale.</p></details><details><summary>Serve il locale macchine?</summary><p>No: TranSys DX usa il motore KONE EcoDisc e non richiede il locale macchine.</p></details><details><summary>Che portata serve per barelle e letti?</summary><p>TranSys DX arriva a 2.500 kg in configurazione mista passeggeri/merci, e a 5.000 kg nella versione merci.</p></details></div></div>
+<div class="ld-sec ld-sec-black"><div class="ld-ctagrid"><div><div class="ld-slabel">Contattaci</div><h3 class="ld-stitle">Parliamo del tuo progetto</h3><p class="ld-sbody" style="color:rgba(255,255,255,.65)">Raccontaci la struttura e i suoi flussi: ti proponiamo l'impianto adatto, con specifiche verificabili. La sezione dedicata alla sanità è "in attesa di conferma da KONE" per i dettagli su barelle e letti.</p><div class="ld-trust"><div>Gamma dedicata agli edifici ad alto traffico</div><div>Specifiche chiare: fino a 5.000 kg, 40 m di corsa</div><div>Configurazione esplorabile con KONE Studio</div></div></div><div class="ld-form"><h5>Richiedi una valutazione</h5><div class="fsub">Ti ricontattiamo il prima possibile.</div><div class="ld-frow"><div class="ld-fg"><label>Nome e cognome *</label><input type="text" placeholder="Il tuo nome"></div><div class="ld-fg"><label>Telefono con prefisso +39 *</label><input type="tel" placeholder="+39"></div></div><div class="ld-fg"><label>Messaggio</label><textarea placeholder="Raccontaci del tuo impianto..."></textarea></div><button class="ld-submit" type="button">Richiedi una valutazione →</button><p class="ld-fnote">Inviando il modulo accetti l'informativa privacy. Anti-spam: mandatory phone-prefix validation and bot protection on the form; submissions to Salesforce.</p></div></div></div>
+</main>
+</body>
+</html>

@@ -1,0 +1,8 @@
+Market	Italy
+Line	NBS
+Copy language	Italian, informal tu
+Target searches	ascensore antincendio, normativa ascensori antincendio, EN 81-72
+Monthly search volumes	ascensore antincendio 210, normativa and EN 81-72 long tail
+URL Path	https://www.kone.it/nuovi-edifici/ascensori/antincendio/
+Sources	https://www.kone.it/strumenti-downloads/codici-e-norme/
+Verification notes	all requirements come from the KONE codes and standards page. If KONE has product material on evacuation elevators, a dedicated section can be added; for now the page focuses on fire-fighting elevators. The process steps are a proposed flow, to be aligned with KONE.

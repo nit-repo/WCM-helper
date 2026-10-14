@@ -40,6 +40,13 @@
       .replace(/&mdash;/gi, '—')
       .replace(/&ndash;/gi, '–')
       .replace(/&trade;/gi, '™')
+      // &reg; was missing while &trade; was here, so a brief writing the
+      // registered mark never matched a page rendering the entity.
+      .replace(/&reg;/gi, '\u00AE')
+      .replace(/&copy;/gi, '\u00A9')
+      .replace(/&deg;/gi, '\u00B0')
+      .replace(/&hellip;/gi, '\u2026')
+      .replace(/&#x([0-9a-f]+);/gi, function (_, n) { return String.fromCharCode(parseInt(n, 16)); })
       .replace(/&#(\d+);/g, function (_, n) { return String.fromCharCode(+n); });
   }
 
@@ -109,6 +116,17 @@
     return host.toLowerCase().replace(/^www\./, '');
   }
 
+  // A link into the CME editor rather than to a published page. The first
+  // pattern this shipped with matched neither real CME URL: the new UI opens
+  // web-cms.kone.com/ui/editor/page?activeItem=…, the old one
+  // web-cms.kone.com/WebUI/item.aspx?tcm=…, so the defect it exists to catch
+  // went unreported on both.
+  var DEFAULT_EDITOR_LINK = 'web-cms\\.kone\\.com|/ui/editor/(item|page)\\?|/WebUI/item\\.aspx';
+
+  function editorLinkRe(cfg) {
+    return new RegExp((cfg && cfg.editorLinkPattern) || DEFAULT_EDITOR_LINK, 'i');
+  }
+
   // ─── ASSET IDENTITY ──────────────────────────────────────────────────────
   // A brief names an asset ("KONE_Feat_Handrail_B_Landscape-004"); the page
   // carries a DAM or Scene7 embed URL that may be cropped, renamed with a
@@ -119,6 +137,15 @@
     var v = String(value == null ? '' : value).trim();
     v = v.replace(/[?#].*$/, '');
     v = v.split('/').pop();
+    // A filename with a space in it arrives percent-encoded in the src and
+    // plain in the brief, so "Graphic 1" resolved to graphic1 while the page's
+    // own "Graphic%201.jpg" resolved to graphic201 and the two never matched.
+    // Malformed encoding is left exactly as it came.
+    try { v = decodeURIComponent(v); } catch (e) { /* not valid encoding: keep as-is */ }
+    // Scene7 names the rendition after the asset, separated by a colon:
+    // "Monospace100_img_1-1:760x428(16-9)". The preset is delivery, not
+    // identity, and a brief names the asset without it.
+    v = v.replace(/:.*$/, '');
     v = v.replace(/\.(jpe?g|png|webp|gif|svg|avif)$/i, '');
     v = v.replace(new RegExp(variantPattern || '[-_](\\d{1,2}|crop|thumb|small|large|mobile|desktop)$', 'i'), '');
     return v.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -360,6 +387,33 @@
     return out;
   }
 
+  // Every KONE country site stamps a `var digitalData = {...};` script on
+  // every page, naming the FormAssembly form it carries
+  // (digitalData.page.pageInfo.FormAssemblyId). Scoped to the one <script>
+  // that actually declares digitalData, then read with a targeted regex for
+  // the one field this tool needs — never parsed as JS and never executed:
+  // a page's own script content is untrusted input, read as data the same
+  // way a <meta> tag already is.
+  function digitalDataIn(html) {
+    var sm = /<script\b[^>]*>([\s\S]*?var\s+digitalData\s*=[\s\S]*?)<\/script>/i.exec(html);
+    if (!sm) return null;
+    function field(name) {
+      var m = new RegExp(name + '["\']?\\s*:\\s*["\']([^"\']*)["\']', 'i').exec(sm[1]) ||
+        new RegExp(name + '["\']?\\s*:\\s*([\\w.-]+)', 'i').exec(sm[1]);
+      return m && m[1] !== '' ? m[1] : null;
+    }
+    // The same script also states the page's indexing intent, which QA
+    // checks against the page's own <meta name="robots">. Every key may be
+    // absent; a script with none of them is still reported as present.
+    return {
+      formAssemblyId: field('FormAssemblyId'),
+      pageID: field('pageID'),
+      pageType: field('pageType'),
+      indexOptions: field('indexOptions'),
+      followLinksOptions: field('followLinksOptions')
+    };
+  }
+
   // The one place a location string is built. What is stable lives in the
   // name — the component's type, its position when the type repeats, and the
   // field path, which is the component's schema and identical wherever it is
@@ -545,6 +599,16 @@
       images.push({ src: imageSrc(im[0]), alt: attr(im[0], 'alt'), at: im.index });
     }
 
+    // Body copy at paragraph granularity, with the offset each one sits at.
+    // page.text is the whole region flattened, which is all the comparer ever
+    // needed; a brief generated from the page needs to put each paragraph
+    // under the heading it belongs to, and that takes offsets.
+    var paragraphs = [], pm, pre = /<(p|li)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+    while ((pm = pre.exec(region.html)) !== null) {
+      var para = stripTags(pm[2]);
+      if (para) paragraphs.push({ tag: pm[1].toLowerCase(), text: para, at: pm.index });
+    }
+
     var links = [], placeholders = [], lm, lre = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
     while ((lm = lre.exec(region.html)) !== null) {
       var href = attr('<a ' + lm[1] + '>', 'href');
@@ -592,6 +656,7 @@
       canonical: canonicalHref,
       h1: headings.filter(function (h) { return h.level === 'h1'; }).map(function (h) { return h.text; }),
       headings: headings,
+      paragraphs: paragraphs,
       images: images,
       links: links,
       placeholderLinks: placeholders,
@@ -603,7 +668,11 @@
       lang: (/<html\b[^>]*>/i.exec(html) ? attr(/<html\b[^>]*>/i.exec(html)[0], 'lang') : '') || null,
       dataLang: (/<body\b[^>]*>/i.exec(html) ? attr(/<body\b[^>]*>/i.exec(html)[0], 'data-lang') : '') || null,
       modules: modulesIn(region.html, cfg),
-      regionVia: region.via
+      regionVia: region.via,
+      // Scoped to the whole page, not the main region above: the digitalData
+      // script sits in <head> or just before </body>, never inside the
+      // content region the rest of this function's extractions are scoped to.
+      digitalData: digitalDataIn(html)
     };
   }
 
@@ -629,6 +698,7 @@
     description: ['meta description', 'meta tag', 'meta description/meta tag'],
     keywords: ['meta keywords', 'keywords'],
     canonical: ['url path', 'url', 'page url'],
+    market: ['market'],
     topic: ['blog topic', 'blog topic/title', 'topic', 'h1'],
     image: ['cover image', 'image link', 'hero image'],
     links: ['internal links', 'links']
@@ -893,6 +963,13 @@
         if (value) expect.metadata[f.field] = value;
       } else if (f.field === 'keywords') {
         if (value) expect.metadata.keywords = value;
+      } else if (f.field === 'market') {
+        // Not a page-content assertion like the others above — metadataRows()
+        // never reads this key, so it never turns into a false "not defined
+        // on the page" row. It is the brief's own declared country, kept here
+        // so the Form Assembly ID check (below) can resolve it without a
+        // second, parallel read of the same front matter.
+        if (value) expect.metadata.market = value;
       } else if (f.field === 'topic') {
         // The H1 the page has to carry as a heading, which is a different
         // assertion from the same words appearing somewhere in the copy.
@@ -925,6 +1002,125 @@
       if (line.length >= 40) expect.body.push(want(line, null, i + 1));
     }
     return expect;
+  }
+
+  // ─── BRIEF FROM A BUILT PAGE ─────────────────────────────────────────────
+  // The inverse of readBrief: given the markup of a page somebody already
+  // built, write the brief that describes it. Useful for re-briefing a page
+  // into another market, for handing a translator a source of truth, and for
+  // pages where the brief was never kept.
+  //
+  // It emits the vocabulary readBrief parses, which makes the whole thing a
+  // round trip: generate a brief from a page, compare it back against that
+  // same page, and the report should be empty. Where it is not, that is a gap
+  // worth knowing about — so nothing here is trimmed to whatever happens to
+  // compare clean.
+  //
+  // The one rule it never breaks: it does not invent. A field the page does
+  // not carry produces no row at all, rather than an empty one that would
+  // read as "the brief asked for nothing here".
+
+  // What to call an asset in the brief. assetIdentity() is a match key —
+  // lowercased and stripped of punctuation — which is unreadable in a
+  // document, so the name keeps the file's own spelling and only has to
+  // resolve back to the same key.
+  function assetName(src) {
+    var v = String(src == null ? '' : src).trim().replace(/[?#].*$/, '').split('/').pop();
+    try { v = decodeURIComponent(v); } catch (e) { /* not valid encoding: keep as-is */ }
+    return v.replace(/:.*$/, '').replace(/\.(jpe?g|png|webp|gif|svg|avif)$/i, '').trim();
+  }
+
+  function internalLinks(page, cfg) {
+    var host = pageHost(page.canonical || '');
+    var seen = {}, out = [];
+    (page.links || []).forEach(function (l) {
+      var href = String(l.href || '').trim();
+      if (!href) return;
+      // Relative hrefs are this site by definition; absolute ones only count
+      // when they point at the page's own host, so the chrome's social and
+      // partner links never arrive as internal links.
+      var absolute = /^https?:\/\//i.test(href);
+      if (absolute && (!host || pageHost(href) !== host)) return;
+      if (!absolute && href.charAt(0) !== '/') return;
+      // A link into the CME, or an unpublished author path, is a defect the
+      // comparer reports on this very page. Briefing it would be asking the
+      // next page to reproduce the bug.
+      if (editorLinkRe(cfg).test(href)) return;
+      if (/^https?:\/\/[^/]*author|\/content\//i.test(href)) return;
+      var key = pathOf(href);
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      out.push(href);
+    });
+    return out;
+  }
+
+  function briefFrom(html, cfg) {
+    var page = readPage(html, cfg);
+    var lines = [], notes = {
+      fields: [], sections: 0, paragraphs: 0, images: 0,
+      links: 0, hiddenHeadings: 0, unnamedImages: [],
+      regionVia: page.regionVia
+    };
+
+    function field(label, value) {
+      if (value == null || String(value).trim() === '') return;
+      lines.push(label + '\t' + String(value).trim());
+      notes.fields.push(label);
+    }
+
+    field('Page Title/Title Tag', page.metaTitle || page.pageName);
+    field('Page Name', page.pageName);
+    field('Meta Description/Meta Tag', page.description);
+    field('Meta Keywords', page.keywords);
+    field('URL Path', page.canonical);
+
+    var hrefs = internalLinks(page, cfg);
+    notes.links = hrefs.length;
+    hrefs.forEach(function (href, i) {
+      lines.push((i === 0 ? 'Internal Links\t' : '') + '\u25CF\t' + href);
+    });
+    if (hrefs.length) notes.fields.push('Internal Links');
+
+    // Headings, copy and images merged into one stream and read in the order
+    // the page renders them, so every paragraph lands under its own heading.
+    var stream = [];
+    (page.headings || []).forEach(function (h) {
+      // The template stamps the window title into several display:none H2s.
+      // A brief must not ask for a heading nobody can see.
+      if (h.hidden) { notes.hiddenHeadings++; return; }
+      if (h.text) stream.push({ kind: 'heading', level: h.level, text: h.text, at: h.at });
+    });
+    (page.paragraphs || []).forEach(function (p) {
+      stream.push({ kind: 'copy', text: p.text, at: p.at });
+    });
+    (page.images || []).forEach(function (img) {
+      var name = assetName(img.src);
+      // An asset whose name cannot be read out of its src is reported rather
+      // than guessed at — a made-up name in a brief is worse than none.
+      if (!name) { notes.unnamedImages.push(img.src); return; }
+      stream.push({ kind: 'image', text: name, at: img.at });
+    });
+    stream.sort(function (a, b) { return a.at - b.at; });
+
+    var major = 0, minor = 0;
+    if (lines.length) lines.push('');
+    stream.forEach(function (item) {
+      if (item.kind === 'heading') {
+        if (item.level === 'h3') minor++;
+        else { major++; minor = 1; }
+        lines.push(item.text + '[' + major + '.' + minor + ']');
+        notes.sections++;
+      } else if (item.kind === 'image') {
+        lines.push('AEM Assets - ' + item.text);
+        notes.images++;
+      } else {
+        lines.push(item.text);
+        notes.paragraphs++;
+      }
+    });
+
+    return { text: lines.join('\n'), notes: notes };
   }
 
   // A cell that arrived from a broken CSV split carries half a quote pair.
@@ -1078,7 +1274,8 @@
         expected: want || null,
         found: got || null,
         state: state,
-        soft: !!row.soft
+        soft: !!row.soft,
+        basis: 'brief'
       };
     });
   }
@@ -1412,8 +1609,7 @@
       }
       // The Tridion twin of the same defect: a link into the CME editor,
       // authored into body copy where a document link belongs.
-      var editor = (cfg && cfg.editorLinkPattern) || '/ui/editor/item\\?item=';
-      if (new RegExp(editor, 'i').test(l.href)) {
+      if (editorLinkRe(cfg).test(l.href)) {
         out.push(at({
           expected: null, found: l.href,
           note: 'this links into the CMS editor, not to a published page — an author pasted a CME URL',
@@ -1556,6 +1752,210 @@
     };
   }
 
+  // ─── FORM ASSEMBLY ID ────────────────────────────────────────────────────
+  // Every KONE country site is expected to carry one FormAssembly id (a
+  // campaign/landing page can carry its own instead) — config/sites.json
+  // is the authoritative table, supplied by the user; this is its in-code
+  // mirror, read only when the file fails to load (DEFAULT_COMPONENTS in
+  // page-model.js is the precedent for this exact fallback shape).
+
+  var DEFAULT_SITES = {
+    countries: {
+      'Germany': { domain: 'kone.de', formAssemblyId: '924', siteNames: [], siteNamesDraft: ['Deutschland'] },
+      'Austria': { domain: 'kone.at', formAssemblyId: '770', siteNames: [], siteNamesDraft: ['Österreich'] },
+      'Switzerland (DE)': { domain: 'kone.ch', langPath: 'de', formAssemblyId: '925', siteNames: [], siteNamesDraft: ['Schweiz'] },
+      'Switzerland (FR)': { domain: 'kone.ch', langPath: 'fr', formAssemblyId: '926', siteNames: [], siteNamesDraft: ['Suisse'] },
+      'Poland': { domain: 'kone.pl', formAssemblyId: '1145', siteNames: [], siteNamesDraft: ['Polska'] },
+      'Czech Republic': { domain: 'kone.cz', formAssemblyId: '1148', siteNames: [], siteNamesDraft: ['Česká republika'] },
+      'Slovakia': { domain: 'kone.sk', formAssemblyId: '1147', siteNames: [], siteNamesDraft: ['Slovensko'] },
+      'France': { domain: 'kone.fr', formAssemblyId: '1489', siteNames: [], siteNamesDraft: ['France'] },
+      'Belgium (FR)': { domain: 'kone.be', langPath: 'fr', formAssemblyId: '754', siteNames: [], siteNamesDraft: ['Belgique'] },
+      'Belgium (NL)': { domain: 'kone.be', langPath: 'nl', formAssemblyId: '753', siteNames: [], siteNamesDraft: ['België'] },
+      'Great Britain': { domain: 'kone.co.uk', formAssemblyId: '739', siteNames: [], siteNamesDraft: ['UK', 'United Kingdom'] },
+      'Ireland': { domain: 'kone.ie', formAssemblyId: '794', siteNames: [], siteNamesDraft: ['Ireland'] },
+      'Netherlands': { domain: 'kone.nl', formAssemblyId: '810', siteNames: [], siteNamesDraft: ['Nederland'] },
+      'Spain': { domain: 'kone.es', formAssemblyId: '758', siteNames: ['España'], siteNamesDraft: [] },
+      'Portugal': { domain: 'kone.pt', formAssemblyId: '777', siteNames: [], siteNamesDraft: ['Portugal'] },
+      'Italy': { domain: 'kone.it', formAssemblyId: '733', siteNames: [], siteNamesDraft: ['Italia'] },
+      'Sweden': { domain: 'kone.se', formAssemblyId: '695', siteNames: [], siteNamesDraft: ['Sverige'] },
+      'Finland': { domain: 'kone.fi', formAssemblyId: '761', siteNames: [], siteNamesDraft: ['Suomi'] },
+      'Denmark': { domain: 'kone.dk', formAssemblyId: '780', siteNames: [], siteNamesDraft: ['Danmark'] },
+      'Norway': { domain: 'kone.no', formAssemblyId: '782', siteNames: [], siteNamesDraft: ['Norge'] },
+      'Estonia': { domain: 'kone.ee', formAssemblyId: '877', siteNames: [], siteNamesDraft: ['Eesti'] },
+      'Latvia': { domain: 'kone.lv', formAssemblyId: '874', siteNames: [], siteNamesDraft: ['Latvija'] },
+      'Lithuania': { domain: 'kone.lt', formAssemblyId: '878', siteNames: [], siteNamesDraft: ['Lietuva'] },
+      'Iceland': { domain: 'kone.is', formAssemblyId: '17', siteNames: [], siteNamesDraft: ['Ísland'] },
+      'United States': { domain: 'kone.us', formAssemblyId: '1488', siteNames: [], siteNamesDraft: ['USA', 'United States'] },
+      'Canada (EN)': { domain: 'kone.ca', langPath: 'en', formAssemblyId: '779', siteNames: [], siteNamesDraft: ['Canada'] },
+      'Canada (FR)': { domain: 'kone.ca', langPath: 'fr', formAssemblyId: '778', siteNames: [], siteNamesDraft: ['Canada'] },
+      'India': { domain: 'kone.in', formAssemblyId: '1490', siteNames: ['India'], siteNamesDraft: [] },
+      'UAE': { domain: 'kone.ae', formAssemblyId: '752', siteNames: [], siteNamesDraft: ['UAE', 'United Arab Emirates'] },
+      'Bahrain': { domain: 'kone.bh', formAssemblyId: '821', siteNames: [], siteNamesDraft: ['Bahrain'] },
+      'Egypt': { domain: 'kone.eg', formAssemblyId: '818', siteNames: [], siteNamesDraft: ['Egypt'] },
+      'Kuwait': { domain: 'kone.com.kw', formAssemblyId: '1143', siteNames: [], siteNamesDraft: ['Kuwait'] },
+      'Oman': { domain: 'kone.om', formAssemblyId: '820', siteNames: [], siteNamesDraft: ['Oman'] },
+      'Qatar': { domain: 'kone.qa', formAssemblyId: '819', siteNames: [], siteNamesDraft: ['Qatar'] },
+      'Saudi Arabia': { domain: 'kone.sa', formAssemblyId: '817', siteNames: [], siteNamesDraft: ['Saudi Arabia'] },
+      'Turkey': { domain: 'kone.com.tr', formAssemblyId: '786', siteNames: [], siteNamesDraft: ['Türkiye'] },
+      'Kenya': { domain: 'kone.co.ke', formAssemblyId: '846', siteNames: [], siteNamesDraft: ['Kenya'] },
+      'Morocco': { domain: 'kone.ma', formAssemblyId: '845', siteNames: [], siteNamesDraft: ['Maroc'] },
+      'South Africa': { domain: 'kone.co.za', formAssemblyId: '791', siteNames: [], siteNamesDraft: ['South Africa'] },
+      'Tunisia': { domain: 'kone.tn', formAssemblyId: '1054', siteNames: [], siteNamesDraft: ['Tunisie'] },
+      'Uganda': { domain: 'kone.ug', formAssemblyId: '847', siteNames: [], siteNamesDraft: ['Uganda'] },
+      'Singapore': { domain: 'kone.sg', formAssemblyId: '784', siteNames: [], siteNamesDraft: ['Singapore'] },
+      'Indonesia': { domain: 'kone.co.id', formAssemblyId: '814', siteNames: [], siteNamesDraft: ['Indonesia'] },
+      'Vietnam': { domain: 'kone.vn', formAssemblyId: '788', siteNames: [], siteNamesDraft: ['Việt Nam', 'Vietnam'] },
+      'Malaysia': { domain: 'kone.my', formAssemblyId: '830', siteNames: [], siteNamesDraft: ['Malaysia'] },
+      'Thailand': { domain: 'kone.co.th', formAssemblyId: '832', siteNames: [], siteNamesDraft: ['Thailand'] },
+      'Philippines': { domain: 'kone.ph', formAssemblyId: '785', siteNames: [], siteNamesDraft: ['Philippines'] },
+      'Slovenia': { domain: 'kone.si', siteNames: ['Slovenija'], siteNamesDraft: [] }
+    },
+    pageOverrides: []
+  };
+
+  function siteEntries(sitesCfg) {
+    var countries = (sitesCfg && sitesCfg.countries) || {};
+    return Object.keys(countries).map(function (name) {
+      var c = countries[name] || {};
+      return {
+        name: name,
+        base: name.replace(/\s*\([^)]*\)\s*$/, ''),
+        domain: String(c.domain || '').toLowerCase(),
+        langPath: c.langPath || null,
+        formAssemblyId: c.formAssemblyId != null ? String(c.formAssemblyId) : null,
+        siteNames: c.siteNames || [],
+        siteNamesDraft: c.siteNamesDraft || []
+      };
+    });
+  }
+
+  // Three domains (kone.be, kone.ch, kone.ca) are shared by two language
+  // variants with two different expected ids — a bare domain match is
+  // ambiguous between them, resolved only by the first path segment.
+  // Returns one entry, an { ambiguous: true, ... } marker, or null.
+  function disambiguateByPath(hits, page) {
+    if (hits.length <= 1) return hits[0] || null;
+    var seg = page && page.canonical ? pathOf(page.canonical).split('/').filter(Boolean)[0] : null;
+    var bySeg = seg ? hits.filter(function (e) { return e.langPath && e.langPath.toLowerCase() === seg.toLowerCase(); }) : [];
+    if (bySeg.length === 1) return bySeg[0];
+    return { ambiguous: true, base: hits[0].base, candidates: hits };
+  }
+
+  // Resolved from the brief's own declared Market row (e.g. "Italy") — the
+  // literal, unambiguous value every real Tridion content brief carries.
+  function countryByMarketName(name, sitesCfg, page) {
+    var wanted = String(name || '').trim().toLowerCase();
+    if (!wanted) return null;
+    var hits = siteEntries(sitesCfg).filter(function (e) { return e.base.toLowerCase() === wanted; });
+    return hits.length ? disambiguateByPath(hits, page) : null;
+  }
+
+  // Resolved from the page's own canonical URL — the only signal available
+  // when no brief is present (Brief mode) or the brief carries no Market row.
+  function countryByDomain(page, sitesCfg) {
+    if (!page || !page.canonical) return null;
+    // A preview host is the same market as its live one: QA runs on
+    // preview.kone.es before kone.es exists, and it is still a Spain page.
+    var host = pageHost(page.canonical).replace(/^preview(-[a-z]+)?\./, '');
+    var hits = siteEntries(sitesCfg).filter(function (e) { return e.domain === host; });
+    return hits.length ? disambiguateByPath(hits, page) : null;
+  }
+
+  function resolveFormIdCountry(expect, page, sitesCfg) {
+    var declared = expect && expect.metadata && expect.metadata.market;
+    if (declared) {
+      var byMarket = countryByMarketName(declared, sitesCfg, page);
+      if (byMarket) return byMarket;
+    }
+    return countryByDomain(page, sitesCfg);
+  }
+
+  function formIdOverride(page, sitesCfg) {
+    if (!page || !page.canonical) return null;
+    var p = pathOf(page.canonical);
+    var overrides = (sitesCfg && sitesCfg.pageOverrides) || [];
+    for (var i = 0; i < overrides.length; i++) {
+      var mp = pathOf(overrides[i].match);
+      if (p === mp || p.indexOf(mp + '/') === 0) return overrides[i];
+    }
+    return null;
+  }
+
+  // The one check, shared by Compare, Brief and (later) a bulk QA mode —
+  // each caller supplies whatever it has (a brief's expectations, or null;
+  // a read page, or null) and gets back one of three outcomes, never
+  // conflated: checked-and-clean (no severity), checked-and-wrong
+  // (severity + expected/found), or not checked at all (its own note, so a
+  // skip can never read like a pass).
+  // "No deviations" alone was never enough — a check whose outcome is never
+  // shown reads identically to a check that never ran. Every path below
+  // carries a ready-made `row`, in the exact shape metadataRows() already
+  // established ({field, source, expected, found, state, soft}), so the
+  // found id and the country it was checked against are always on screen,
+  // clean or not — app.js's existing renderRows() needs no changes at all.
+  function formIdRow(source, expected, found, state) {
+    return { field: 'Form Assembly ID', source: source || null, expected: expected || null,
+      found: found || null, state: state, soft: false, basis: 'expected' };
+  }
+
+  function formIdFinding(expect, page, sitesCfg) {
+    sitesCfg = sitesCfg || DEFAULT_SITES;
+    var country = resolveFormIdCountry(expect, page, sitesCfg);
+    if (!country) {
+      var note1 = 'This page’s market could not be determined (no Market row in the ' +
+        'brief, and its domain is not one of the configured country sites), so its Form Assembly ID was not checked.';
+      return { checked: false, country: null, note: note1, row: formIdRow(null, null, null, 'not-checked') };
+    }
+    if (country.ambiguous) {
+      var note2 = country.base + ' has more than one language variant configured, and ' +
+        'nothing here (brief or page path) says which one this page is, so its Form Assembly ID was not checked.';
+      return { checked: false, country: null, note: note2, row: formIdRow(country.base, null, null, 'not-checked') };
+    }
+    var override = formIdOverride(page, sitesCfg);
+    var expectedId = override ? String(override.formAssemblyId) : country.formAssemblyId;
+    var label = override ? (override.label || country.name + ' (page override)') : country.name;
+    if (!expectedId) {
+      var note3 = 'No expected Form Assembly ID is configured for ' + country.name + ' yet.';
+      return { checked: false, country: label, note: note3, row: formIdRow(label, null, null, 'not-checked') };
+    }
+    var actual = page && page.digitalData && page.digitalData.formAssemblyId;
+    if (!actual) {
+      var note4 = label + ' pages are expected to carry Form Assembly ID ' + expectedId + ', but this page carries no digitalData/FormAssemblyId at all.';
+      return { checked: true, severity: 'break', country: label, note: note4,
+        expected: expectedId, found: null, row: formIdRow(label, expectedId, null, 'missing') };
+    }
+    if (String(actual) !== expectedId) {
+      var note5 = 'This page carries Form Assembly ID ' + actual + ', but ' + label + ' pages are expected to use ' + expectedId + '.';
+      return { checked: true, severity: 'break', country: label, note: note5,
+        expected: expectedId, found: String(actual), row: formIdRow(label, expectedId, String(actual), 'differs') };
+    }
+    return { checked: true, severity: null, country: label, expected: expectedId, found: String(actual),
+      row: formIdRow(label, expectedId, String(actual), 'matches') };
+  }
+
+  // Analyse mode has no page at all — only the question "what should this
+  // market's pages carry." Resolves the country only and never looks at a
+  // real page, so it can only ever be a suggestion, never a mismatch.
+  function suggestFormId(marketName, sitesCfg) {
+    sitesCfg = sitesCfg || DEFAULT_SITES;
+    if (!marketName) return null;
+    var country = countryByMarketName(marketName, sitesCfg, null);
+    if (!country || country.ambiguous || !country.formAssemblyId) return null;
+    return { market: country.name, formAssemblyId: country.formAssemblyId };
+  }
+
+  function formIdCategory(expect, page, sitesCfg) {
+    var f = formIdFinding(expect, page, sitesCfg);
+    // rows renders in both of renderCategory()'s branches (clean and not) —
+    // the same mechanism categories[0].rows already uses for Metadata — so
+    // the found id and its country are on screen whether this is clean,
+    // wrong, or never checked at all.
+    var cat = { id: 'formId', label: 'Form Assembly ID', deviations: [], rows: [f.row] };
+    if (!f.checked) { cat.note = f.note; return cat; }
+    if (f.severity) cat.deviations.push({ severity: f.severity, note: f.note, expected: f.expected, found: f.found });
+    return cat;
+  }
+
   // ─── PICKING A BRIEF ─────────────────────────────────────────────────────
   // Compare has always assumed one brief matches one page. This answers
   // "which of several candidate briefs actually goes with this page" —
@@ -1586,6 +1986,7 @@
     var cfg = (config && config['work-types'] && config['work-types'].compare) || {};
     var supported = cfg.workTypes || ['new-page', 'localization', 'content-update', 'keyword-update'];
     var workTypesConfig = (config && config['work-types']) || {};
+    var sitesCfg = (config && config['sites']) || DEFAULT_SITES;
 
     function compare(briefText, html, options) {
       options = options || {};
@@ -1636,6 +2037,11 @@
       }
 
       var categories = buildCategories(expect, page, cfg);
+      // A sixth, independent category — not "does the page match this brief"
+      // like the five above, but "does this page carry the form its country
+      // is supposed to." Kept out of coverage/briefFailures below (it never
+      // sets d.fromBrief) so it cannot quietly inflate or dilute that number.
+      categories.push(formIdCategory(expect, page, sitesCfg));
 
       // The question the tool exists to answer is not "what is different" but
       // "is everything the brief asked for actually on the page". Counting that
@@ -1792,7 +2198,29 @@
       compare: compare,
       pickBrief: pickBrief,
       readPage: function (h) { return readPage(h, cfg); },
+      // Exposed so a caller reading raw markup for something readPage does
+      // not extract on its own (page-model.js's <details>/<summary> scan)
+      // can still work in the same substring readPage's own offsets are
+      // relative to, rather than guessing where the main region starts.
+      mainRegion: function (h) { return mainRegion(h, (cfg && cfg.contentSelectors) || ['main', '[role=main]']); },
       readBrief: readBrief,
+      briefFrom: function (h) { return briefFrom(h, cfg); },
+      // Exposed so Brief mode (no brief text at all — only a page) and a
+      // future bulk QA mode can run the same check compare() uses above,
+      // without a brief: pass expect: null to resolve the country from the
+      // page's own domain alone.
+      formIdFinding: function (expect, page) { return formIdFinding(expect, page, sitesCfg); },
+      // Every finding the page carries about itself, with no brief at all —
+      // QA starts from these rather than re-implementing any of them.
+      pageOnlyCategories: function (page) { return pageOnlyCategories(page, cfg); },
+      // Analyse mode's equivalent, with no page to check against at all —
+      // see suggestFormId's own comment for why it is a separate function.
+      suggestFormId: function (marketName) { return suggestFormId(marketName, sitesCfg); },
+      // The page's market from the site registry — the brief's Market row
+      // first, else the canonical host and language path. One entry, an
+      // { ambiguous } marker, or null; never a guess.
+      marketOf: function (expect, page) { return resolveFormIdCountry(expect, page, sitesCfg); },
+      siteEntries: function () { return siteEntries(sitesCfg); },
       // Exposed so a test can assert a location without a defect to hang it
       // on — the id-less carousel ships no defect on the real page.
       placeIn: placeOf,
@@ -1803,5 +2231,5 @@
     };
   }
 
-  return { create: create };
+  return { create: create, DEFAULT_SITES: DEFAULT_SITES };
 }));

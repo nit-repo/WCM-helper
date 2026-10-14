@@ -1,0 +1,10 @@
+Market	Italy
+Line	NBS
+Copy language	Italian, informal tu
+Target searches	ascensore ospedale, montalettighe, ascensori RSA / cliniche
+Monthly search volumes	montalettighe 260, ascensore ospedale 20, RSA and cliniche long tail (under 10 each)
+URL Path	https://www.kone.it/nuovi-edifici/ascensori/sanita/
+Sources	https://www.kone.it/nuovi-edifici/ascensori/
+●	https://www.kone.it/nuovi-edifici/ascensori/kone-transys-dx/
+●	https://www.kone.it/studio/tool/
+Verification notes	the copy is built on the published KONE TranSys DX content. If KONE can share healthcare-specific material (stretcher and bed cabin sizing, emergency power options, hygienic finishes), the page can be enriched with a dedicated section. The process steps are a proposed flow, to be aligned with KONE.

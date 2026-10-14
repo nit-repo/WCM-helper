@@ -1,0 +1,10 @@
+Market	Spain
+Line	NBS
+Copy language	Spanish, formal usted
+Target searches	precio ascensor comunidad, presupuesto instalar ascensor
+Monthly search volumes	precio ascensor 390, cuánto cuesta un ascensor 390, presupuesto ascensor 320, instalar ascensor 70, precio ascensor comunidad 20
+URL Path	https://www.kone.es/edificios-nuevos/ascensores/precio/
+Sources	https://www.kone.es/edificios-nuevos/ascensores/
+●	https://www.kone.es/edificios-nuevos/ascensores/kone-monospace-dx/
+●	https://www.kone.es/studio/tool/
+Verification notes	the copy is built on the published MonoSpace® DX range and specifications. If KONE can share price guidance or financing and aid options for comunidades, a dedicated section can be added. The process steps are a proposed flow, to be aligned with KONE.

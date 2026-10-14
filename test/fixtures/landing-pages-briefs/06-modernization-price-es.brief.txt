@@ -1,0 +1,8 @@
+Market	Spain
+Line	MOD
+Copy language	Spanish, formal usted
+Target searches	precio modernizar ascensor, presupuesto modernización ascensor
+Monthly search volumes	modernizar ascensor 40, modernización ascensores 20, with the rest of the intent spread on long tail
+URL Path	https://www.kone.es/edificios-existentes/ascensores-modernizacion/precio/
+Sources	https://www.kone.es/edificios-existentes/ascensores-modernizacion/
+Verification notes	modernization levels, ITC compliance, and energy figures are as published on kone.es. The process steps are a proposed flow, to be aligned with KONE.

@@ -1,0 +1,8 @@
+Market	Spain
+Line	SERV, conquesting and providers
+Copy language	Spanish, formal usted
+Target searches	cambiar mantenedor ascensor, empresa mantenimiento ascensores cualquier marca
+Monthly search volumes	empresas mantenimiento ascensores 210, switch searches on long tail, category head mantenimiento ascensores 720
+URL Path	https://www.kone.es/edificios-existentes/nueva-oferta-mantenimiento/por-que-kone/
+Sources	https://www.kone.es/edificios-existentes/nueva-oferta-mantenimiento/
+Verification notes	the switch invitation ("Cambie o actualice su contrato actual") is verbatim from kone.es. This page serves the Spanish conquesting Search campaign and the providers ad group of the maintenance Search, since both audiences are comparing suppliers. If KONE can confirm how the takeover works in practice, the page can state it explicitly; for now it invites users to ask for written terms. The process steps are a proposed flow, to be aligned with KONE.
