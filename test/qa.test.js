@@ -642,5 +642,49 @@ test('75. two site names — "X - KONE Corporation - KONE Bahrain" — are amber
   assert.strictEqual(formatRow(product).state, 'green', 'a product name before the site name is not a second site name');
 });
 
+// ─── Where a broken link sits ──────────────────────────────────────────────
+
+test('76. every link is placed: component, block and the block\'s title — the real kone.bh page', function () {
+  var places = qa.run(BH).linkPlaces;
+  var at = function (u) { return (places['https://preview.kone.bh' + u] || []).map(function (p) { return p.where; }); };
+  assert.deepStrictEqual(at('/en/new-buildings/elevators/'), [
+    'Content blocks #3 › block 1 — "Quiet comfort for everyday living"',
+    'Content blocks #3 › block 4 — "Built for heavy loads and tough conditions"']);
+  assert.deepStrictEqual(at('/en/studio/'), ['Content blocks #1 › block 1 — "KONE Studio"']);
+  assert.deepStrictEqual(at('/en/'), ['Breadcrumbs']);
+});
+
+test('77. a broken link\'s finding says where it is, every place it appears, instead of only its address', function () {
+  var url = 'https://preview.kone.bh/en/new-buildings/elevators/';
+  var r = qa.withLinkStatuses(qa.run(BH), [{ url: url, verdict: 'dead', status: 500 }]);
+  var d = cat(r, 'links').deviations.filter(function (x) { return x.field === 'Broken link (KONE)'; })[0];
+  assert.strictEqual(d.found, url);
+  assert.strictEqual(d.where, 'Content blocks #3 › block 1 — "Quiet comfort for everyday living"  ·  Content blocks #3 › block 4 — "Built for heavy loads and tough conditions"');
+  assert.ok(/^#item-\d+$/.test(d.anchor), d.anchor);
+  var live = qa.run(BH, { links: [{ url: url, verdict: 'dead', status: 500 }] });
+  assert.strictEqual(cat(live, 'links').deviations.filter(function (x) { return x.field === 'Broken link (KONE)'; })[0].where, d.where);
+});
+
+test('78. outside any component a link is placed in the header, navigation or footer — the real Slovenia page', function () {
+  var places = qa.run(SI).linkPlaces;
+  var where = function (re) { var k = Object.keys(places).filter(function (u) { return re.test(u); })[0]; return places[k][0].where; };
+  assert.strictEqual(where(/legal-notice/), 'Footer');
+  assert.strictEqual(where(/\/existing-buildings\/$/), 'Header', 'its menu is a <nav> inside the header');
+  assert.strictEqual(where(/studio\/tool/), 'Content river #1 › item 1 — "Nacrtujete novo dvigalo?"');
+  assert.ok(!JSON.stringify(places).includes('&reg;'), 'titles are decoded');
+});
+
+test('79. a link in a hidden component says so — the kone.eg header case (synthetic shape: the page was not supplied)', function () {
+  var link = 'https://www.kone.eg/en/new-buildings/advanced-people-flow-solutions/kone-e-link/';
+  var html = page({ canonical: 'https://www.kone.eg/en/new-buildings/', title: 'New buildings - KONE Egypt',
+    main: '<header class="site-header" style="display:none"><nav><a href="' + link + '">KONE E-Link</a></nav></header>' +
+      '<h1>New buildings</h1><div hidden><a href="/en/contact/">Contact</a></div>' });
+  var r = qa.withLinkStatuses(qa.run(html), [{ url: link, verdict: 'dead', status: 500 }]);
+  var d = cat(r, 'links').deviations.filter(function (x) { return /Broken link/.test(x.field); })[0];
+  assert.strictEqual(d.where, 'Header (hidden)');
+  assert.strictEqual(d.severity, 'break', 'still flagged — hidden is a fact about where it is, not an excuse');
+  assert.strictEqual(r.linkPlaces['https://www.kone.eg/en/contact/'][0].where, 'Page body — "New buildings" (hidden)');
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
