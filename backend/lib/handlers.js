@@ -133,7 +133,6 @@ function createApp(options) {
     var origin = headers.origin;
     var cors = {};
     if (origin) {
-      if (!allowedOrigin(origin)) return Promise.resolve(problem(403, 'calls from ' + origin + ' are not accepted'));
       cors = { 'access-control-allow-origin': origin, 'vary': 'Origin',
         'access-control-allow-headers': 'Authorization, Content-Type',
         'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-max-age': '600' };
@@ -141,6 +140,15 @@ function createApp(options) {
     function withCors(res) { res.headers = Object.assign({}, res.headers, cors); return res; }
 
     if (req.method === 'OPTIONS') return Promise.resolve(withCors({ status: 204, headers: {}, body: '' }));
+
+    // A page on an address the backend does not list is refused before any
+    // route runs — no sign-in, no fetch. The refusal itself still carries
+    // CORS headers, so that page can read why rather than seeing only a
+    // failed request it would have to call "not answering".
+    if (origin && !allowedOrigin(origin)) {
+      return Promise.resolve(withCors(problem(403, 'calls from ' + origin + ' are not accepted — add it to the backend\'s ' +
+        'ALLOWED_ORIGINS environment variable and redeploy the backend')));
+    }
 
     var name = String(req.path || '').split('?')[0].replace(/^\/+(api\/+)?/, '').replace(/\/+$/, '');
     var route = routes[req.method + ' ' + name];

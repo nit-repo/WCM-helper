@@ -631,7 +631,12 @@
     // not. Matches a single-level container, which is how these are written.
     var deadCtas = elementsByClass(region.html, ['div', 'p', 'span'],
         (cfg && cfg.ctaContainers) || ['actions', 'cta', 'ctalink'])
-      .filter(function (el) { return el.text && el.inner.indexOf('<a') === -1; })
+      // Only a single-level container counts: the lazy match stops at the
+      // first closing tag, so a CTA module wrapping nested blocks (heading,
+      // details, then its own .actions div with the link) would otherwise be
+      // cut short before the link and reported as bare text. Its .actions div
+      // is matched on its own.
+      .filter(function (el) { return el.text && el.inner.indexOf('<a') === -1 && !/<(?:div|p|section|article|ul|ol|h[1-6])\b/i.test(el.inner); })
       .map(function (el) { return { text: el.text, at: el.at }; });
 
     // An accordion question functions as a heading — it labels a block of

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "note": "Team decisions about where a link should go, recorded once so every QA run applies them. A ruling applies only while BOTH the link's text (a case-insensitive regular expression) and its target path still match — change the link and it is judged afresh. verdict is green, amber or red. site limits a ruling to one KONE site (any host on that domain, preview included).",
+  "rulings": [
+    { "id": "bh-monospace-100-dx", "site": "kone.bh", "text": "MonoSpace.{0,3}\\s*100\\s*DX", "target": "/en/new-buildings/elevators/", "verdict": "amber",
+      "note": "goes to the general elevators listing, not a MonoSpace 100 DX page" },
+    { "id": "bh-kone-2000", "site": "kone.bh", "text": "^KONE\\s+2000$", "target": "/en/new-buildings/elevators/", "verdict": "amber",
+      "note": "goes to the general elevators listing; there is no KONE 2000 page" },
+    { "id": "bh-minispace-high-rise", "site": "kone.bh", "text": "MiniSpace.{0,3}\\s*DX\\s+High-?Rise", "target": "/en/new-buildings/elevators/kone-minispace-dx/", "verdict": "green",
+      "note": "the MiniSpace DX page covers the high-rise variant" },
+    { "id": "bh-codes-and-standards", "site": "kone.bh", "text": "Codes and Standards", "target": "/en/tools-downloads/", "verdict": "amber",
+      "note": "goes to Tools & downloads, which has no codes-and-standards page" }
+  ]
+}

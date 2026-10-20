@@ -507,6 +507,26 @@
     .back-row { margin: 0 0 16px; }
     .caution { font-size: 12px; color: var(--black-60); margin: 10px 0 0; }
 
+    /* ─── Sitemap box and the Summary ───────────────────────────────── */
+    details.sitemap-box { margin-top: 12px; font-size: 13px; }
+    details.sitemap-box summary { cursor: pointer; color: var(--black-60); }
+    details.sitemap-box[open] summary { margin-bottom: 6px; }
+    .summary-status { font-size: 13px; color: var(--black-60); margin: 0 0 12px; }
+    .summary-group { margin-top: 18px; }
+    .summary-group h4 { margin: 0 0 6px; font-family: var(--font-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-size: 12px; font-weight: 400; color: var(--kone-blue); }
+    .summary-group .none { font-size: 13px; color: var(--green); margin: 0; }
+    ul.summary-rows { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+    ul.summary-rows > li { padding: 8px 0; border-bottom: 1px solid var(--hairline); }
+    ul.summary-rows > li:last-child { border-bottom: 0; }
+    .summary-rows .s-head { margin: 0; }
+    .summary-rows .s-head .pill { margin-right: 6px; }
+    .summary-rows .s-note { margin: 2px 0 0; font-size: 13px; color: var(--black-60); }
+    .summary-rows .s-fix { margin: 4px 0 0; font-size: 13px; word-break: break-all; }
+    .summary-rows .s-fix b { font-weight: 600; margin-right: 6px; }
+    .summary-rows .qa-copy { padding: 1px 8px; font-size: 12px; font-weight: 400; margin-left: 6px; }
+    details.summary-fine { margin-top: 6px; font-size: 13px; }
+    details.summary-fine summary { cursor: pointer; color: var(--black-60); }
+
     .toast {
       position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
       background: var(--black); color: var(--white); padding: 10px 18px; border-radius: 8px;
@@ -551,7 +571,7 @@
             <button id="live-btn" class="btn-primary" type="button">Fetch and QA</button>
           </div>
           <label class="opt"><input type="checkbox" id="live-links"> Check its links too — KONE and external, status only</label>
-          <p class="hint">Fetched by WCM Helper's backend from KONE's own servers — only KONE sites are fetched. A preview page behind login comes back unverified: open it below and use the bookmarklet instead.</p>
+          <p class="hint">Fetched from live sites.</p>
         </div>
 
         <div class="panel" id="crawl-panel" hidden>
@@ -583,6 +603,7 @@
           <div class="crawl-opts">
             <label>Pages per site<input type="number" id="crawl-limit" min="0" step="1" value="50"></label>
             <label>Path prefix<input type="text" id="crawl-prefix" placeholder="/new-buildings/"></label>
+            <label class="opt"><input type="checkbox" id="crawl-sitemap-links" checked> Link suggestions — read each site's full sitemap, so every page's report judges its links and suggests destinations</label>
             <label class="opt"><input type="checkbox" id="crawl-links"> Check links — every link found, checked once across the run (slower)</label>
           </div>
           <div class="input-actions">
@@ -601,6 +622,17 @@
         </div>
         <p class="field-label">Page HTML</p>
         <textarea id="html" placeholder="Paste the built page's source here — View Source, select all, paste."></textarea>
+        <details class="sitemap-box" id="sitemap-box">
+          <summary>Sitemap for link suggestions — <span id="sitemap-status">none yet</span></summary>
+          <p class="hint">With the site's sitemap, QA suggests where a dead link should point and checks that working links go to the page their text names. Signed in to the backend, it is fetched for the page's market automatically. Or paste the sitemap.xml, or a list of the site's URLs.</p>
+          <textarea class="short" id="sitemap-text" placeholder="https://www.kone.bh/en/new-buildings/&#10;https://www.kone.bh/en/new-buildings/elevators/ …"></textarea>
+          <div class="input-actions">
+            <button id="sitemap-fetch-btn" class="btn-ghost" type="button" hidden>Fetch sitemap again</button>
+            <button id="sitemap-upload-btn" class="btn-ghost" type="button">Upload sitemap.xml</button>
+            <button id="sitemap-clear-btn" class="btn-ghost" type="button">Clear</button>
+            <input type="file" id="sitemap-file" accept=".xml,.txt,.csv" hidden>
+          </div>
+        </details>
         <div class="input-actions">
           <button id="qa-btn" class="btn-primary" type="button" disabled>Run QA</button>
           <button id="briefgen-btn" class="btn-ghost" type="button" disabled>Generate brief</button>
@@ -664,16 +696,18 @@
        entry belonging to the old one. app.js reads the same value back out of
        its own src and shows it in the sidebar, so there is one string to bump
        and what it displays is necessarily the file that is running. -->
-  <script src="brief.js?v=2026-10-09a"></script>
-  <script src="engine.js?v=2026-10-09a"></script>
-  <script src="compare.js?v=2026-10-09a"></script>
-  <script src="readers.js?v=2026-10-09a"></script>
-  <script src="filler.js?v=2026-10-09a"></script>
-  <script src="page-model.js?v=2026-10-09a"></script>
-  <script src="mock-page.js?v=2026-10-09a"></script>
-  <script src="qa.js?v=2026-10-09a"></script>
-  <script src="backend-client.js?v=2026-10-09a"></script>
-  <script src="app.js?v=2026-10-09a"></script>
+  <script src="brief.js?v=2026-10-20e"></script>
+  <script src="engine.js?v=2026-10-20e"></script>
+  <script src="compare.js?v=2026-10-20e"></script>
+  <script src="readers.js?v=2026-10-20e"></script>
+  <script src="filler.js?v=2026-10-20e"></script>
+  <script src="page-model.js?v=2026-10-20e"></script>
+  <script src="mock-page.js?v=2026-10-20e"></script>
+  <script src="linkmatch.js?v=2026-10-20e"></script>
+  <script src="proof.js?v=2026-10-20e"></script>
+  <script src="qa.js?v=2026-10-20e"></script>
+  <script src="backend-client.js?v=2026-10-20e"></script>
+  <script src="app.js?v=2026-10-20e"></script>
 </body>
 
 </html>

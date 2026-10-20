@@ -364,20 +364,29 @@ test('26. login: five wrong passwords lock that address out', function () {
     .then(function (r) { assert.strictEqual(r.status, 429); });
 });
 
-test('27. CORS: own origins and the preview pattern pass; others are refused', function () {
+test('27. CORS: own origins and the preview pattern pass; others are refused, readably', function () {
   var a = app();
   return Promise.all([
     call(a, 'OPTIONS', '/api/fetch', null, { Origin: 'https://wcm.example' }),
     call(a, 'GET', '/api/health', null, { Origin: 'https://wcm-helper-abc123-team.vercel.app' }),
     call(a, 'GET', '/api/health', null, { Origin: 'https://evil.vercel.app' }),
-    call(a, 'GET', '/api/health', null, { Origin: 'http://localhost:3600' })
+    call(a, 'GET', '/api/health', null, { Origin: 'http://localhost:3600' }),
+    call(a, 'POST', '/api/login', { password: 'lift-and-shift' }, { Origin: 'https://evil.vercel.app' }),
+    call(a, 'OPTIONS', '/api/login', null, { Origin: 'https://evil.vercel.app' })
   ]).then(function (rs) {
     assert.strictEqual(rs[0].status, 204);
     assert.strictEqual(rs[0].headers['access-control-allow-origin'], 'https://wcm.example');
     assert.ok(/Authorization/.test(rs[0].headers['access-control-allow-headers']));
     assert.strictEqual(rs[1].status, 200);
     assert.strictEqual(rs[2].status, 403);
+    // The refusal is readable by the page it refuses, and says what to fix.
+    assert.strictEqual(rs[2].headers['access-control-allow-origin'], 'https://evil.vercel.app');
+    assert.ok(/ALLOWED_ORIGINS/.test(rs[2].json.error), rs[2].json.error);
     assert.strictEqual(rs[3].status, 200, 'local development');
+    // A refused origin never reaches a route: the right password still gets no token.
+    assert.strictEqual(rs[4].status, 403);
+    assert.strictEqual(rs[4].json.token, undefined);
+    assert.strictEqual(rs[5].status, 204, 'the preflight passes so the refusal can be read');
   });
 });
 

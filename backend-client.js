@@ -65,7 +65,8 @@
           return json;
         });
       }, function () {
-        var err = new Error('the backend at ' + base + ' is not answering');
+        var err = new Error('the backend at ' + base + ' did not answer — check that it is deployed, that its ' +
+          'ALLOWED_ORIGINS includes ' + location.origin + ', and that Vercel Deployment Protection is off for it');
         err.offline = true;
         throw err;
       });
