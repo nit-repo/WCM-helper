@@ -90,6 +90,9 @@
     crawlPrefix: document.getElementById('crawl-prefix'),
     crawlLinks: document.getElementById('crawl-links'),
     crawlSitemapLinks: document.getElementById('crawl-sitemap-links'),
+    liveSitemapLinks: document.getElementById('live-sitemap-links'),
+    pageSitemapLinks: document.getElementById('page-sitemap-links'),
+    pageSitemapOpt: document.getElementById('page-sitemap-opt'),
     crawlBtn: document.getElementById('crawl-btn'),
     crawlStop: document.getElementById('crawl-stop'),
     sitemapBox: document.getElementById('sitemap-box'),
@@ -403,6 +406,24 @@
   el.sitemapUpload.addEventListener('click', function () { el.sitemapFile.click(); });
   el.sitemapClear.addEventListener('click', function () { el.sitemapText.value = ''; updateSitemapStatus(); });
   el.sitemapText.addEventListener('input', updateSitemapStatus);
+
+  // "Link suggestions" — one option per QA source, ticked by default and
+  // remembered per source in this browser. Off, no sitemap is read for that
+  // source; the Summary's Fetch sitemap button still reads it once.
+  var SITEMAP_OPTS = { page: el.pageSitemapLinks, live: el.liveSitemapLinks, crawl: el.crawlSitemapLinks };
+  Object.keys(SITEMAP_OPTS).forEach(function (src) {
+    var box = SITEMAP_OPTS[src], key = 'wcm.sitemapLinks.' + src;
+    try { var saved = window.localStorage.getItem(key); if (saved !== null) box.checked = saved === '1'; } catch (e) { /* no storage */ }
+    box.addEventListener('change', function () {
+      try { window.localStorage.setItem(key, box.checked ? '1' : '0'); } catch (e) { /* no storage */ }
+      // Re-run a report that is on screen for the HTML in the box.
+      if (src !== 'crawl' && state.mode === 'qa' && state.qaSource === src && state.lastQa && el.html.value.trim()) runQa();
+    });
+  });
+  function linkSuggestionsOn() {
+    var box = SITEMAP_OPTS[state.qaSource] || el.pageSitemapLinks;
+    return box.checked;
+  }
   el.sitemapFile.addEventListener('change', function (e) {
     var file = e.target.files && e.target.files[0];
     el.sitemapFile.value = '';
@@ -501,6 +522,9 @@
     el.livePanel.hidden = source !== 'live';
     el.crawlPanel.hidden = !crawl;
     el.compareInput.hidden = crawl;
+    // The Page card shows in Live URL mode too; there the Live panel's own
+    // option is the one that counts, so only that one is in view.
+    el.pageSitemapOpt.hidden = source === 'live';
     // A crawl reads no brief: each page is judged on its own.
     el.briefCard.hidden = crawl;
     el.settingsCard.hidden = crawl;
@@ -902,12 +926,15 @@
       live: state.liveHtml === html ? state.live : null,
       links: state.linksHtml === html ? state.links : null
     };
-    var sm = sitemapFor(null);
+    // Link suggestions off: no sitemap is read, fetched or pasted — unless
+    // the Summary's Fetch sitemap button asked for one for this page.
+    var useSitemap = linkSuggestionsOn() || state.sitemapOnceFor === html;
+    var sm = useSitemap ? sitemapFor(null) : { sitemap: null, status: 'off' };
     options.sitemap = sm.sitemap;
     var result = state.qa.run(html, options);
     // The page's own market decides which site's sitemap to read, so the
     // first run finds out the site; a fetched sitemap comes in after.
-    if (!sm.sitemap && result.facts.site) {
+    if (useSitemap && !sm.sitemap && result.facts.site) {
       sm = sitemapFor(result.facts.site);
       if (sm.sitemap) { options.sitemap = sm.sitemap; result = state.qa.run(html, options); }
       else if (sm.status === 'start') fetchSitemap(result.facts.site, html);
@@ -958,6 +985,7 @@
     if (sm.status === 'fetched') return a ? 'Sitemap: ' + sm.site.domain + ', ' + a.count + ' URLs, fetched automatically'
       : 'Sitemap: ' + sm.site.domain + '\'s could not be read — paste it in the Page card';
     if (sm.status === 'start' || sm.status === 'loading') return 'Sitemap: fetching ' + sm.site.domain + '\'s sitemap — link suggestions appear when it lands';
+    if (sm.status === 'off') return 'Sitemap: not read — link suggestions are off for this page';
     if (sm.status === 'failed') return 'Sitemap: could not fetch ' + sm.site.domain + '\'s (' + sm.error + ') — paste it in the Page card for link suggestions';
     return 'Sitemap: none — link suggestions skipped. ' + (state.backend ? 'The page\'s market could not be determined, so its sitemap was not fetched; paste one in the Page card.' : 'Paste the site\'s sitemap in the Page card.');
   }
@@ -1094,8 +1122,11 @@
     var inCrawl = state.qaSource === 'crawl' && crawl && crawl.open !== null;
     if (!inCrawl) {
       var site = state.lastSite;
-      if (!site) { toast('The page\'s market could not be determined — paste the sitemap in the Page card.'); return; }
-      delete state.sitemaps[siteKey(site)];
+      // Read once for the page on screen; the option itself stays as set.
+      state.sitemapOnceFor = el.html.value.trim();
+      if (!site) { runQa(); if (!state.lastSite) toast('The page\'s market could not be determined — paste the sitemap in the Page card.'); return; }
+      var had = state.sitemaps[siteKey(site)];
+      if (had && had.status !== 'ready') delete state.sitemaps[siteKey(site)];
       runQa();
       return;
     }
@@ -1138,6 +1169,8 @@
     if (st.status === 'failed') return 'Could not fetch the sitemap: ' + esc(st.error || 'no reason given') + '.' + btn.replace('Fetch sitemap', 'Try again') +
       ' Or paste it in the Page card.';
     if (st.status === 'crawl-none') return 'This page was checked without a sitemap.' + btn;
+    if (st.status === 'off') return 'Link suggestions are off, so the site\'s sitemap was not read.' +
+      (state.backend ? btn : ' Tick Link suggestions and paste the site\'s sitemap in the Page card.');
     if (state.backend) return 'The page\'s market could not be determined, so no sitemap was fetched — paste the site\'s sitemap in the Page card.';
     return 'Nothing found without a sitemap — paste the site\'s sitemap in the Page card for link suggestions.';
   }
