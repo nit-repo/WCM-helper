@@ -75,7 +75,7 @@
     </form>
   </main>
 
-  <script src="backend-client.js?v=2026-10-20a"></script>
+  <script src="backend-client.js?v=2026-10-20b"></script>
   <script>
     (function () {
       'use strict';
@@ -93,7 +93,7 @@
         if (!client.enabled) { location.replace(next); return; }
         client.session().then(function (s) {
           if (s.ok) { location.replace(next); return; }
-          if (s.offline) error.textContent = 'The backend is not answering at ' + client.base + ' — sign-in will fail until it is back.';
+          if (s.offline) error.textContent = s.reason.charAt(0).toUpperCase() + s.reason.slice(1) + '.';
           btn.disabled = false;
         });
         form.addEventListener('submit', function (e) {
