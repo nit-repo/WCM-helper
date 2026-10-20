@@ -678,9 +678,9 @@
         'not-checked': ['idle', 'market could not be determined'],
         'present': ['ok', 'on the page'],
         'absent': ['idle', 'not on the page'],
-        'green': ['score-green', 'green'],
-        'amber': ['score-amber', 'amber'],
-        'red': ['score-red', 'red']
+        'green': ['score-green', verdictWord('green')],
+        'amber': ['score-amber', verdictWord('amber')],
+        'red': ['score-red', verdictWord('red')]
       };
       var s = STATE[r.state] || ['idle', r.state];
       var label = r.stateLabel ? s[1] + ' — ' + r.stateLabel : s[1];
@@ -1155,15 +1155,17 @@
         var copyable = g[0] === 'links' || g[0] === 'metadata';
         var fix = f.suggestion ? '<p class="s-fix"><b>Suggest</b>' + esc(f.suggestion) +
           (copyable ? '<button type="button" class="btn-ghost qa-copy" data-copy="' + esc(f.suggestion) + '">Copy</button>' : '') + '</p>' : '';
-        return '<li><p class="s-head"><span class="pill ' + esc(f.verdict) + '">' + esc(f.verdict) + '</span><b>' + esc(f.field) + '</b> — ' + esc(f.text) + '</p>' +
+        return '<li><p class="s-head"><span class="pill ' + esc(f.verdict) + '">' + esc(verdictWord(f.verdict)) + '</span><b>' + esc(f.field) + '</b> — ' + esc(f.text) + '</p>' +
           '<p class="s-note">' + esc(f.note || '') + (f.where ? ' · ' + esc(f.where) : '') + '</p>' + fix + '</li>';
       }).join('') + '</ul>'
         : g[0] === 'links' && !a.sitemap ? '<p class="note">' + noSitemapNote(sitemapState) + '</p>' : '<p class="none">Nothing found.</p>';
       if (fine.length) {
-        body += '<details class="summary-fine"><summary>' + fine.length + ' link' + (fine.length === 1 ? '' : 's') + ' go where their text says</summary><ul class="summary-rows">' +
+        body += '<details class="summary-fine"><summary>' + fine.length + ' link' + (fine.length === 1 ? '' : 's') + ' that pass</summary><ul class="summary-rows">' +
           fine.map(function (x) {
-            return '<li><p class="s-head"><span class="pill green">green</span>' + esc(x.text) + ' → ' + esc(x.href) + '</p>' +
-              (x.ruling ? '<p class="s-note">' + esc(x.reason) + '</p>' : '') + '</li>';
+            // A ruling, or a link judged by its component rather than its own
+            // words, says so: that is not visible from the text alone.
+            return '<li><p class="s-head"><span class="pill green">' + verdictWord('green') + '</span>' + esc(x.text) + ' → ' + esc(x.href) + '</p>' +
+              (x.ruling || x.context ? '<p class="s-note">' + esc(x.reason) + '</p>' : '') + '</li>';
           }).join('') + '</ul></details>';
       }
       return '<div class="summary-group"><h4>' + esc(g[1]) + ' — ' + rows.length + '</h4>' + body + '</div>';
@@ -1183,7 +1185,7 @@
       lines.push(g[1].toUpperCase() + ' (' + rows.length + ')');
       if (!rows.length) lines.push('  nothing found');
       rows.forEach(function (f) {
-        lines.push('- [' + f.verdict + '] ' + f.field + ': ' + f.text + (f.where ? ' (' + f.where + ')' : ''));
+        lines.push('- [' + verdictWord(f.verdict) + '] ' + f.field + ': ' + f.text + (f.where ? ' (' + f.where + ')' : ''));
         if (f.note) lines.push('    ' + f.note);
         if (f.suggestion) lines.push('    Suggest: ' + f.suggestion);
       });
@@ -1896,7 +1898,7 @@
     var body = shown.map(function (i) {
       var r = rows[i];
       var status = '<span class="pill ' + esc(r.verdict) + '">' + esc(r.status || r.verdict) + '</span>';
-      var title = r.titleFormat ? '<span class="pill ' + esc(r.titleFormat) + '">' + esc(r.titleFormat) + '</span>' : '';
+      var title = r.titleFormat ? '<span class="pill ' + esc(r.titleFormat) + '">' + esc(verdictWord(r.titleFormat)) + '</span>' : '';
       var form = r.formId ? '<span class="pill ' + esc(r.formId) + '">' + esc(FORM_LABEL[r.formId] || r.formId) + '</span>' : '';
       var detail = r.result ? '' : '<br><small>' + esc(capital(r.reason || '')) + '</small>';
       return '<tr class="' + (r.result ? 'open-row' : '') + '"' + (r.result ? ' data-row="' + i + '"' : '') + '>' +
@@ -1967,7 +1969,7 @@
       ['Form ID found', 'formIdFound'], ['To fix', 'breaks'], ['To check', 'checks'], ['Known template issues', 'known'],
       ['Broken links', 'brokenLinks'], ['TCM ID', 'tcmId'], ['Open in CME', 'cme']];
     var lines = [cols.map(function (c) { return csvCell(c[0]); }).join(',')].concat(crawl.rows.map(function (r) {
-      return cols.map(function (c) { return csvCell(r[c[1]]); }).join(',');
+      return cols.map(function (c) { return csvCell(c[1] === 'titleFormat' && r.titleFormat ? verdictWord(r.titleFormat) : r[c[1]]); }).join(',');
     }));
     var blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a');
@@ -1977,6 +1979,11 @@
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
   }
+
+  // Verdicts are kept as colours in the data and the CSS; people read them
+  // as what to do: pass, check, fix — the same words as "to fix / to check".
+  var VERDICT_WORD = { green: 'pass', amber: 'check', red: 'fix' };
+  function verdictWord(v) { return VERDICT_WORD[v] || v; }
 
   function capital(s) { s = String(s || ''); return s.charAt(0).toUpperCase() + s.slice(1); }
 

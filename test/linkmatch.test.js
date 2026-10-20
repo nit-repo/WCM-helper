@@ -103,7 +103,7 @@ test('8. the same verdicts come from the matching itself, with no rulings at all
   assert.ok(/listing page/.test(dx.reason), dx.reason);
   var k2000 = row(a, 'KONE 2000');
   assert.strictEqual(k2000.verdict, 'amber');
-  assert.ok(/no page in the sitemap matches/.test(k2000.reason), k2000.reason);
+  assert.ok(/page exists, but its address .* is not about "2000"/.test(k2000.reason) && /no other page in the sitemap/.test(k2000.reason), k2000.reason);
   assert.strictEqual(row(a, 'KONE MiniSpace DX High-Rise').verdict, 'green');
   assert.strictEqual(row(a, 'Learn more about our Codes and Standards').verdict, 'amber');
   ['KONE MonoSpace® Home', 'KONE MiniSpace™ DX', 'KONE TranSys™ DX', 'Learn more about KONE JumpLift', 'Learn more about KONE Studio', 'New buildings']
@@ -153,6 +153,64 @@ test('14. the rulings file is well formed', function () {
     assert.ok(r.id && r.text && r.target && /^(green|amber|red)$/.test(r.verdict), JSON.stringify(r));
     new RegExp(r.text, 'i');
   });
+});
+
+// ─── Generic CTA text, judged by its component ──────────────────────────────
+// The real kone.in one-week page (fixture): its content-river component
+// "Smart, flexible elevator upgrades for all major brands" ends in
+// "Explore options" → …/elevator-upgrades/. The kone.in sitemap is not in the
+// repo, so the URL list below is synthetic: the link's own target plus real
+// kone.in paths taken from the page's navigation.
+
+var IN_PAGE = load('fixtures/kone-in-one-week-modernization.html');
+var IN_URLS = [
+  'https://www.kone.in/existing-buildings/elevator-modernization/elevator-upgrades/',
+  'https://www.kone.in/modernization.html',
+  'https://www.kone.in/modernization/elevator-modernization.html',
+  'https://www.kone.in/modernization/elevator-modernization/elevator-replacement.html',
+  'https://www.kone.in/modernization/escalator-autowalk-modernization.html',
+  'https://www.kone.in/maintenance-service/elevator-maintenance.html',
+  'https://www.kone.in/about-kone/careers.html'
+];
+var inIdx = lm.index(IN_URLS, { source: 'pasted' });
+
+test('15. generic CTA wording names nothing: "Explore options", "Start now", "Learn more"', function () {
+  ['Explore options', 'Start now', 'Learn more', 'Scopri le opzioni'].forEach(function (t) {
+    assert.deepStrictEqual(Links.tokens(t), [], t);
+  });
+  assert.deepStrictEqual(Links.tokens('Explore elevator upgrades'), ['elevator', 'upgrade']);
+});
+
+test('16. "Explore options" → elevator-upgrades passes, judged by its component\'s title', function () {
+  var r = row(audit(IN_PAGE, lm, inIdx), 'Explore options');
+  assert.ok(r, 'the generic CTA is judged, not skipped');
+  assert.strictEqual(r.verdict, 'green', r.reason);
+  assert.strictEqual(r.context.heading, 'Smart, flexible elevator upgrades for all major brands');
+  assert.ok(/generic link text — judged by its component "Smart, flexible elevator upgrades/.test(r.reason), r.reason);
+  assert.ok(/elevator, upgrade/.test(r.reason), r.reason);
+});
+
+test('17. the same CTA pointed at an unrelated page is a check, suggesting the page the component is about', function () {
+  var html = IN_PAGE.replace('https://www.kone.in/existing-buildings/elevator-modernization/elevator-upgrades/', 'https://www.kone.in/about-kone/careers.html');
+  var r = row(audit(html, lm, inIdx), 'Explore options');
+  assert.strictEqual(r.verdict, 'amber', r.reason);
+  assert.ok(/not about elevator upgrades/.test(r.reason), r.reason);
+  assert.strictEqual(top(r), '/existing-buildings/elevator-modernization/elevator-upgrades');
+});
+
+test('18. written as bare text, "Explore options" is suggested the page its component names', function () {
+  var html = IN_PAGE.replace(/<a class="btn btn-primary btn-big" role="button" href="[^"]*" target="_blank">Explore options<\/a>/, 'Explore options');
+  var r = row(audit(html, lm, inIdx), 'Explore options');
+  assert.strictEqual(r.kind, 'dead-cta');
+  assert.strictEqual(top(r), '/existing-buildings/elevator-modernization/elevator-upgrades');
+  assert.ok(r.confident);
+});
+
+test('19. a generic CTA with nothing firm to compare against is not guessed at', function () {
+  var html = IN_PAGE.replace('Smart, flexible elevator upgrades for all major brands', 'Built around you')
+    .replace(/<p>Within one week[^<]*<\/p>/, '<p>Talk to us.</p>')
+    .replace('https://www.kone.in/existing-buildings/elevator-modernization/elevator-upgrades/', 'https://www.kone.in/about-kone/careers.html');
+  assert.strictEqual(row(audit(html, lm, inIdx), 'Explore options'), undefined);
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
