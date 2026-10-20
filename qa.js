@@ -19,9 +19,10 @@
  * Runs in the browser (window.BriefQA) and in Node (module.exports).
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./compare.js'));
-  else root.BriefQA = factory(root.BriefCompare);
-}(typeof self !== 'undefined' ? self : this, function (Compare) {
+  if (typeof module === 'object' && module.exports) {
+    module.exports = factory(require('./compare.js'), require('./linkmatch.js'), require('./proof.js'));
+  } else root.BriefQA = factory(root.BriefCompare, root.BriefLinks, root.BriefProof);
+}(typeof self !== 'undefined' ? self : this, function (Compare, Links, Proof) {
   'use strict';
 
   var DEFAULT_QA = {
@@ -487,6 +488,11 @@
 
     function cmeLink(pattern, id) { return id ? pattern.split('{id}').join(id) : null; }
 
+    // The proofreading pass and the sitemap-aware link judge, both optional:
+    // without their scripts QA still runs, with no Summary card.
+    var linker = Links ? Links.create({ pathOf: pathOf, rulings: config['link-rulings'] }) : null;
+    var proofCfg = config['proofreading'] || null;
+
     // Every KONE domain in the registry, for telling KONE links from external.
     var koneDomains = comparer.siteEntries().map(function (e) { return String(e.domain || '').toLowerCase(); })
       .concat(['kone.com']).filter(function (d, i, all) { return d && all.indexOf(d) === i; });
@@ -499,6 +505,10 @@
     // status, final URL, redirects, certificate — which adds its own facts
     // and findings. options.links (optional): link statuses from the
     // backend's link check, reported under Hyperlinks.
+    // options.sitemap (optional): { urls, source } — the site's sitemap, so
+    // dead links get a suggested destination and working ones are judged
+    // for relevance. Its findings go to result.audit, the Summary, and never
+    // into the break/check tally.
     function run(html, options) {
       options = options || {};
       html = String(html == null ? '' : html);
@@ -539,6 +549,8 @@
         lang: page.lang || null,
         dataLang: page.dataLang || null,
         market: market ? (market.ambiguous ? market.base + ' (language version not determined)' : market.name) : null,
+        // Which site's sitemap to read for link suggestions.
+        site: market && !market.ambiguous && market.domain ? { domain: market.domain, langPath: market.langPath || null } : null,
         robots: robotsTag ? attr(robotsTag, 'content') : null,
         digitalData: page.digitalData || null,
         hreflang: []
@@ -670,8 +682,12 @@
         c.deviations.forEach(function (d) { if (d.severity === 'check') checks++; else breaks++; });
       });
 
+      var audit = buildAudit(html, page, facts, options.sitemap);
+      if (audit) attachSuggestions(byId.links, audit.links);
+
       return {
         generatedAt: new Date().toISOString(),
+        audit: audit,
         facts: facts,
         comparison: comparison && {
           supported: comparison.supported,
@@ -690,6 +706,64 @@
         checks: checks,
         regionVia: page.regionVia
       };
+    }
+
+    // ─── THE SUMMARY ─────────────────────────────────────────────────────
+    // Links judged against the sitemap, spelling, lists and metadata: what a
+    // reviewer would mark up, gathered in one place with a suggestion each.
+    var indexCache = { key: null, index: null };
+
+    function sitemapIndex(sitemap) {
+      if (!sitemap || !linker) return null;
+      var urls = sitemap.urls || (sitemap.text ? Links.parseSitemap(sitemap.text) : []);
+      if (!urls.length) return null;
+      var key = (sitemap.source || '') + '|' + urls.length + '|' + urls[0] + '|' + urls[urls.length - 1];
+      if (indexCache.key !== key) indexCache = { key: key, index: linker.index(urls, { source: sitemap.source, host: sitemap.host }) };
+      return indexCache.index;
+    }
+
+    function buildAudit(html, page, facts, sitemap) {
+      if (!linker || !Proof) return null;
+      var idx = sitemapIndex(sitemap);
+      var region = comparer.mainRegion(html).html;
+      var english = /^en\b/i.test(facts.lang || '') || /^en\b/i.test(facts.dataLang || '');
+      var head = /<head\b[^>]*>([\s\S]*?)<\/head>/i.exec(html);
+      var description = head ? metaTag(head[1], 'description') : null;
+      var links = linker.audit({ page: page, canonical: facts.canonical, index: idx });
+      var spelling = Proof.spelling(html, proofCfg, { region: region, english: english,
+        extraText: [{ text: page.pageName || '', label: 'title' },
+          { text: description ? (attr(description, 'content') || '') : '', label: 'meta description' }] });
+      var lists = Proof.lists(region);
+      var meta = Proof.metadata(html, { canonical: facts.canonical, region: region });
+      var linkIssues = links.rows.filter(function (r) { return r.verdict !== 'green'; });
+      function tally(list) {
+        var t = { red: 0, amber: 0 };
+        list.forEach(function (f) { if (f.verdict === 'red') t.red++; else if (f.verdict === 'amber') t.amber++; });
+        return t;
+      }
+      return {
+        sitemap: idx ? { count: idx.count, source: idx.source, host: idx.host, prefix: idx.prefix } : null,
+        english: english,
+        links: links.rows,
+        linkCounts: links.counts,
+        spelling: spelling,
+        lists: lists,
+        metadata: meta,
+        counts: { spelling: tally(spelling), links: tally(linkIssues), lists: tally(lists), metadata: tally(meta) }
+      };
+    }
+
+    // The dead-CTA and placeholder findings QA already makes gain the page
+    // the sitemap suggests for them.
+    function attachSuggestions(linksCat, rows) {
+      (linksCat.deviations || []).forEach(function (d) {
+        var row = rows.filter(function (r) {
+          return (r.kind === 'dead-cta' || r.kind === 'placeholder') && r.text === d.found && r.suggestions && r.suggestions.length;
+        })[0];
+        if (!row) return;
+        var best = row.suggestions[0];
+        d.suggest = best.url + (row.confident ? '' : ' (closest match — check it)');
+      });
     }
 
     // One line per crawled page, for the crawl table and its CSV: what a

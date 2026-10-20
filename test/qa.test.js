@@ -571,5 +571,46 @@ test('67. withLinkStatuses: a crawl\'s link statuses fold into a page\'s report 
   assert.strictEqual(folded.checks, direct.checks);
 });
 
+// ─── THE SUMMARY: sitemap-aware links and proofreading ─────────────────────
+var BH = load('fixtures/kone-bh-builders.html');
+var BH_SITEMAP = load('fixtures/kone-bh-sitemap.txt');
+var qaFull = BriefQA.create({ 'work-types': config['work-types'], sites: config.sites,
+  'link-rulings': JSON.parse(load('../config/link-rulings.json')), proofreading: JSON.parse(load('../config/proofreading.json')) });
+
+test('68. the Summary is additive: the tally is the same with and without a sitemap', function () {
+  var without = qaFull.run(BH), withMap = qaFull.run(BH, { sitemap: { text: BH_SITEMAP, source: 'pasted' } });
+  assert.strictEqual(withMap.breaks, without.breaks);
+  assert.strictEqual(withMap.checks, without.checks);
+  assert.strictEqual(without.audit.sitemap, null);
+  assert.deepStrictEqual(withMap.audit.sitemap, { count: 204, source: 'pasted', host: 'kone.bh', prefix: 'en' });
+});
+
+test('69. the real Bahrain page\'s Summary: links, spelling, lists and metadata', function () {
+  var a = qaFull.run(BH, { sitemap: { text: BH_SITEMAP, source: 'pasted' } }).audit;
+  assert.deepStrictEqual(a.counts, { spelling: { red: 2, amber: 0 }, links: { red: 1, amber: 3 },
+    lists: { red: 0, amber: 6 }, metadata: { red: 0, amber: 7 } });
+  assert.ok(a.english);
+});
+
+test('70. without a sitemap, links are judged only where no sitemap is needed', function () {
+  var a = qaFull.run(BH).audit;
+  assert.deepStrictEqual(a.counts.links, { red: 0, amber: 0 });
+});
+
+test('71. a dead CTA in the Hyperlinks card gains the suggested page', function () {
+  var html = BH.replace('<a href="/en/new-buildings/elevators/builders/kone-jumplift.aspx">Learn more about KONE JumpLift</a>', 'Learn more about KONE JumpLift');
+  var r = qaFull.run(html, { sitemap: { text: BH_SITEMAP, source: 'pasted' } });
+  var dead = cat(r, 'links').deviations.filter(function (d) { return d.found === 'Learn more about KONE JumpLift'; })[0];
+  assert.ok(dead, 'the dead CTA is reported');
+  assert.strictEqual(dead.suggest, 'https://www.kone.bh/en/new-buildings/elevators/builders/kone-jumplift.aspx');
+  var plain = qaFull.run(html);
+  assert.strictEqual(cat(plain, 'links').deviations.filter(function (d) { return d.found === 'Learn more about KONE JumpLift'; })[0].suggest, undefined);
+});
+
+test('72. the CTA module with its link inside is no longer reported as bare text', function () {
+  var r = qaFull.run(BH);
+  assert.ok(!cat(r, 'links').deviations.some(function (d) { return /Get in touch early/.test(d.found || ''); }));
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

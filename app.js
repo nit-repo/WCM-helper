@@ -31,7 +31,10 @@
     // The fetch behind the HTML in the page box, kept only while that HTML is
     // unchanged — paste over it and the live facts no longer describe it.
     live: null, liveHtml: null, links: null, linksHtml: null,
-    crawl: null, crawlSrc: 'sites', crawlPick: {}
+    crawl: null, crawlSrc: 'sites', crawlPick: {},
+    // Sitemaps fetched through the backend, one per site, kept for the
+    // session: { status: 'loading'|'ready'|'failed', urls, error }.
+    sitemaps: {}
   };
 
   var el = {
@@ -87,7 +90,14 @@
     crawlPrefix: document.getElementById('crawl-prefix'),
     crawlLinks: document.getElementById('crawl-links'),
     crawlBtn: document.getElementById('crawl-btn'),
-    crawlStop: document.getElementById('crawl-stop')
+    crawlStop: document.getElementById('crawl-stop'),
+    sitemapBox: document.getElementById('sitemap-box'),
+    sitemapStatus: document.getElementById('sitemap-status'),
+    sitemapText: document.getElementById('sitemap-text'),
+    sitemapFetch: document.getElementById('sitemap-fetch-btn'),
+    sitemapUpload: document.getElementById('sitemap-upload-btn'),
+    sitemapClear: document.getElementById('sitemap-clear-btn'),
+    sitemapFile: document.getElementById('sitemap-file')
   };
 
   // ─── MOTION ──────────────────────────────────────────────────────────────
@@ -257,10 +267,12 @@
         if (!s.ok) { client.toLogin(); return; }
         state.backend = client;
         el.signout.hidden = false;
+        el.sitemapFetch.hidden = false;
         el.pageHint.innerHTML = 'A pasted page never leaves the browser. For a preview page, paste its HTML (right-click → ' +
           'Inspect → in Elements, right-click <code>&lt;html&gt;</code> → Copy → Copy outerHTML) or open it above and ' +
           '<a href="bookmarklet.html">use the bookmarklet</a>.';
         reveal();
+        updateSitemapStatus();
         if (state.mode === 'qa') applySource(state.qaSource);
       });
     })
@@ -282,6 +294,14 @@
     // means QA runs on the built-in table, never that it stops working.
     fetch('config/sites.json?v=' + buildTag())
       .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; }),
+    // The team's link rulings and the proofreading additions — optional too:
+    // without them the Summary runs on the built-in lists alone.
+    fetch('config/link-rulings.json?v=' + buildTag())
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; }),
+    fetch('config/proofreading.json?v=' + buildTag())
+      .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; })
   ])
     .then(function (results) {
@@ -291,7 +311,10 @@
       var comparerConfig = { 'work-types': workTypes };
       if (sites) comparerConfig['sites'] = sites;
       state.comparer = window.BriefCompare.create(comparerConfig);
-      state.qa = window.BriefQA.create(comparerConfig);
+      var qaConfig = Object.assign({}, comparerConfig);
+      if (results[3]) qaConfig['link-rulings'] = results[3];
+      if (results[4]) qaConfig['proofreading'] = results[4];
+      state.qa = window.BriefQA.create(qaConfig);
       // Unwrapped, unlike engine/compare above — Filler.create passes this
       // straight to Brief.parse, which reads config.markets.list directly.
       state.filler = window.BriefFiller.create(workTypes);
@@ -370,6 +393,24 @@
     if (c) setCrawlSource(c.getAttribute('data-crawl-src'));
   });
   el.liveBtn.addEventListener('click', runLive);
+  el.sitemapFetch.addEventListener('click', function () {
+    var site = state.lastSite;
+    if (!site) { toast('Run QA on a page first — its market decides which sitemap to fetch.'); return; }
+    delete state.sitemaps[site.domain + '/' + (site.langPath || '')];
+    runQa();
+  });
+  el.sitemapUpload.addEventListener('click', function () { el.sitemapFile.click(); });
+  el.sitemapClear.addEventListener('click', function () { el.sitemapText.value = ''; updateSitemapStatus(); });
+  el.sitemapText.addEventListener('input', updateSitemapStatus);
+  el.sitemapFile.addEventListener('change', function (e) {
+    var file = e.target.files && e.target.files[0];
+    el.sitemapFile.value = '';
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () { el.sitemapText.value = reader.result; updateSitemapStatus(); toast(file.name + ' loaded.'); };
+    reader.onerror = function () { toast('Could not read that file.'); };
+    reader.readAsText(file);
+  });
   el.liveUrl.addEventListener('keydown', function (e) { if (e.key === 'Enter') runLive(); });
   el.crawlBtn.addEventListener('click', startCrawl);
   el.crawlStop.addEventListener('click', function () {
@@ -733,6 +774,7 @@
       // card can hold both a brief's expectation and a config's.
       if (d.expected) lines += '<p class="dev-line"><b>' + (d.fromBrief ? 'Brief' : 'Expected') + '</b><span>' + esc(d.expected) + '</span></p>';
       if (d.found) lines += '<p class="dev-line"><b>Page</b><span>' + esc(d.found) + '</span></p>';
+      if (d.suggest) lines += '<p class="dev-line"><b>Suggest</b><span>' + esc(d.suggest) + '</span></p>';
       return '<li class="' + (check ? 'check' : 'break') + '">' + lines + '</li>';
     }).join('');
 
@@ -854,11 +896,82 @@
     }
     // Live facts and link statuses describe one particular HTML; paste over
     // it and they no longer apply.
-    renderQa(state.qa.run(html, {
+    var options = {
       brief: brief, workTypeId: analysis && analysis.workType.id,
       live: state.liveHtml === html ? state.live : null,
       links: state.linksHtml === html ? state.links : null
-    }), analysis);
+    };
+    var sm = sitemapFor(null);
+    options.sitemap = sm.sitemap;
+    var result = state.qa.run(html, options);
+    // The page's own market decides which site's sitemap to read, so the
+    // first run finds out the site; a fetched sitemap comes in after.
+    if (!sm.sitemap && result.facts.site) {
+      sm = sitemapFor(result.facts.site);
+      if (sm.sitemap) { options.sitemap = sm.sitemap; result = state.qa.run(html, options); }
+      else if (sm.status === 'start') fetchSitemap(result.facts.site, html);
+    }
+    state.lastSite = result.facts.site;
+    state.lastQa = result;
+    renderQa(result, analysis, { sitemapStatus: sitemapStatusText(sm, result) });
+  }
+
+  // ─── SITEMAP FOR LINK SUGGESTIONS ──────────────────────────────────────
+  // A pasted sitemap always wins. Otherwise, signed in to the backend, the
+  // page's own site's sitemap is fetched once per session and QA re-runs
+  // when it lands — the report never waits on it.
+  function siteKey(site) { return site.domain + '/' + (site.langPath || ''); }
+
+  function sitemapFor(site) {
+    var pasted = el.sitemapText.value.trim();
+    if (pasted) return { sitemap: { text: pasted, source: 'pasted' }, status: 'pasted' };
+    if (!site) return { sitemap: null, status: 'none' };
+    var cached = state.sitemaps[siteKey(site)];
+    if (cached && cached.status === 'ready') return { sitemap: { urls: cached.urls, source: 'fetched', host: site.domain }, status: 'fetched', site: site };
+    if (cached) return { sitemap: null, status: cached.status, error: cached.error, site: site };
+    return { sitemap: null, status: state.backend ? 'start' : 'none', site: site };
+  }
+
+  function fetchSitemap(site, html) {
+    var key = siteKey(site);
+    state.sitemaps[key] = { status: 'loading' };
+    updateSitemapStatus();
+    state.backend.discover({ domain: site.domain, langPath: site.langPath }, { perSiteLimit: 0 }).then(function (r) {
+      if (r.error && !r.urls.length) throw new Error(r.error);
+      state.sitemaps[key] = { status: 'ready', urls: r.urls, partial: r.partial };
+    }).catch(function (err) {
+      state.sitemaps[key] = { status: 'failed', error: err.message };
+    }).then(function () {
+      updateSitemapStatus();
+      // Re-run only if the same page is still the one on screen.
+      if (state.mode === 'qa' && state.qaSource !== 'crawl' && el.html.value.trim() === html) runQa();
+    });
+  }
+
+  function sitemapStatusText(sm, result) {
+    var a = result.audit && result.audit.sitemap;
+    if (sm.status === 'pasted') return a ? 'Sitemap: pasted, ' + a.count + ' URLs' : 'Sitemap: pasted, but no URLs could be read from it';
+    if (sm.status === 'fetched') return 'Sitemap: ' + sm.site.domain + ', ' + a.count + ' URLs, fetched automatically';
+    if (sm.status === 'start' || sm.status === 'loading') return 'Sitemap: fetching ' + sm.site.domain + '\'s sitemap — link suggestions appear when it lands';
+    if (sm.status === 'failed') return 'Sitemap: could not fetch ' + sm.site.domain + '\'s (' + sm.error + ') — paste it in the Page card for link suggestions';
+    return 'Sitemap: none — link suggestions skipped. ' + (state.backend ? 'The page\'s market could not be determined, so its sitemap was not fetched; paste one in the Page card.' : 'Paste the site\'s sitemap in the Page card.');
+  }
+
+  function updateSitemapStatus() {
+    var pasted = el.sitemapText.value.trim();
+    var text;
+    if (pasted) {
+      var n = window.BriefLinks ? window.BriefLinks.parseSitemap(pasted).length : 0;
+      text = n + ' URL' + (n === 1 ? '' : 's') + ' pasted';
+    } else {
+      var keys = Object.keys(state.sitemaps);
+      var last = keys.length ? state.sitemaps[keys[keys.length - 1]] : null;
+      text = !last ? (state.backend ? 'fetched automatically when you run QA' : 'none yet')
+        : last.status === 'loading' ? 'fetching ' + keys[keys.length - 1].replace(/\/$/, '') + '…'
+        : last.status === 'ready' ? keys[keys.length - 1].replace(/\/$/, '') + ', ' + last.urls.length + ' URLs fetched'
+        : 'fetch failed — paste one';
+    }
+    el.sitemapStatus.textContent = text;
   }
 
   function factLine(label, value) {
@@ -942,7 +1055,79 @@
       : '';
     el.output.removeAttribute('data-view');
     el.output.innerHTML = back + facts + renderComparison(c, analysis) + tally + region +
-      r.categories.map(renderCategory).join('') + known;
+      r.categories.map(renderCategory).join('') + known + renderSummary(r, opts.sitemapStatus);
+  }
+
+  // ─── THE SUMMARY ───────────────────────────────────────────────────────
+  // What a reviewer would mark up, in one place: links judged against the
+  // sitemap, spelling and wording, lists and numbering, metadata. Each row
+  // carries a suggestion where one can be made. Not part of the tally above.
+  var SUMMARY_GROUPS = [
+    ['spelling', 'Spelling & wording'],
+    ['links', 'Link suggestions'],
+    ['lists', 'Lists & numbering'],
+    ['metadata', 'Metadata']
+  ];
+
+  function summaryRows(a, id) {
+    if (id !== 'links') return a[id];
+    return a.links.filter(function (r) { return r.verdict !== 'green'; }).map(function (r) {
+      var fix = r.suggestions && r.suggestions[0];
+      return { verdict: r.verdict, field: r.kind === 'dead-cta' ? 'Bare-text CTA' : r.kind === 'placeholder' ? 'No destination' : 'Link',
+        text: '"' + r.text + '"' + (r.href ? ' → ' + r.href : '') + (r.count > 1 ? ' (×' + r.count + ')' : ''),
+        where: null, note: r.reason + (fix && !r.confident ? ' — closest match, check it' : ''),
+        suggestion: fix ? fix.url : null, ruling: r.ruling };
+    });
+  }
+
+  function renderSummary(r, status) {
+    var a = r.audit;
+    if (!a) return '';
+    var total = 0;
+    var groups = SUMMARY_GROUPS.map(function (g) {
+      var rows = summaryRows(a, g[0]);
+      total += rows.length;
+      var fine = g[0] === 'links' ? a.links.filter(function (x) { return x.verdict === 'green'; }) : [];
+      var body = rows.length ? '<ul class="summary-rows">' + rows.map(function (f) {
+        // Copy only what can be pasted straight in: a link or a metadata value.
+        var copyable = g[0] === 'links' || g[0] === 'metadata';
+        var fix = f.suggestion ? '<p class="s-fix"><b>Suggest</b>' + esc(f.suggestion) +
+          (copyable ? '<button type="button" class="btn-ghost qa-copy" data-copy="' + esc(f.suggestion) + '">Copy</button>' : '') + '</p>' : '';
+        return '<li><p class="s-head"><span class="pill ' + esc(f.verdict) + '">' + esc(f.verdict) + '</span><b>' + esc(f.field) + '</b> — ' + esc(f.text) + '</p>' +
+          '<p class="s-note">' + esc(f.note || '') + (f.where ? ' · ' + esc(f.where) : '') + '</p>' + fix + '</li>';
+      }).join('') + '</ul>'
+        : '<p class="none">' + (g[0] === 'links' && !a.sitemap ? 'Nothing found without a sitemap — add one for link suggestions.' : 'Nothing found.') + '</p>';
+      if (fine.length) {
+        body += '<details class="summary-fine"><summary>' + fine.length + ' link' + (fine.length === 1 ? '' : 's') + ' go where their text says</summary><ul class="summary-rows">' +
+          fine.map(function (x) {
+            return '<li><p class="s-head"><span class="pill green">green</span>' + esc(x.text) + ' → ' + esc(x.href) + '</p>' +
+              (x.ruling ? '<p class="s-note">' + esc(x.reason) + '</p>' : '') + '</li>';
+          }).join('') + '</ul></details>';
+      }
+      return '<div class="summary-group"><h4>' + esc(g[1]) + ' — ' + rows.length + '</h4>' + body + '</div>';
+    }).join('');
+    var limits = a.english ? '' : ' The misspelling list and UK/US check run on English pages only; this page is not English.';
+    return '<section class="card" id="qa-summary"><h3>Summary — ' + total + ' to review</h3>' +
+      '<p class="summary-status">' + esc(status || '') + '</p>' + groups +
+      '<p class="caution">Spelling is checked against a built-in list of misspellings and KONE product names, and for words the page spells two ways — there is no full dictionary, so read the copy too.' + esc(limits) + '</p>' +
+      '<div class="input-actions"><button type="button" class="btn-ghost" id="copy-summary">Copy summary</button></div></section>';
+  }
+
+  function summaryText(r) {
+    var a = r.audit;
+    var lines = ['QA summary — ' + (r.facts.canonical || 'pasted page'), ''];
+    SUMMARY_GROUPS.forEach(function (g) {
+      var rows = summaryRows(a, g[0]);
+      lines.push(g[1].toUpperCase() + ' (' + rows.length + ')');
+      if (!rows.length) lines.push('  nothing found');
+      rows.forEach(function (f) {
+        lines.push('- [' + f.verdict + '] ' + f.field + ': ' + f.text + (f.where ? ' (' + f.where + ')' : ''));
+        if (f.note) lines.push('    ' + f.note);
+        if (f.suggestion) lines.push('    Suggest: ' + f.suggestion);
+      });
+      lines.push('');
+    });
+    return lines.join('\n');
   }
 
   // What the backend saw fetching the page: the answer, where it ended up,
@@ -978,6 +1163,7 @@
     var btn = e.target.closest('.qa-copy');
     if (btn) copyPlain(btn.getAttribute('data-copy'));
     if (e.target.closest('#qa-check-links')) checkPageLinks();
+    if (e.target.closest('#copy-summary') && state.lastQa && state.lastQa.audit) copyPlain(summaryText(state.lastQa));
     if (e.target.closest('#crawl-back') && state.crawl) { state.crawl.open = null; renderCrawl(); }
     if (e.target.closest('#crawl-csv')) exportCrawlCsv();
     var row = e.target.closest('tr[data-row]');
@@ -1614,7 +1800,8 @@
     var row = state.crawl.rows[i];
     if (!row || !row.result) return;
     state.crawl.open = i;
-    renderQa(row.result, null, { back: true });
+    state.lastQa = row.result;
+    renderQa(row.result, null, { back: true, sitemapStatus: 'Sitemap: not used in a crawl — run QA on this page on its own for link suggestions' });
     el.output.scrollTop = 0;
   }
 

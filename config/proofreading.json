@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "note": "Additions to the proofreading lists built into proof.js. extraMisspellings maps a wrong spelling (lower case) to the right one; extraBrandTerms are KONE names as KONE writes them (a word one letter off is reported); extraUsUk adds [US, UK] pairs for the mixed-spelling check; ignore lists words never to report. The built-in lists stay in force — this file only adds to them.",
+  "extraMisspellings": {},
+  "extraBrandTerms": [],
+  "extraUsUk": [],
+  "ignore": []
+}

@@ -77,6 +77,26 @@ The areas and frontlines in `config/sites.json` under `regions` are **a draft**,
 
 The page's market comes from the brief's `Market` row when there is one, else from its canonical host — a preview host (`preview.kone.es`) counts as its live market. Accepted names live in `config/sites.json`, one list per market: `siteNames` are confirmed, `siteNamesDraft` are spellings still to be confirmed. A title using a draft spelling scores amber, never red, so a guessed spelling can never fail a page; move it into `siteNames` once it is confirmed. A doubled site name stays a known template issue, so it is not counted against the page twice.
 
+### The Summary: link suggestions and proofreading
+
+Every QA run ends with a **Summary** card: what a reviewer would mark up, in one place, each item with a suggested fix where one can be made, and **Copy summary** to paste it into a ticket. It sits beside the five categories, not inside them — nothing in it changes the "to fix / to check" tally above.
+
+- **Link suggestions.** With the site's sitemap, QA judges every link in the page content:
+  - **red:** no destination; a call to action written as bare text; a path missing the language prefix every page on the site carries (`/new-buildings/builders/#item-147220` on kone.bh, where pages live under `/en/`). The suggested fix is the corrected path, or just `#item-147220` when it points back at the page itself.
+  - **green:** the page it goes to is the page its text names ("Learn more about KONE JumpLift" → `…/kone-jumplift.aspx`).
+  - **amber:** it goes to a listing page when a dedicated page exists ("KONE MonoSpace® 100 DX" → `/elevators/`, while `kone-monospace-dx` exists), to a page about something else, or to a path the sitemap does not list. The closest dedicated page is suggested, or it says that none matches.
+  - Generic text ("Get in touch") and links to other sites are not judged for relevance; other sites are the link-status check's business. Press releases, stories and references are never suggested for product text.
+  - Dead calls to action and empty links in the **Hyperlinks** card gain a **Suggest** line too.
+  - **Where the sitemap comes from:** signed in to the backend, the page's own market's sitemap is fetched automatically the first time you run QA on it, kept for the session, and QA re-runs when it lands — the report never waits for it. Or paste a sitemap.xml, or a list of the site's URLs, in **Sitemap for link suggestions** in the Page card; a pasted one always wins. With neither, only what needs no sitemap is reported.
+- **Rulings.** A team decision about a link ("MonoSpace 100 DX → the elevators listing is amber; MiniSpace DX High-Rise → the MiniSpace DX page is green") lives in `config/link-rulings.json`: the link text as a pattern, the target path, the verdict and a note. A ruling applies only while both still match — change the link and it is judged afresh, not excused by an old decision. The four kone.bh rulings are in the file; the matching reaches the same verdicts without them.
+- **Spelling & wording:** a built-in list of common misspellings (`Commerical`); KONE product names written wrong (`TransSys` → `TranSys`) or cased wrong; a word the page spells two ways, but only where the difference is two swapped letters or a doubled one, the shape of a typo (`protects`/`projects` are both words and are never flagged); UK and US spellings mixed on one page. **There is no dictionary** — the tool ships no large assets and makes no external requests — so a one-off misspelling that is on no list is not caught; the card says so. The list and the UK/US check run on English pages only. `config/proofreading.json` adds misspellings, product names, UK/US pairs and words to ignore.
+- **Lists & numbering:** FAQ questions or headings with numbers typed into the text (red when they skip or repeat); bullets typed as characters; a list written as separate paragraphs ("Residential elevator types include:" then one link per paragraph); sub-points flattened into their parent list (FAQ 7 on the kone.bh builders page); mixed end punctuation; typed numbers inside a numbered list; empty and single-item lists.
+- **Metadata:** one row for everything wrong with the title — leading or trailing spaces, a doubled site name, more than 60 characters — with one proposed title (`Construction Elevators for Builders - KONE Corporation - KONE Bahrain` → `Construction Elevators for Builders - KONE Bahrain`); a missing or out-of-range description; stray spaces in keywords; an empty site-search (Swiftype) title; `og:url` against the canonical; a share image shown as a small `summary` card; different share images for X and the rest; an H1 broken with `<br>`, or sharing no word with the title.
+
+Built against the real kone.bh builders page and the kone.bh sitemap (`test/fixtures/kone-bh-*`); every other real fixture — Slovenian, Italian, an Indian FAQ page, an agency mockup — comes back with no spelling or list findings.
+
+**Fixed on the way:** a CTA module whose link sits in its own `.actions` block inside it (the kone.bh "Get in touch early" band) was reported as a call to action with no link — the check stopped reading at the first closing tag. Only a genuinely single-level container counts now.
+
 ### With a brief
 
 Put a brief in QA's Brief box and Run QA answers one more question, first — **is everything the brief asked for actually on the page?** It is one report: the brief's findings and the page's own land in the same five categories, each labelled by where its expectation came from (*Brief*, or *Expected* for a config table or a naming rule).
@@ -180,7 +200,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 443 verification cases across the nine modules
+npm test      # 477 verification cases across eleven suites
 ```
 
 No dependencies, no build step. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`. The page itself needs no backend: with none configured it is paste and bookmarklet only, as it always was.
@@ -303,12 +323,16 @@ readers.js                    .docx / .xlsx / .csv → text, with no dependencie
 page-model.js                 one neutral component model, from a brief or from a page
 mock-page.js                  draws the page-model.js model as a sandboxed HTML preview
 qa.js                         QA a page: the framework's checks, the title format, and the brief comparison when given one
+linkmatch.js                  links against the site's sitemap: suggested destinations, relevance, rulings
+proof.js                      the proofreading pass: spelling, lists and numbering, metadata
 config/work-types.json        the six playbooks, the compare settings, the market list
 config/mock-components.json   the render-type vocabulary page-model.js infers components into
 config/tridion-taxonomy.json  real Tridion component names → their documented field slots
 config/sites.json             the site registry: market, domain, Form Assembly ID, accepted site names,
                                areas and frontlines for the crawl picker
 config/backend.json           where the backend is — empty means none, and no sign-in
+config/link-rulings.json      the team's decisions about where particular links should go
+config/proofreading.json      additions to the built-in misspellings, product names and UK/US pairs
 backend/                      the live-fetch service: lib/guard.js (what may be fetched), lib/fetcher.js,
                                lib/sitemap.js, lib/auth.js, lib/handlers.js (the routes); api/index.js
                                for Vercel, server.js for plain Node
@@ -320,7 +344,9 @@ test/readers.test.js          10 cases, run against real ZIP bytes
 test/filler.test.js           26 cases, including markup that must never be guessed
 test/page-model.test.js       48 cases, including a real agency mockup with no Tridion markup at all
 test/mock-page.test.js        26 cases, safety-first: escaping, hrefs, no external requests
-test/qa.test.js               67 cases, the real Slovenia preview and Italian landing pages among them
+test/qa.test.js               72 cases, the real Slovenia preview and Italian landing pages among them
+test/linkmatch.test.js        14 cases on the real kone.bh builders page and sitemap
+test/proof.test.js            15 cases: each rule caught and each rule quiet, on every real fixture
 test/backend.test.js          29 cases against a local stand-in for www.kone.es — and the shipping guard
                                refusing that same 127.0.0.1
 serve.js                      local static server
