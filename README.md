@@ -63,17 +63,20 @@ Every fetch has one of four outcomes, kept apart on purpose: **ok**; **dead** (4
 
 The areas and frontlines in `config/sites.json` under `regions` are **a draft**, grouped from the order of the form-ID list rather than an official KONE org chart — correct the names and memberships there, then set `draft` to `false`.
 
-**Title format, scored.** KONE's naming rule for a page title is `Page Name | KONE Corporation`, or `Page Name | KONE <country>` with the page's own country in that market's own spelling. Each title the page carries (the window title, and og:title when it differs) gets a row in Metadata:
+**Title format, scored.** KONE's naming rule for a page title is `Page Name - KONE <country>`, with the page's own country in that market's own spelling, or `Page Name - KONE Corporation`. The live kone.in page `Introducing One Week Modernization - KONE India` is the model (`test/fixtures/kone-in-one-week-modernization.html`). ` | ` is accepted in place of ` - `. Each title the page carries (the window title, and og:title when it differs) gets a row in Metadata:
 
 | Title ends in | Score |
 |---|---|
-| `\| KONE Corporation` | green |
-| `\| KONE <name>` — a confirmed name for the page's own market | green |
-| `\| KONE <name>` — another market's confirmed name ("KONE India" on kone.es) | red — a break |
-| `\| KONE`, no country | amber — a check |
-| no site name, or one after ` - ` instead of ` \| ` | amber |
+| `- KONE Corporation` | green |
+| `- KONE <name>` — a confirmed name for the page's own market | green |
+| `- KONE <name>` — another market's confirmed name ("KONE India" on kone.es) | red — a break |
+| `- KONE`, no country | amber — a check |
+| two site names (`X - KONE Corporation - KONE Bahrain`) | amber — keep the last |
+| no site name, or one after a long dash (`–`, `—`) | amber |
 | a name not yet confirmed for the market, or a market that cannot be determined | amber — "not verified" |
 | no title, or a doubled site name | red |
+
+An og:title that is the page name alone (`Introducing One Week Modernization`) is green: a share title does not need the site name, the page title carries it.
 
 The page's market comes from the brief's `Market` row when there is one, else from its canonical host — a preview host (`preview.kone.es`) counts as its live market. Accepted names live in `config/sites.json`, one list per market: `siteNames` are confirmed, `siteNamesDraft` are spellings still to be confirmed. A title using a draft spelling scores amber, never red, so a guessed spelling can never fail a page; move it into `siteNames` once it is confirmed. A doubled site name stays a known template issue, so it is not counted against the page twice.
 
@@ -201,7 +204,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 477 verification cases across eleven suites
+npm test      # 480 verification cases across eleven suites
 ```
 
 No dependencies, no build step. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`. The page itself needs no backend: with none configured it is paste and bookmarklet only, as it always was.

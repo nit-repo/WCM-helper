@@ -163,32 +163,52 @@
 
   function nameKey(s) { return String(s).toLowerCase().replace(/\s+/g, ' ').trim(); }
 
-  // KONE's naming rule for a page title: "Page Name | KONE Corporation", or
-  // "Page Name | KONE <the page's own country>" in that market's spelling.
-  // Green only on a confirmed name for the page's own market; red only when
-  // the title is wrong beyond doubt (no title, a doubled site name, another
-  // market's confirmed name); everything uncertain is amber, so a guessed
-  // spelling in the registry can never fail a page.
-  function titleFormat(title, market, entries, normalise) {
+  // KONE's naming rule for a page title: "Page Name - KONE <the page's own
+  // country>" (or "| KONE <country>"), in that market's spelling, or
+  // "- KONE Corporation" — the real kone.in "Introducing One Week
+  // Modernization - KONE India" is the model. Green only on a confirmed name
+  // for the page's own market; red only when the title is wrong beyond doubt
+  // (no title, a doubled site name, another market's confirmed name);
+  // everything uncertain is amber, so a guessed spelling in the registry can
+  // never fail a page. A share title (og:title) may be the page name alone:
+  // the page title carries the site name.
+  function lastSeparator(t) { return Math.max(t.lastIndexOf(' | '), t.lastIndexOf(' - ')); }
+
+  function titleFormat(title, market, entries, normalise, share) {
     if (!title || !normalise(title)) return { state: 'red', reason: 'no title' };
     var t = normalise(title);
     if (duplicateNote(t, normalise)) return { state: 'red', reason: 'site name doubled — see Known template issues', known: true };
 
-    var at = t.lastIndexOf(' | ');
+    var at = lastSeparator(t);
     if (at === -1) {
-      if (/\s[-\u2013\u2014]\s*KONE\b/i.test(t)) return { state: 'amber', reason: 'the site name is not after " | "' };
-      return { state: 'amber', reason: 'no site name — expected "| KONE Corporation" or "| KONE <country>"' };
+      if (/\s[\u2013\u2014]\s*KONE\b/i.test(t)) return { state: 'amber', reason: 'the site name follows a long dash — use " - KONE <country>"' };
+      if (share && !/\bKONE\b/.test(t)) return { state: 'green', reason: 'the page name alone — the page title carries the site name' };
+      return { state: 'amber', reason: 'no site name — expected " - KONE <country>" or " - KONE Corporation"' };
     }
+    var sep = t.charAt(at + 1);
     var suffix = t.slice(at + 3).trim();
     var m = /^KONE(?:\s+(.+))?$/.exec(suffix);
     if (!m) return { state: 'amber', reason: '"' + suffix + '" is not KONE Corporation or KONE <country>' };
-    if (!m[1]) return { state: 'amber', reason: '"| KONE" with no country' };
+    if (!m[1]) return { state: 'amber', reason: '"' + sep + ' KONE" with no country' };
 
     var name = nameKey(m[1]);
+    function has(list) { return (list || []).some(function (n) { return nameKey(n) === name; }); }
+    function isSiteName(seg) {
+      var k = /^KONE\s+(.+)$/.exec(seg);
+      if (!k) return false;
+      var n = nameKey(k[1]);
+      return n === 'corporation' || entries.some(function (e) {
+        return (e.siteNames || []).concat(e.siteNamesDraft || []).some(function (x) { return nameKey(x) === n; });
+      });
+    }
+    // "X - KONE Corporation - KONE Bahrain": two site names, keep the last.
+    var head = t.slice(0, at), prev = lastSeparator(head);
+    if (prev !== -1 && isSiteName(head.slice(prev + 3).trim())) {
+      return { state: 'amber', reason: 'two site names — "' + head.slice(prev + 3).trim() + '" and "KONE ' + m[1] + '"; keep only "' + sep + ' KONE ' + m[1] + '"' };
+    }
     if (name === 'corporation') return { state: 'green', reason: 'KONE Corporation' };
 
     var own = market && !market.ambiguous ? market : null;
-    function has(list) { return (list || []).some(function (n) { return nameKey(n) === name; }); }
     if (own && has(own.siteNames)) return { state: 'green', reason: 'KONE ' + m[1] + ' — the confirmed name for ' + own.name };
 
     var other = entries.filter(function (e) { return has(e.siteNames) && (!own || e.base !== own.base); })[0];
@@ -613,7 +633,7 @@
           state: 'red', stateLabel: 'no title', soft: false, basis: 'expected' });
       }
       titlesOf(page, normalise).forEach(function (t) {
-        var score = titleFormat(t.title, market, entries, normalise);
+        var score = titleFormat(t.title, market, entries, normalise, t.field === 'og:title');
         formatRows.push({ field: 'Title format', source: t.field === 'og:title' ? 'og:title' : 'page title',
           expected: null, found: t.title, state: score.state, stateLabel: score.reason, soft: false, basis: 'expected' });
         // A doubled site name is already a known template issue; scoring it

@@ -341,10 +341,13 @@ test('42. with no market to check against, a country name is amber, not verified
   assert.ok(/not verified/.test(formatRow(r).stateLabel));
 });
 
-test('43. a site name after " - " instead of " | " is amber', function () {
+test('43. " - KONE <country>" is green like " | " — and a long dash is amber', function () {
   var r = qa.run(page({ title: 'Contacto - KONE España' }));
-  assert.strictEqual(formatRow(r).state, 'amber');
-  assert.ok(/not after " \| "/.test(formatRow(r).stateLabel));
+  assert.strictEqual(formatRow(r).state, 'green', formatRow(r).stateLabel);
+  assert.strictEqual(titleFindingsOf(r).length, 0);
+  var dash = qa.run(page({ title: 'Contacto \u2013 KONE España' }));
+  assert.strictEqual(formatRow(dash).state, 'amber');
+  assert.ok(/long dash/.test(formatRow(dash).stateLabel), formatRow(dash).stateLabel);
 });
 
 test('44. no title at all is a red row', function () {
@@ -610,6 +613,33 @@ test('71. a dead CTA in the Hyperlinks card gains the suggested page', function 
 test('72. the CTA module with its link inside is no longer reported as bare text', function () {
   var r = qaFull.run(BH);
   assert.ok(!cat(r, 'links').deviations.some(function (d) { return /Get in touch early/.test(d.found || ''); }));
+});
+
+// ─── The model title: the real kone.in "… - KONE India" ─────────────────────
+
+var IN = load('fixtures/kone-in-one-week-modernization.html');
+
+test('73. the real kone.in title "Introducing One Week Modernization - KONE India" scores green, with nothing to fix', function () {
+  var r = qa.run(IN);
+  assert.strictEqual(r.facts.market, 'India');
+  assert.strictEqual(formatRow(r).state, 'green', formatRow(r).stateLabel);
+  assert.ok(/confirmed name for India/.test(formatRow(r).stateLabel));
+  assert.strictEqual(titleFindingsOf(r).length, 0, notes(titleFindingsOf(r)));
+});
+
+test('74. a share title that is the page name alone is fine — the page title carries the site name', function () {
+  var r = qa.run(IN);
+  assert.strictEqual(formatRow(r, 'og:title').state, 'green', formatRow(r, 'og:title').stateLabel);
+  var bare = qa.run(page({ title: 'Contacto' }));
+  assert.strictEqual(formatRow(bare).state, 'amber', 'the page title itself still needs the site name');
+});
+
+test('75. two site names — "X - KONE Corporation - KONE Bahrain" — are amber, keep the last', function () {
+  var r = qa.run(BH);
+  assert.strictEqual(formatRow(r).state, 'amber');
+  assert.ok(/two site names/.test(formatRow(r).stateLabel) && /KONE Corporation/.test(formatRow(r).stateLabel), formatRow(r).stateLabel);
+  var product = qa.run(page({ title: 'Ascensores | KONE MonoSpace - KONE España' }));
+  assert.strictEqual(formatRow(product).state, 'green', 'a product name before the site name is not a second site name');
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
