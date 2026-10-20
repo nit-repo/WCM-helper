@@ -462,6 +462,7 @@
     .panel { margin-top: 4px; }
     label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--black); margin-top: 10px; font-weight: 400; }
     label.opt input { margin: 0; }
+    label.opt[hidden] { display: none; }
 
     .chips { display: flex; flex-wrap: wrap; gap: 6px; }
     .chip {
@@ -571,6 +572,7 @@
             <button id="live-btn" class="btn-primary" type="button">Fetch and QA</button>
           </div>
           <label class="opt"><input type="checkbox" id="live-links"> Check its links too — KONE and external, status only</label>
+          <label class="opt"><input type="checkbox" id="live-sitemap-links" checked> Link suggestions — read the site's full sitemap, so the page's report judges its links and suggests destinations</label>
           <p class="hint">Fetched from live sites.</p>
         </div>
 
@@ -624,7 +626,7 @@
         <textarea id="html" placeholder="Paste the built page's source here — View Source, select all, paste."></textarea>
         <details class="sitemap-box" id="sitemap-box">
           <summary>Sitemap for link suggestions — <span id="sitemap-status">none yet</span></summary>
-          <p class="hint">With the site's sitemap, QA suggests where a dead link should point and checks that working links go to the page their text names. Signed in to the backend, it is fetched for the page's market automatically. Or paste the sitemap.xml, or a list of the site's URLs.</p>
+          <p class="hint">With the site's sitemap, QA suggests where a dead link should point and checks that working links go to the page their text names. With link suggestions on and signed in to the backend, it is fetched for the page's market automatically — or paste the sitemap.xml, or a list of the site's URLs, here; a pasted one always wins.</p>
           <textarea class="short" id="sitemap-text" placeholder="https://www.kone.bh/en/new-buildings/&#10;https://www.kone.bh/en/new-buildings/elevators/ …"></textarea>
           <div class="input-actions">
             <button id="sitemap-fetch-btn" class="btn-ghost" type="button" hidden>Fetch sitemap again</button>
@@ -633,6 +635,7 @@
             <input type="file" id="sitemap-file" accept=".xml,.txt,.csv" hidden>
           </div>
         </details>
+        <label class="opt" id="page-sitemap-opt"><input type="checkbox" id="page-sitemap-links" checked> Link suggestions — read the site's full sitemap, so the page's report judges its links and suggests destinations</label>
         <div class="input-actions">
           <button id="qa-btn" class="btn-primary" type="button" disabled>Run QA</button>
           <button id="briefgen-btn" class="btn-ghost" type="button" disabled>Generate brief</button>
@@ -696,18 +699,18 @@
        entry belonging to the old one. app.js reads the same value back out of
        its own src and shows it in the sidebar, so there is one string to bump
        and what it displays is necessarily the file that is running. -->
-  <script src="brief.js?v=2026-10-20e"></script>
-  <script src="engine.js?v=2026-10-20e"></script>
-  <script src="compare.js?v=2026-10-20e"></script>
-  <script src="readers.js?v=2026-10-20e"></script>
-  <script src="filler.js?v=2026-10-20e"></script>
-  <script src="page-model.js?v=2026-10-20e"></script>
-  <script src="mock-page.js?v=2026-10-20e"></script>
-  <script src="linkmatch.js?v=2026-10-20e"></script>
-  <script src="proof.js?v=2026-10-20e"></script>
-  <script src="qa.js?v=2026-10-20e"></script>
-  <script src="backend-client.js?v=2026-10-20e"></script>
-  <script src="app.js?v=2026-10-20e"></script>
+  <script src="brief.js?v=2026-10-21b"></script>
+  <script src="engine.js?v=2026-10-21b"></script>
+  <script src="compare.js?v=2026-10-21b"></script>
+  <script src="readers.js?v=2026-10-21b"></script>
+  <script src="filler.js?v=2026-10-21b"></script>
+  <script src="page-model.js?v=2026-10-21b"></script>
+  <script src="mock-page.js?v=2026-10-21b"></script>
+  <script src="linkmatch.js?v=2026-10-21b"></script>
+  <script src="proof.js?v=2026-10-21b"></script>
+  <script src="qa.js?v=2026-10-21b"></script>
+  <script src="backend-client.js?v=2026-10-21b"></script>
+  <script src="app.js?v=2026-10-21b"></script>
 </body>
 
 </html>

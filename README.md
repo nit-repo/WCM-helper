@@ -67,34 +67,39 @@ The areas and frontlines in `config/sites.json` under `regions` are **a draft**,
 
 | Title ends in | Score |
 |---|---|
-| `- KONE Corporation` | green |
-| `- KONE <name>` — a confirmed name for the page's own market | green |
-| `- KONE <name>` — another market's confirmed name ("KONE India" on kone.es) | red — a break |
-| `- KONE`, no country | amber — a check |
-| two site names (`X - KONE Corporation - KONE Bahrain`) | amber — keep the last |
-| no site name, or one after a long dash (`–`, `—`) | amber |
-| a name not yet confirmed for the market, or a market that cannot be determined | amber — "not verified" |
-| no title, or a doubled site name | red |
+| `- KONE Corporation` | pass |
+| `- KONE <name>` — a confirmed name for the page's own market | pass |
+| `- KONE <name>` — another market's confirmed name ("KONE India" on kone.es) | fix |
+| `- KONE`, no country | check |
+| two site names (`X - KONE Corporation - KONE Bahrain`) | check — keep the last |
+| no site name, or one after a long dash (`–`, `—`) | check |
+| a name not yet confirmed for the market, or a market that cannot be determined | check — "not verified" |
+| no title, or a doubled site name | fix |
 
-An og:title that is the page name alone (`Introducing One Week Modernization`) is green: a share title does not need the site name, the page title carries it.
+An og:title that is the page name alone (`Introducing One Week Modernization`) passes: a share title does not need the site name, the page title carries it.
 
-The page's market comes from the brief's `Market` row when there is one, else from its canonical host — a preview host (`preview.kone.es`) counts as its live market. Accepted names live in `config/sites.json`, one list per market: `siteNames` are confirmed, `siteNamesDraft` are spellings still to be confirmed. A title using a draft spelling scores amber, never red, so a guessed spelling can never fail a page; move it into `siteNames` once it is confirmed. A doubled site name stays a known template issue, so it is not counted against the page twice.
+The page's market comes from the brief's `Market` row when there is one, else from its canonical host — a preview host (`preview.kone.es`) counts as its live market. Accepted names live in `config/sites.json`, one list per market: `siteNames` are confirmed, `siteNamesDraft` are spellings still to be confirmed. A title using a draft spelling is a check, never a fix, so a guessed spelling can never fail a page; move it into `siteNames` once it is confirmed. A doubled site name stays a known template issue, so it is not counted against the page twice.
 
 ### The Summary: link suggestions and proofreading
+
+Every verdict reads **pass**, **check** or **fix** — green, amber and red — the same words as the "to fix / to check" tally.
 
 Every QA run ends with a **Summary** card: what a reviewer would mark up, in one place, each item with a suggested fix where one can be made, and **Copy summary** to paste it into a ticket. It sits beside the five categories, not inside them — nothing in it changes the "to fix / to check" tally above.
 
 - **Link suggestions.** With the site's sitemap, QA judges every link in the page content:
-  - **red:** no destination; a call to action written as bare text; a path missing the language prefix every page on the site carries (`/new-buildings/builders/#item-147220` on kone.bh, where pages live under `/en/`). The suggested fix is the corrected path, or just `#item-147220` when it points back at the page itself.
-  - **green:** the page it goes to is the page its text names ("Learn more about KONE JumpLift" → `…/kone-jumplift.aspx`).
-  - **amber:** it goes to a listing page when a dedicated page exists ("KONE MonoSpace® 100 DX" → `/elevators/`, while `kone-monospace-dx` exists), to a page about something else, or to a path the sitemap does not list. The closest dedicated page is suggested, or it says that none matches.
-  - Generic text ("Get in touch") and links to other sites are not judged for relevance; other sites are the link-status check's business. Press releases, stories and references are never suggested for product text.
+  - **fix:** no destination; a call to action written as bare text; a path missing the language prefix every page on the site carries (`/new-buildings/builders/#item-147220` on kone.bh, where pages live under `/en/`). The suggested fix is the corrected path, or just `#item-147220` when it points back at the page itself.
+  - **pass:** the page it goes to is the page its text names ("Learn more about KONE JumpLift" → `…/kone-jumplift.aspx`).
+  - **check:** it goes to a listing page when a dedicated page exists ("KONE MonoSpace® 100 DX" → `/elevators/`, while `kone-monospace-dx` exists), to a page about something else, or to a path the sitemap does not list. The closest dedicated page is suggested, or it says that none matches.
+  - **Generic call-to-action text** ("Explore options", "Learn more", "Start now") names nothing, so the link is judged by the **component it sits in** — its title and the paragraphs before the link. On the real kone.in page, "Explore options" sits under "Smart, flexible elevator upgrades for all major brands" and goes to `…/elevator-upgrades/`: it passes, and the Summary's "links that pass" says it was judged by its component. Pointed at a page the component is not about, it is a check, with the page the title names suggested. With nothing firm to compare against it is left alone. Link text that names something specific is still judged by its own words ("KONE 2000" → `/elevators/` stays a check however the card around it reads).
+  - When a check says the text names something the page does not, the page **exists** — its address is just not about those words; the reason says so.
+  - Links to other sites are not judged for relevance; that is the link-status check's business. Press releases, stories and references are never suggested for product text.
   - Dead calls to action and empty links in the **Hyperlinks** card gain a **Suggest** line too.
-  - **Where the sitemap comes from:** signed in to the backend, the page's own market's sitemap is fetched automatically the first time you run QA on it, kept for the session, and QA re-runs when it lands — the report never waits for it. Or paste a sitemap.xml, or a list of the site's URLs, in **Sitemap for link suggestions** in the Page card; a pasted one always wins. With neither, only what needs no sitemap is reported, and the group says why: still fetching, could not be fetched (with the reason, and a **Try again** button), or the page's market could not be told.
+  - **The option.** All three QA sources — Pasted page, Live URL and Crawl sites — carry the same option, **Link suggestions — read the site's full sitemap**, ticked by default and remembered per source in your browser. Unticked, no sitemap is read for that source (fetched or pasted), and the Summary's Link-suggestions group says so, with a **Fetch sitemap** button that reads it once for the page on screen without changing the option.
+  - **Where the sitemap comes from:** with the option on and signed in to the backend, the page's own market's sitemap is fetched automatically the first time you run QA on it, kept for the session, and QA re-runs when it lands — the report never waits for it. Or paste a sitemap.xml, or a list of the site's URLs, in **Sitemap for link suggestions** in the Page card; a pasted one always wins. With neither, only what needs no sitemap is reported, and the group says why: still fetching, could not be fetched (with the reason, and a **Try again** button), or the page's market could not be told.
   - **In a crawl:** the **Link suggestions** option (on by default) reads each site's whole sitemap — not just the pages being crawled — and keeps it, so every crawled page's report has link suggestions, and a page you QA on its own afterwards needs no second fetch. Pages per site and the path prefix still decide which pages are crawled. With the option off, a crawled page's Summary offers **Fetch sitemap**: it fetches that site's sitemap and the page again (a crawl keeps no page HTML) and re-runs its checks.
-- **Rulings.** A team decision about a link ("MonoSpace 100 DX → the elevators listing is amber; MiniSpace DX High-Rise → the MiniSpace DX page is green") lives in `config/link-rulings.json`: the link text as a pattern, the target path, the verdict and a note. A ruling applies only while both still match — change the link and it is judged afresh, not excused by an old decision. The four kone.bh rulings are in the file; the matching reaches the same verdicts without them.
+- **Rulings.** A team decision about a link ("MonoSpace 100 DX → the elevators listing is a check; MiniSpace DX High-Rise → the MiniSpace DX page passes") lives in `config/link-rulings.json`: the link text as a pattern, the target path, the verdict and a note. A ruling applies only while both still match — change the link and it is judged afresh, not excused by an old decision. The four kone.bh rulings are in the file; the matching reaches the same verdicts without them.
 - **Spelling & wording:** a built-in list of common misspellings (`Commerical`); KONE product names written wrong (`TransSys` → `TranSys`) or cased wrong; a word the page spells two ways, but only where the difference is two swapped letters or a doubled one, the shape of a typo (`protects`/`projects` are both words and are never flagged); UK and US spellings mixed on one page. **There is no dictionary** — the tool ships no large assets and makes no external requests — so a one-off misspelling that is on no list is not caught; the card says so. The list and the UK/US check run on English pages only. `config/proofreading.json` adds misspellings, product names, UK/US pairs and words to ignore.
-- **Lists & numbering:** FAQ questions or headings with numbers typed into the text (red when they skip or repeat); bullets typed as characters; a list written as separate paragraphs ("Residential elevator types include:" then one link per paragraph); sub-points flattened into their parent list (FAQ 7 on the kone.bh builders page); mixed end punctuation; typed numbers inside a numbered list; empty and single-item lists.
+- **Lists & numbering:** FAQ questions or headings with numbers typed into the text (a fix when they skip or repeat); bullets typed as characters; a list written as separate paragraphs ("Residential elevator types include:" then one link per paragraph); sub-points flattened into their parent list (FAQ 7 on the kone.bh builders page); mixed end punctuation; typed numbers inside a numbered list; empty and single-item lists.
 - **Metadata:** one row for everything wrong with the title — leading or trailing spaces, a doubled site name, more than 60 characters — with one proposed title (`Construction Elevators for Builders - KONE Corporation - KONE Bahrain` → `Construction Elevators for Builders - KONE Bahrain`); a missing or out-of-range description; stray spaces in keywords; an empty site-search (Swiftype) title; `og:url` against the canonical; a share image shown as a small `summary` card; different share images for X and the rest; an H1 broken with `<br>`, or sharing no word with the title.
 
 Built against the real kone.bh builders page and the kone.bh sitemap (`test/fixtures/kone-bh-*`); every other real fixture — Slovenian, Italian, an Indian FAQ page, an agency mockup — comes back with no spelling or list findings.
@@ -204,7 +209,7 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 
 ```
 npm start     # http://localhost:3600
-npm test      # 480 verification cases across eleven suites
+npm test      # 485 verification cases across eleven suites
 ```
 
 No dependencies, no build step. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`. The page itself needs no backend: with none configured it is paste and bookmarklet only, as it always was.

@@ -36,7 +36,12 @@
   // Words a link's text spends on being a link — "learn more about our",
   // "scopri di più" — in the six languages QA already knows, plus the brand
   // itself, which names every page and so tells pages apart not at all.
+  // Generic call-to-action wording ("Explore options", "Start now") is here
+  // too: it says nothing about where a link goes, so such a link is judged
+  // by the component it sits in instead (contextOf below).
   var STOP = ('learn more about read find out discover explore see view get go to visit click here now touch ' +
+    'option options start started begin continue browse try today ' +
+    'opzioni inizia opciones comenzar empezar opcoes comecar optionen starten beginnen commencer ' +
     'the a an and or of for to in on at by with from your you our us we this that all its it is are ' +
     'kone corporation page link more info information details ' +
     'scopri di piu leggi qui maggiori informazioni il la le lo gli i un una del della dei delle per con su ' +
@@ -110,6 +115,8 @@
     var m = /^(?:https?:)?\/\/([^/?#:]+)/i.exec(String(url || '').trim());
     return m ? m[1].toLowerCase() : '';
   }
+  function clip(s) { s = String(s || ''); return s.length > 60 ? s.slice(0, 57).replace(/\s+\S*$/, '') + '…' : s; }
+
   function siteHost(host) { return String(host || '').replace(/^(www|preview(-[a-z]+)?)\./, ''); }
 
   function create(options) {
@@ -200,6 +207,26 @@
       };
     }
 
+    // Pages a component's title names in full: every word of the page's own
+    // name (its last address segment) appears in the title. Most such words
+    // first, so "elevator upgrades" beats "elevators"; then the shorter path.
+    function contextSuggest(headTokens, idx, exclude) {
+      if (!idx || !headTokens.length) return [];
+      var have = {};
+      headTokens.forEach(function (t) { have[t] = true; });
+      return idx.entries
+        .filter(function (e) {
+          return !e.editorial && e.path !== exclude && e.last.length &&
+            e.last.every(function (t) { return have[t]; });
+        })
+        .sort(function (a, b) { return b.last.length - a.last.length || a.path.length - b.path.length; })
+        .slice(0, 3)
+        .map(function (e) {
+          return { url: e.url, path: e.path, score: e.last.length, words: e.last.length,
+            why: 'its address names ' + e.last.join(', ') + ', as the component\'s title does' };
+        });
+    }
+
     // ─── JUDGING THE PAGE'S LINKS ──────────────────────────────────────────
 
     function ruleFor(text, targetPath, host) {
@@ -232,20 +259,43 @@
         seen[key] = row;
         rows.push(row);
       }
-      function withSuggestions(row, opts) {
+      function withSuggestions(row, opts, at) {
         var s = suggest(row.text, idx, opts);
         row.suggestions = s.suggestions;
         row.confident = s.confident;
+        // Generic or empty text names nothing; the component's title may.
+        if (!s.tokens.length && at != null) {
+          var c = contextOf(at, row.text);
+          row.suggestions = contextSuggest(c.headTokens, idx, ownPath);
+          row.confident = !!row.suggestions[0] && row.suggestions[0].words >= 2;
+          if (c.heading) row.context = { heading: c.heading };
+        }
         return row;
+      }
+
+      // The component a link sits in: its title (the nearest visible heading
+      // or accordion question before it) and the few paragraphs between that
+      // title and the link. Offsets are readPage's, all in the same region.
+      var titles = (page.headings || []).filter(function (h) { return !h.hidden && h.text; })
+        .concat(page.triggerHeadings || [])
+        .sort(function (a, b) { return a.at - b.at; });
+      function contextOf(at, ownText) {
+        var heading = null;
+        titles.forEach(function (h) { if (h.at < at) heading = h; });
+        var body = (page.paragraphs || []).filter(function (p) {
+          return p.at < at && (!heading || p.at > heading.at) && p.text !== ownText;
+        }).slice(heading ? -4 : -2).map(function (p) { return p.text; }).join(' ');
+        return { heading: heading ? heading.text : null,
+          headTokens: heading ? tokens(heading.text) : [], bodyTokens: tokens(body) };
       }
 
       (page.placeholderLinks || []).forEach(function (l) {
         push(withSuggestions({ kind: 'placeholder', text: l.text || '(no label)', href: l.href || '', verdict: 'red',
-          reason: l.href === '#' ? 'the link still points at href="#"' : 'the link has no destination' }));
+          reason: l.href === '#' ? 'the link still points at href="#"' : 'the link has no destination' }, {}, l.at));
       });
       (page.deadCtas || []).forEach(function (c) {
         push(withSuggestions({ kind: 'dead-cta', text: c.text, href: null, verdict: 'red',
-          reason: 'a call to action written as bare text, with no link' }));
+          reason: 'a call to action written as bare text, with no link' }, {}, c.at));
       });
 
       (page.links || []).forEach(function (l) {
@@ -285,11 +335,40 @@
 
         var known = idx.byPath[target] || null;
         var isSelf = target === ownPath;
+        // Generic text ("Explore options", "Learn more") promises nothing of
+        // its own, so the component around it — its title and body — is
+        // what the destination is judged against.
         if (!tt.length) {
           if (!known && !isSelf) {
             push(withSuggestions({ kind: 'link', text: text || '(no label)', href: href, target: target, verdict: 'amber',
-              reason: 'the sitemap does not list this path' }));
+              reason: 'the sitemap does not list this path' }, {}, l.at));
+            return;
           }
+          if (isSelf || !known.last.length) return;
+          var c = contextOf(l.at, text);
+          var inContext = {};
+          c.headTokens.concat(c.bodyTokens).forEach(function (t) { inContext[t] = true; });
+          var about = c.heading ? 'its component "' + clip(c.heading) + '"' : 'the text around it';
+          var generic = { kind: 'link', text: text || '(no label)', href: href, target: target, suggestions: [], confident: true };
+          if (c.heading) generic.context = { heading: c.heading };
+          if (known.last.every(function (t) { return inContext[t]; })) {
+            generic.verdict = 'green';
+            generic.reason = 'generic link text — judged by ' + about + ', which is about ' + known.last.join(', ') + ', like the page it goes to';
+          } else {
+            var alt = contextSuggest(c.headTokens, idx, target);
+            if (!alt.length || alt[0].words < 2) return; // nothing firm to compare against: not guessed at
+            generic.verdict = 'amber';
+            generic.reason = 'generic link text in ' + about + '; the page it goes to (' + target + ') is not about ' +
+              alt[0].path.split('/').pop().replace(/[-_]+/g, ' ') + ' — a page that is exists';
+            generic.suggestions = alt;
+          }
+          var gRule = ruleFor(text, target, host);
+          if (gRule) {
+            generic.verdict = gRule.verdict;
+            generic.ruling = { id: gRule.id, note: gRule.note || null };
+            generic.reason = (gRule.note || 'team ruling') + ' (ruling ' + gRule.id + ')';
+          }
+          push(generic);
           return;
         }
 
@@ -320,9 +399,10 @@
             row.suggestions = s.suggestions.filter(function (x) { return x.path !== target; });
           } else {
             row.verdict = 'amber';
-            row.reason = 'the text names ' + tt.join(', ') + ' — the page it goes to (' + target + ') does not';
+            row.reason = 'the page exists, but its address (' + target + ') is not about "' + tt.join(', ') +
+              '", which the text names — check it is the destination meant';
             row.suggestions = s.suggestions.filter(function (x) { return x.path !== target; });
-            if (!row.suggestions.length) row.reason += '; no page in the sitemap matches it either';
+            if (!row.suggestions.length) row.reason += '; no other page in the sitemap is named for "' + tt.join(', ') + '" either';
           }
         }
         var rule = ruleFor(text, target, host);
