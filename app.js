@@ -257,9 +257,9 @@
         if (!s.ok) { client.toLogin(); return; }
         state.backend = client;
         el.signout.hidden = false;
-        el.pageHint.innerHTML = 'A pasted page never leaves the browser. <b>Live URL</b> and <b>Crawl sites</b> send only ' +
-          'the URLs you give to WCM Helper\'s backend, which fetches them from KONE. For a preview page behind login, open it ' +
-          'above and <a href="bookmarklet.html">use the bookmarklet</a>.';
+        el.pageHint.innerHTML = 'A pasted page never leaves the browser. For a preview page, paste its HTML (right-click → ' +
+          'Inspect → in Elements, right-click <code>&lt;html&gt;</code> → Copy → Copy outerHTML) or open it above and ' +
+          '<a href="bookmarklet.html">use the bookmarklet</a>.';
         reveal();
         if (state.mode === 'qa') applySource(state.qaSource);
       });
