@@ -89,6 +89,7 @@
     crawlLimit: document.getElementById('crawl-limit'),
     crawlPrefix: document.getElementById('crawl-prefix'),
     crawlLinks: document.getElementById('crawl-links'),
+    crawlSitemapLinks: document.getElementById('crawl-sitemap-links'),
     crawlBtn: document.getElementById('crawl-btn'),
     crawlStop: document.getElementById('crawl-stop'),
     sitemapBox: document.getElementById('sitemap-box'),
@@ -913,7 +914,7 @@
     }
     state.lastSite = result.facts.site;
     state.lastQa = result;
-    renderQa(result, analysis, { sitemapStatus: sitemapStatusText(sm, result) });
+    renderQa(result, analysis, { sitemapStatus: sitemapStatusText(sm, result), sitemapState: sm });
   }
 
   // ─── SITEMAP FOR LINK SUGGESTIONS ──────────────────────────────────────
@@ -937,7 +938,10 @@
     state.sitemaps[key] = { status: 'loading' };
     updateSitemapStatus();
     state.backend.discover({ domain: site.domain, langPath: site.langPath }, { perSiteLimit: 0 }).then(function (r) {
-      if (r.error && !r.urls.length) throw new Error(r.error);
+      if (!r.urls.length) {
+        var other = r.excluded && r.excluded.otherHost;
+        throw new Error(r.error || ('the sitemap lists no pages on ' + site.domain + (other ? ' (' + other + ' URL' + (other === 1 ? ' is' : 's are') + ' on other hosts)' : '')));
+      }
       state.sitemaps[key] = { status: 'ready', urls: r.urls, partial: r.partial };
     }).catch(function (err) {
       state.sitemaps[key] = { status: 'failed', error: err.message };
@@ -951,7 +955,8 @@
   function sitemapStatusText(sm, result) {
     var a = result.audit && result.audit.sitemap;
     if (sm.status === 'pasted') return a ? 'Sitemap: pasted, ' + a.count + ' URLs' : 'Sitemap: pasted, but no URLs could be read from it';
-    if (sm.status === 'fetched') return 'Sitemap: ' + sm.site.domain + ', ' + a.count + ' URLs, fetched automatically';
+    if (sm.status === 'fetched') return a ? 'Sitemap: ' + sm.site.domain + ', ' + a.count + ' URLs, fetched automatically'
+      : 'Sitemap: ' + sm.site.domain + '\'s could not be read — paste it in the Page card';
     if (sm.status === 'start' || sm.status === 'loading') return 'Sitemap: fetching ' + sm.site.domain + '\'s sitemap — link suggestions appear when it lands';
     if (sm.status === 'failed') return 'Sitemap: could not fetch ' + sm.site.domain + '\'s (' + sm.error + ') — paste it in the Page card for link suggestions';
     return 'Sitemap: none — link suggestions skipped. ' + (state.backend ? 'The page\'s market could not be determined, so its sitemap was not fetched; paste one in the Page card.' : 'Paste the site\'s sitemap in the Page card.');
@@ -1055,7 +1060,7 @@
       : '';
     el.output.removeAttribute('data-view');
     el.output.innerHTML = back + facts + renderComparison(c, analysis) + tally + region +
-      r.categories.map(renderCategory).join('') + known + renderSummary(r, opts.sitemapStatus);
+      r.categories.map(renderCategory).join('') + known + renderSummary(r, opts.sitemapStatus, opts.sitemapState);
   }
 
   // ─── THE SUMMARY ───────────────────────────────────────────────────────
@@ -1080,7 +1085,64 @@
     });
   }
 
-  function renderSummary(r, status) {
+  // The Summary's Fetch sitemap button. For a page on its own: fetch its
+  // site's sitemap and re-run. For a crawled page, whose HTML the crawl did
+  // not keep: fetch the sitemap, fetch the page again, re-run its checks
+  // with both, and fold in any link statuses the crawl already has.
+  function summaryFetchSitemap() {
+    var crawl = state.crawl;
+    var inCrawl = state.qaSource === 'crawl' && crawl && crawl.open !== null;
+    if (!inCrawl) {
+      var site = state.lastSite;
+      if (!site) { toast('The page\'s market could not be determined — paste the sitemap in the Page card.'); return; }
+      delete state.sitemaps[siteKey(site)];
+      runQa();
+      return;
+    }
+    var idx = crawl.open, row = crawl.rows[idx];
+    var site2 = row.sitemapSite || (row.result && row.result.facts.site) || siteOfUrl(row.url);
+    if (!site2) { toast('This page\'s site is not in the registry, so its sitemap cannot be fetched.'); renderQa(row.result, null, crawlRowOpts(row)); return; }
+    var cached = state.sitemaps[siteKey(site2)];
+    var get = cached && cached.status === 'ready' ? Promise.resolve(cached.urls)
+      : state.backend.discover({ domain: site2.domain, langPath: site2.langPath }, { perSiteLimit: 0 }).then(function (r) {
+        if (!r.urls.length) throw new Error(r.error || 'the sitemap lists no pages on ' + site2.domain);
+        keepSitemap(site2, r.urls);
+        return r.urls;
+      });
+    get.then(function (urls) {
+      return state.backend.fetchPage(row.url).then(function (p) {
+        if (p.verdict !== 'ok' || !p.html) throw new Error('the page could not be fetched again: ' + p.reason);
+        var live = Object.assign({}, p, { html: undefined });
+        var result = state.qa.run(p.html, { live: live, sitemap: { urls: urls, source: 'fetched', host: site2.domain } });
+        if (crawl.links && row.links) {
+          var statuses = row.links.map(function (u) { return crawl.links.statuses[u]; }).filter(Boolean);
+          if (statuses.length) result = state.qa.withLinkStatuses(result, statuses);
+        }
+        row.result = result;
+        row.sitemapSite = site2;
+        if (crawl.open === idx) { state.lastQa = result; renderQa(result, null, crawlRowOpts(row)); }
+      });
+    }).catch(function (err) {
+      toast('Could not add the sitemap — ' + err.message);
+      if (crawl.open === idx) renderQa(row.result, null, crawlRowOpts(row));
+    });
+  }
+
+  // What the Link-suggestions group says when there is no sitemap, and the
+  // button that fetches one.
+  function noSitemapNote(st) {
+    st = st || {};
+    var btn = state.backend ? ' <button type="button" class="btn-ghost" id="summary-fetch-sitemap">Fetch sitemap</button>' : '';
+    var site = st.site ? st.site.domain : 'the site';
+    if (st.status === 'start' || st.status === 'loading') return 'Fetching ' + site + '\'s sitemap — suggestions appear here when it arrives.';
+    if (st.status === 'failed') return 'Could not fetch the sitemap: ' + esc(st.error || 'no reason given') + '.' + btn.replace('Fetch sitemap', 'Try again') +
+      ' Or paste it in the Page card.';
+    if (st.status === 'crawl-none') return 'This page was checked without a sitemap.' + btn;
+    if (state.backend) return 'The page\'s market could not be determined, so no sitemap was fetched — paste the site\'s sitemap in the Page card.';
+    return 'Nothing found without a sitemap — paste the site\'s sitemap in the Page card for link suggestions.';
+  }
+
+  function renderSummary(r, status, sitemapState) {
     var a = r.audit;
     if (!a) return '';
     var total = 0;
@@ -1096,7 +1158,7 @@
         return '<li><p class="s-head"><span class="pill ' + esc(f.verdict) + '">' + esc(f.verdict) + '</span><b>' + esc(f.field) + '</b> — ' + esc(f.text) + '</p>' +
           '<p class="s-note">' + esc(f.note || '') + (f.where ? ' · ' + esc(f.where) : '') + '</p>' + fix + '</li>';
       }).join('') + '</ul>'
-        : '<p class="none">' + (g[0] === 'links' && !a.sitemap ? 'Nothing found without a sitemap — add one for link suggestions.' : 'Nothing found.') + '</p>';
+        : g[0] === 'links' && !a.sitemap ? '<p class="note">' + noSitemapNote(sitemapState) + '</p>' : '<p class="none">Nothing found.</p>';
       if (fine.length) {
         body += '<details class="summary-fine"><summary>' + fine.length + ' link' + (fine.length === 1 ? '' : 's') + ' go where their text says</summary><ul class="summary-rows">' +
           fine.map(function (x) {
@@ -1164,6 +1226,8 @@
     if (btn) copyPlain(btn.getAttribute('data-copy'));
     if (e.target.closest('#qa-check-links')) checkPageLinks();
     if (e.target.closest('#copy-summary') && state.lastQa && state.lastQa.audit) copyPlain(summaryText(state.lastQa));
+    var fsb = e.target.closest('#summary-fetch-sitemap');
+    if (fsb) { fsb.disabled = true; fsb.textContent = 'Fetching…'; summaryFetchSitemap(); }
     if (e.target.closest('#crawl-back') && state.crawl) { state.crawl.open = null; renderCrawl(); }
     if (e.target.closest('#crawl-csv')) exportCrawlCsv();
     var row = e.target.closest('tr[data-row]');
@@ -1501,41 +1565,107 @@
   }
 
   // Step one: what to fetch.
+  // A crawl can read each site's whole sitemap — not just the capped
+  // worklist — and keep it, so every crawled page's report judges its links
+  // against it. The same cache single-page QA uses, so a page opened later
+  // needs no second fetch.
+  function underPrefix(url, prefix, langPath) {
+    if (!prefix) return true;
+    var p = '/' + String(prefix).replace(/^\/+|\/+$/g, '').toLowerCase();
+    if (p === '/') return true;
+    var path;
+    try { path = new URL(url).pathname.toLowerCase(); } catch (e) { return false; }
+    function under(x) { return x === p || x.indexOf(p + '/') === 0 || x.indexOf(p + '.') === 0; }
+    return under(path) || (!!langPath && under(path.slice(langPath.length + 1) || '/'));
+  }
+
+  function keepSitemap(site, urls) {
+    if (urls && urls.length) state.sitemaps[siteKey(site)] = { status: 'ready', urls: urls };
+  }
+
+  // Which registry site a URL belongs to: by host, and by language path where
+  // a domain carries two languages.
+  function siteOfUrl(url) {
+    var host = hostKey(url).replace(/^(www|preview(-[a-z]+)?)\./, '');
+    var hits = markets().filter(function (m) { return m.domain === host; });
+    if (!hits.length) return null;
+    if (hits.length === 1) return { domain: host, langPath: hits[0].langPath };
+    var seg = '';
+    try { seg = new URL(url).pathname.split('/')[1] || ''; } catch (e) { /* no path */ }
+    var bySeg = hits.filter(function (m) { return m.langPath && m.langPath.toLowerCase() === seg.toLowerCase(); })[0];
+    return bySeg ? { domain: host, langPath: bySeg.langPath } : null;
+  }
+
+  // For a pasted URL list: each distinct site's sitemap, read once.
+  function readSitemapsFor(urls) {
+    var crawl = state.crawl, sites = {};
+    urls.forEach(function (u) {
+      var site = siteOfUrl(u);
+      if (site && !(state.sitemaps[siteKey(site)] && state.sitemaps[siteKey(site)].status === 'ready')) sites[siteKey(site)] = site;
+    });
+    var list = Object.keys(sites).map(function (k) { return sites[k]; });
+    if (!list.length) return Promise.resolve();
+    crawl.phase = 'Reading sitemaps for link suggestions';
+    renderCrawlSoon();
+    return pool(list, function () { return 'discover'; }, function (site) {
+      return state.backend.discover({ domain: site.domain, langPath: site.langPath }, { perSiteLimit: 0 }).then(function (r) {
+        if (r.urls.length) keepSitemap(site, r.urls);
+        else crawl.notes.push(site.domain + ' — no sitemap for link suggestions' + (r.error ? ': ' + r.error : ''));
+      }, function (err) { crawl.notes.push(site.domain + ' — no sitemap for link suggestions: ' + err.message); });
+    }, { total: DISCOVER_CONCURRENCY, perKey: DISCOVER_CONCURRENCY });
+  }
+
+  // Step one: what to fetch.
   function buildWork() {
     var crawl = state.crawl;
+    var full = crawl.useSitemap;
+    var limit = crawlLimit();
     if (state.crawlSrc === 'list') {
       var seen = {};
       var urls = el.crawlUrls.value.split(/\n/).map(normaliseUrl).filter(function (u) { return u && !seen[u] && (seen[u] = true); });
       if (!urls.length) throw new Error('Paste at least one URL.');
-      return Promise.resolve(urls.map(function (u) { return { url: u, site: hostKey(u).replace(/^www\./, '') }; }));
+      var items = urls.map(function (u) { return { url: u, site: hostKey(u).replace(/^www\./, ''), sitemapSite: siteOfUrl(u) }; });
+      return (full ? readSitemapsFor(urls) : Promise.resolve()).then(function () { return items; });
     }
     if (state.crawlSrc === 'sitemap') {
       var sm = normaliseUrl(el.crawlSitemapUrl.value);
       if (!sm) throw new Error('Paste a sitemap URL.');
       crawl.phase = 'Reading the sitemap…';
       renderCrawlSoon();
-      return state.backend.sitemap(sm, { perSiteLimit: crawlLimit() }).then(function (r) {
+      return state.backend.sitemap(sm, { perSiteLimit: full ? 0 : limit }).then(function (r) {
         if (r.error) throw new Error(capital(r.error));
         if (r.partial) crawl.notes.push('The sitemap was only partly read — it is larger than one request can walk.');
-        if (r.available > r.urls.length) crawl.notes.push(r.urls.length + ' of ' + r.available + ' URLs taken (pages per site).');
-        return r.urls.map(function (u) { return { url: u, site: hostKey(u).replace(/^www\./, '') }; });
+        var taken = limit ? r.urls.slice(0, limit) : r.urls;
+        if (r.available > taken.length) crawl.notes.push(taken.length + ' of ' + r.available + ' URLs taken (pages per site).');
+        var site = r.urls.length ? siteOfUrl(r.urls[0]) : null;
+        if (full && site) keepSitemap(site, r.urls);
+        return taken.map(function (u) { return { url: u, site: hostKey(u).replace(/^www\./, ''), sitemapSite: site }; });
       });
     }
     var picked = markets().filter(function (m) { return state.crawlPick[m.name]; });
     if (!picked.length) throw new Error('Pick at least one site — a market, a frontline, an area, or every site.');
     var work = [], done = 0;
+    var prefix = el.crawlPrefix.value.trim();
     crawl.phase = 'Reading sitemaps — 0 of ' + picked.length + ' sites';
     renderCrawlSoon();
     return pool(picked, function () { return 'discover'; }, function (m) {
-      return state.backend.discover({ domain: m.domain, langPath: m.langPath }, { perSiteLimit: crawlLimit(), pathPrefix: el.crawlPrefix.value.trim() })
+      var site = { domain: m.domain, langPath: m.langPath };
+      // With link suggestions on, the whole sitemap is read (no prefix, no
+      // cap) and the worklist is cut from it here.
+      var opts = full ? { perSiteLimit: 0 } : { perSiteLimit: limit, pathPrefix: prefix };
+      return state.backend.discover(site, opts)
         .then(function (r) {
-          if (r.error && !r.urls.length) crawl.notes.push(m.name + ' — ' + r.error);
-          else {
-            if (r.partial) crawl.notes.push(m.name + ' — the sitemaps were only partly read (very large site).');
-            if (r.excluded && r.excluded.robots) crawl.notes.push(m.name + ' — ' + r.excluded.robots + ' URL' + (r.excluded.robots === 1 ? '' : 's') + ' skipped: robots.txt disallows them.');
-            crawl.available += r.available;
-          }
-          r.urls.forEach(function (u) { work.push({ url: u, site: r.site, market: m.name }); });
+          if (r.error && !r.urls.length) { crawl.notes.push(m.name + ' — ' + r.error); return; }
+          if (r.partial) crawl.notes.push(m.name + ' — the sitemaps were only partly read (very large site).');
+          if (r.excluded && r.excluded.robots) crawl.notes.push(m.name + ' — ' + r.excluded.robots + ' URL' + (r.excluded.robots === 1 ? '' : 's') + ' skipped: robots.txt disallows them.');
+          var urls = r.urls;
+          if (full) {
+            keepSitemap(site, r.urls);
+            urls = r.urls.filter(function (u) { return underPrefix(u, prefix, m.langPath); });
+            crawl.available += urls.length;
+            if (limit) urls = urls.slice(0, limit);
+          } else crawl.available += r.available;
+          urls.forEach(function (u) { work.push({ url: u, site: r.site, market: m.name, sitemapSite: site }); });
         }, function (err) { crawl.notes.push(m.name + ' — ' + err.message); })
         .then(function () {
           done++;
@@ -1548,7 +1678,8 @@
   function startCrawl() {
     if (!state.backend || (state.crawl && state.crawl.running)) return;
     state.crawl = { running: true, stopped: false, phase: 'Starting…', notes: [], rows: [], work: [], available: 0,
-      started: Date.now(), finished: null, filter: 'all', site: '', open: null, links: null, checkLinks: el.crawlLinks.checked };
+      started: Date.now(), finished: null, filter: 'all', site: '', open: null, links: null, checkLinks: el.crawlLinks.checked,
+      useSitemap: el.crawlSitemapLinks.checked };
     el.crawlBtn.disabled = true;
     el.crawlStop.hidden = false;
     el.crawlStop.disabled = false;
@@ -1567,13 +1698,19 @@
     }).catch(function (err) { finishCrawl(err.message); });
   }
 
+  function crawlSitemap(w) {
+    if (!state.crawl.useSitemap || !w.sitemapSite) return null;
+    var c = state.sitemaps[siteKey(w.sitemapSite)];
+    return c && c.status === 'ready' ? { urls: c.urls, source: 'crawl', host: w.sitemapSite.domain } : null;
+  }
+
   function crawlPage(w) {
     var crawl = state.crawl;
     return state.backend.fetchPage(w.url).then(function (r) {
       var row;
       if (r.verdict === 'ok' && r.html) {
         var live = Object.assign({}, r, { html: undefined });
-        var result = state.qa.run(r.html, { live: live });
+        var result = state.qa.run(r.html, { live: live, sitemap: crawlSitemap(w) });
         row = state.qa.crawlRow(result, live);
         row.result = result;
         if (crawl.checkLinks) row.links = state.qa.linksToCheck(r.html, r.finalUrl);
@@ -1583,6 +1720,7 @@
       }
       row.site = w.site;
       row.market = row.market || w.market || null;
+      row.sitemapSite = w.sitemapSite || null;
       crawl.rows.push(row);
       renderCrawlSoon();
     }, function (err) {
@@ -1796,12 +1934,20 @@
         table(unverified)) : '');
   }
 
+  function crawlRowOpts(row) {
+    var a = row.result.audit && row.result.audit.sitemap;
+    return { back: true,
+      sitemapStatus: a ? 'Sitemap: ' + a.host + ', ' + a.count + ' URLs, ' + (a.source === 'crawl' ? 'read during the crawl' : 'fetched for this page')
+        : 'Sitemap: not read for this page' + (state.crawl.useSitemap ? ' — its site\'s sitemap could not be read' : ' — link suggestions were off for this crawl'),
+      sitemapState: a ? { status: 'fetched' } : { status: 'crawl-none' } };
+  }
+
   function openCrawlRow(i) {
     var row = state.crawl.rows[i];
     if (!row || !row.result) return;
     state.crawl.open = i;
     state.lastQa = row.result;
-    renderQa(row.result, null, { back: true, sitemapStatus: 'Sitemap: not used in a crawl — run QA on this page on its own for link suggestions' });
+    renderQa(row.result, null, crawlRowOpts(row));
     el.output.scrollTop = 0;
   }
 
