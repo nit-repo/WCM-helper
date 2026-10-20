@@ -1956,10 +1956,19 @@
       var item = { s: s, pages: crawl.links.sources[u] || [] };
       if (s.verdict === 'dead') broken.push(item); else if (s.verdict !== 'ok') unverified.push(item);
     });
+    // Each page that carries the link, with where on that page it sits.
+    var rowByUrl = {};
+    crawl.rows.forEach(function (row) { if (row.result) rowByUrl[row.url] = row; });
+    function placed(pageUrl, linkUrl) {
+      var row = rowByUrl[pageUrl];
+      var at = row && row.result.linkPlaces && row.result.linkPlaces[linkUrl];
+      return esc(pageUrl) + (at && at.length ? '<br><small>' + esc(at.map(function (p) { return p.where; }).join('  ·  ')) + '</small>' : '');
+    }
     function table(list) {
       return '<div class="table-wrap"><table class="crawl"><thead><tr><th>Link</th><th>Answer</th><th>Linked from</th></tr></thead><tbody>' +
         list.map(function (it) {
-          var pages = it.pages.slice(0, 3).map(esc).join('<br>') + (it.pages.length > 3 ? '<br><small>and ' + (it.pages.length - 3) + ' more</small>' : '');
+          var pages = it.pages.slice(0, 3).map(function (p) { return placed(p, it.s.url); }).join('<br>') +
+            (it.pages.length > 3 ? '<br><small>and ' + (it.pages.length - 3) + ' more</small>' : '');
           return '<tr><td class="url">' + esc(it.s.url) + '</td><td>' + esc(capital(it.s.reason || String(it.s.status))) + '</td><td class="url">' + pages + '</td></tr>';
         }).join('') + '</tbody></table></div>';
     }

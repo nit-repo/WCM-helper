@@ -2229,6 +2229,11 @@
       // Exposed so a test can assert a location without a defect to hang it
       // on — the id-less carousel ships no defect on the real page.
       placeIn: placeOf,
+      // The page's components over the whole document (not only the content
+      // region), with the label a finding uses — for placing links that sit
+      // in the header or footer as well as in the content.
+      modules: function (h) { return modulesIn(String(h == null ? '' : h), cfg); },
+      moduleLabel: moduleLabel,
       splitRows: splitRows,
       normalise: normalise,
       pathOf: pathOf,

@@ -452,23 +452,169 @@
     return out;
   }
 
+  // One rule for what a link's address is, shared by the status check and
+  // by placing a link on the page, so the two always agree on the key.
+  function absHref(href, baseUrl) {
+    href = String(href == null ? '' : href).trim();
+    if (!href || /^(#|mailto:|tel:|javascript:|data:)/i.test(href)) return null;
+    var abs;
+    try { abs = new URL(href.replace(/&amp;/g, '&'), baseUrl || undefined).href; } catch (e) { return null; }
+    if (!/^https?:\/\//i.test(abs)) return null;
+    return abs.replace(/#.*$/, '');
+  }
+
   // Every link worth a status check: absolute http(s) targets of the page's
   // anchors, relative ones resolved against where the page was served.
   function linksToCheck(html, baseUrl) {
     var out = [], seen = {}, m, re = /<a\b[^>]*>/gi;
     while ((m = re.exec(String(html || ''))) !== null) {
-      var href = attr(m[0], 'href');
-      if (!href) continue;
-      href = href.trim();
-      if (!href || /^(#|mailto:|tel:|javascript:|data:)/i.test(href)) continue;
-      var abs;
-      try { abs = new URL(href.replace(/&amp;/g, '&'), baseUrl || undefined).href; } catch (e) { continue; }
-      if (!/^https?:\/\//i.test(abs)) continue;
-      abs = abs.replace(/#.*$/, '');
-      if (seen[abs]) continue;
+      var abs = absHref(attr(m[0], 'href'), baseUrl);
+      if (!abs || seen[abs]) continue;
       seen[abs] = true;
       out.push(abs);
     }
+    return out;
+  }
+
+  // ─── WHERE A LINK SITS ───────────────────────────────────────────────────
+  // Links are checked across the whole page — header and footer included —
+  // so a broken one is placed in full: the component it is in (or the
+  // header, navigation or footer, outside any component), which block of
+  // that component, the block's title, and whether it is hidden:
+  //   Content blocks #2 › block 3 — "Digitally connected for more uptime"
+  //   Header (hidden)
+  // One pass over the tags with a stack of open elements; comments, scripts
+  // and styles are blanked first, keeping every offset where it was.
+
+  var ITEM_NOUNS = { 'content-block': 'block', 'teaser': 'teaser', 'content-river__item': 'item',
+    'accordion-listitem': 'question', 'news-item': 'card', 'proofpoints-turningcard': 'card', 'card': 'card' };
+  var VOID_NAMES = /^(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/;
+  var LANDMARKS = { header: 'Header', nav: 'Navigation', footer: 'Footer', aside: 'Sidebar' };
+
+  function classesIn(tag) { return String(attr(tag, 'class') || '').split(/\s+/).filter(Boolean); }
+
+  function hiddenTag(tag, classes) {
+    return /\sstyle\s*=\s*["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden)/i.test(tag) ||
+      /^<[a-z0-9-]+\b[^>]*\shidden(?=[\s>\/=])/i.test(tag.replace(/(["'])[^"']*\1/g, '""')) ||
+      classes.some(function (c) { return c === 'hidden' || c === 'd-none' || c === 'hide'; });
+  }
+
+  function itemNoun(el) {
+    for (var i = 0; i < el.classes.length; i++) if (ITEM_NOUNS[el.classes[i]]) return ITEM_NOUNS[el.classes[i]];
+    return el.name === 'article' ? 'block' : null;
+  }
+
+  function landmarkOf(el) {
+    if (LANDMARKS[el.name]) return LANDMARKS[el.name];
+    for (var i = 0; i < el.classes.length; i++) {
+      var c = el.classes[i];
+      if (/(^|[-_])footer($|[-_])/.test(c)) return 'Footer';
+      if (/(^|[-_])header($|[-_])/.test(c)) return 'Header';
+      if (/(^|[-_])nav(igation)?($|[-_])/.test(c)) return 'Navigation';
+    }
+    return null;
+  }
+
+  var TITLE_RE = /<(h[1-6])\b([^>]*)>([\s\S]*?)<\/\1>|<(button|a|div|span)\b([^>]*\bclass\s*=\s*["'][^"']*\baccordion-trigger\b[^"']*["'][^>]*)>([\s\S]*?)<\/\4>/gi;
+
+  function titlesIn(text) {
+    var out = [], m;
+    TITLE_RE.lastIndex = 0;
+    while ((m = TITLE_RE.exec(text)) !== null) {
+      var attrs = m[2] || m[5] || '';
+      if (/display\s*:\s*none/i.test(attrs)) continue;
+      var t = decodeText((m[3] || m[6] || '').replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
+      if (t) out.push(t);
+    }
+    return out;
+  }
+
+  var NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', reg: '®', trade: '™', copy: '©', ndash: '–', mdash: '—', rsquo: '’', lsquo: '‘' };
+  function decodeText(t) {
+    return t.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, function (all, e) {
+      if (e.charAt(0) === '#') {
+        var n = e.charAt(1).toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+        return n === 160 ? ' ' : isFinite(n) ? String.fromCharCode(n) : all;
+      }
+      return NAMED[e.toLowerCase()] || all;
+    });
+  }
+
+  function clipTitle(t) { return t.length > 70 ? t.slice(0, 67).replace(/\s+\S*$/, '') + '…' : t; }
+
+  // { absoluteUrl: [{ where, hidden, anchor }] }, every place a link appears.
+  function linkPlaces(html, baseUrl, modules, moduleLabel) {
+    html = String(html == null ? '' : html);
+    var scan = html.replace(/<!--[\s\S]*?-->|<(script|style|noscript|template)\b[^>]*>[\s\S]*?<\/\1>/gi,
+      function (m) { return m.replace(/[^\n]/g, ' '); });
+    var byStart = {};
+    (modules || []).forEach(function (mod) { byStart[mod.start] = mod; });
+    var stack = [], counters = {}, links = [], re = /<(\/?)([a-z][a-z0-9-]*)\b[^>]*>/gi, m;
+    while ((m = re.exec(scan)) !== null) {
+      var name = m[2].toLowerCase();
+      if (m[1]) {
+        for (var i = stack.length - 1; i >= 0; i--) {
+          if (stack[i].name === name) { stack[i].end = m.index; stack.length = i; break; }
+        }
+        continue;
+      }
+      var el = { name: name, start: m.index, end: null, tag: m[0], classes: classesIn(m[0]) };
+      el.hidden = hiddenTag(el.tag, el.classes);
+      el.module = byStart[m.index] || null;
+      if (name === 'a') links.push({ el: el, ancestors: stack.slice() });
+      if (VOID_NAMES.test(name) || /\/>$/.test(el.tag)) continue;
+      // The blocks of a component are counted by their own kind, outermost
+      // only: "block 3" is the third content block, whatever it contains.
+      var noun = itemNoun(el);
+      if (noun) {
+        var modEl = null, inItem = false;
+        for (var j = stack.length - 1; j >= 0; j--) {
+          if (stack[j].item) inItem = true;
+          if (stack[j].module) { modEl = stack[j]; break; }
+        }
+        if (modEl && !inItem) {
+          var key = modEl.start + '|' + noun;
+          counters[key] = (counters[key] || 0) + 1;
+          el.item = { noun: noun, ordinal: counters[key] };
+        }
+      }
+      stack.push(el);
+    }
+
+    var out = {};
+    links.forEach(function (l) {
+      var abs = absHref(attr(l.el.tag, 'href'), baseUrl);
+      if (!abs) return;
+      var chain = l.ancestors, hidden = l.el.hidden, modEl = null, itemEl = null, landEl = null, land = null;
+      for (var i = chain.length - 1; i >= 0; i--) {
+        var a = chain[i];
+        if (a.hidden) hidden = true;
+        if (!modEl && a.module) modEl = a;
+        if (!modEl && !itemEl && a.item) itemEl = a;
+        // The outermost landmark names it: a header's own <nav> is still the header.
+        if ((land = landmarkOf(a))) landEl = a;
+      }
+      if (!modEl) itemEl = null;
+      var mod = modEl && modEl.module;
+      var box = itemEl || modEl || (landEl && !modEl ? landEl : null);
+      var title = null;
+      if (!box) {
+        // Outside any component: the nearest heading above it, to find it by.
+        var above = titlesIn(scan.slice(0, l.el.start));
+        title = above.length ? above[above.length - 1] : null;
+      } else {
+        var before = titlesIn(scan.slice(box.start, l.el.start));
+        title = before.length ? before[before.length - 1]
+          : (titlesIn(scan.slice(box.start, box.end == null ? scan.length : box.end))[0] || null);
+      }
+      var where = (mod ? moduleLabel(mod) : landEl ? landmarkOf(landEl) : 'Page body') +
+        (itemEl ? ' › ' + itemEl.item.noun + ' ' + itemEl.item.ordinal : '') +
+        (title ? ' — "' + clipTitle(title) + '"' : '') + (hidden ? ' (hidden)' : '');
+      var list = out[abs] = out[abs] || [];
+      if (!list.some(function (p) { return p.where === where; })) {
+        list.push({ where: where, hidden: hidden, anchor: mod && mod.id ? '#' + mod.id : null });
+      }
+    });
     return out;
   }
 
@@ -480,17 +626,27 @@
   // Link statuses from the backend, as Hyperlinks findings. Broken is a
   // break; a link that could not be verified is a check — never counted as
   // broken, never as fine.
-  function linkStatusFindings(statuses, domains) {
+  function linkStatusFindings(statuses, domains, places) {
     var out = [];
     (statuses || []).forEach(function (s) {
-      var where = isKone(s.url, domains) ? 'KONE' : 'external';
+      var kind = isKone(s.url, domains) ? 'KONE' : 'external';
+      var f = null;
       if (s.verdict === 'dead') {
-        out.push({ category: 'links', severity: 'break', field: 'Broken link (' + where + ')', found: s.url,
-          note: s.reason || ('answered ' + s.status) });
+        f = { category: 'links', severity: 'break', field: 'Broken link (' + kind + ')', found: s.url,
+          note: s.reason || ('answered ' + s.status) };
       } else if (s.verdict === 'unverified' || s.verdict === 'refused') {
-        out.push({ category: 'links', severity: 'check', field: 'Link not verified (' + where + ')', found: s.url,
-          note: (s.reason || 'no answer') + ' — open it by hand' });
+        f = { category: 'links', severity: 'check', field: 'Link not verified (' + kind + ')', found: s.url,
+          note: (s.reason || 'no answer') + ' — open it by hand' };
       }
+      if (!f) return;
+      // Every place on the page the link appears, so it can be found.
+      var at = (places && places[s.url]) || [];
+      if (at.length) {
+        f.where = at.map(function (p) { return p.where; }).join('  ·  ');
+        var anchored = at.filter(function (p) { return p.anchor; })[0];
+        if (anchored) f.anchor = anchored.anchor;
+      }
+      out.push(f);
     });
     return out;
   }
@@ -551,6 +707,15 @@
       var tcmId = /^tcm:\d+-\d+(-\d+)?$/i.test(tcmRaw) ? tcmRaw : null;
       // A page with no canonical still has a market when it was fetched
       // live: the URL it was served at says which site it is on.
+      // Where each of the page's links sits, resolved against the same base
+      // the link check uses — kept on the result, so statuses checked later
+      // (a crawl's link pass) can be placed too.
+      var linkBase = (options.live && options.live.finalUrl) || page.canonical || null;
+      var places = null;
+      function linkPlacesOf() {
+        if (!places) places = linkPlaces(html, linkBase, comparer.modules(html), comparer.moduleLabel);
+        return places;
+      }
       var placed = page;
       if (!page.canonical && options.live && options.live.finalUrl) placed = Object.assign({}, page, { canonical: options.live.finalUrl });
       var formId = comparer.formIdFinding(expect, placed);
@@ -612,7 +777,7 @@
         .concat(h1Findings(html, normalise))
         .concat(linkTextFindings(comparer.mainRegion(html).html, qaCfg, normalise))
         .concat(liveFindings(options.live, facts, pathOf))
-        .concat(linkStatusFindings(options.links, koneDomains));
+        .concat(linkStatusFindings(options.links, koneDomains, linkPlacesOf()));
 
       if (options.live) {
         var lv = options.live;
@@ -648,6 +813,8 @@
         var d = { severity: f.severity, field: f.field, note: f.note };
         if (f.expected) d.expected = f.expected;
         if (f.found) d.found = f.found;
+        if (f.where) d.where = f.where;
+        if (f.anchor) d.anchor = f.anchor;
         if (f.known) known.push(d);
         else byId[f.category].deviations.push(d);
       });
@@ -724,7 +891,8 @@
         knownIssues: known,
         breaks: breaks,
         checks: checks,
-        regionVia: page.regionVia
+        regionVia: page.regionVia,
+        linkPlaces: linkPlacesOf()
       };
     }
 
@@ -824,10 +992,15 @@
     // built. Folded in here rather than by re-running the page, whose HTML a
     // long crawl does not keep.
     function withLinkStatuses(r, statuses) {
-      var findings = linkStatusFindings(statuses, koneDomains);
+      var findings = linkStatusFindings(statuses, koneDomains, r.linkPlaces);
       var out = Object.assign({}, r, { facts: Object.assign({}, r.facts), categories: r.categories.map(function (c) {
         if (c.id !== 'links') return c;
-        var added = findings.map(function (f) { return { severity: f.severity, field: f.field, note: f.note, found: f.found }; });
+        var added = findings.map(function (f) {
+          var d = { severity: f.severity, field: f.field, note: f.note, found: f.found };
+          if (f.where) d.where = f.where;
+          if (f.anchor) d.anchor = f.anchor;
+          return d;
+        });
         var devs = c.deviations.concat(added).sort(function (a, b) {
           return (a.severity === 'check' ? 1 : 0) - (b.severity === 'check' ? 1 : 0);
         });
@@ -846,5 +1019,5 @@
     return { run: run, crawlRow: crawlRow, linksToCheck: linksToCheck, withLinkStatuses: withLinkStatuses };
   }
 
-  return { create: create, DEFAULT_QA: DEFAULT_QA, linksToCheck: linksToCheck };
+  return { create: create, DEFAULT_QA: DEFAULT_QA, linksToCheck: linksToCheck, linkPlaces: linkPlaces };
 }));
