@@ -534,7 +534,7 @@ test('65. crawlRow: one scannable line per page', function () {
   assert.strictEqual(row.status, 200);
   assert.strictEqual(row.title, 'Contacto | KONE España');
   assert.strictEqual(row.titleFormat, 'green');
-  assert.strictEqual(row.formId, 'missing');
+  assert.strictEqual(row.formId, 'no-form', 'LIVE_PAGE carries no form at all');
   assert.strictEqual(row.market, 'Spain');
   assert.strictEqual(row.breaks, r.breaks);
 });
@@ -684,6 +684,179 @@ test('79. a link in a hidden component says so — the kone.eg header case (synt
   assert.strictEqual(d.where, 'Header (hidden)');
   assert.strictEqual(d.severity, 'break', 'still flagged — hidden is a fact about where it is, not an excuse');
   assert.strictEqual(r.linkPlaces['https://www.kone.eg/en/contact/'][0].where, 'Page body — "New buildings" (hidden)');
+});
+
+test('80. redirects: more than 3 is a fix with the chain spelled out; 2–3 a check; 1 nothing', function () {
+  function hops(n) {
+    var out = [];
+    for (var i = 0; i < n; i++) out.push({ url: 'https://kone.es/r' + i, status: i % 2 ? 302 : 301, to: 'x', ms: 50 });
+    return out;
+  }
+  var four = qa.run(LIVE_PAGE, { live: live({ redirects: hops(4), redirectMs: 200 }) });
+  assert.ok(fieldsOf(four).indexOf('links:break:Redirect chain') !== -1, fieldsOf(four).join(', '));
+  var d = cat(four, 'links').deviations.filter(function (x) { return x.field === 'Redirect chain'; })[0];
+  assert.strictEqual(d.found, 'https://kone.es/r0 (301) → https://kone.es/r1 (302) → https://kone.es/r2 (301) → ' +
+    'https://kone.es/r3 (302) → https://www.kone.es/contacto/');
+  assert.ok(/4 redirects — more than 3/.test(d.note), d.note);
+  var three = qa.run(LIVE_PAGE, { live: live({ redirects: hops(3) }) });
+  assert.ok(fieldsOf(three).indexOf('links:check:Redirect chain') !== -1);
+  assert.ok(fieldsOf(three).indexOf('links:break:Redirect chain') === -1);
+  assert.ok(fieldsOf(qa.run(LIVE_PAGE, { live: live({ redirects: hops(1) }) })).every(function (f) { return !/Redirect chain/.test(f); }));
+});
+
+test('81. a final page that answers anything but 200 is a fix', function () {
+  var r = qa.run(LIVE_PAGE, { live: live({ status: 203 }) });
+  assert.ok(fieldsOf(r).indexOf('structure:break:Final status') !== -1);
+  assert.ok(fieldsOf(qa.run(LIVE_PAGE, { live: live() })).indexOf('structure:break:Final status') === -1);
+});
+
+test('82. load time over 3 s and TTFB over 0.8 s are checks, said to be the backend\'s HTML timings', function () {
+  var slow = qa.run(LIVE_PAGE, { live: live({ ms: 3500, ttfbMs: 900, redirectMs: 400, runs: 3 }) });
+  var f = fieldsOf(slow);
+  assert.ok(f.indexOf('structure:check:Load time') !== -1, f.join(', '));
+  assert.ok(f.indexOf('structure:check:Server response (TTFB)') !== -1);
+  var d = cat(slow, 'structure').deviations.filter(function (x) { return x.field === 'Load time'; })[0];
+  assert.ok(/3\.5 s \(average of 3 fetches\), 0\.40 s of it redirects/.test(d.note) && /HTML only/.test(d.note), d.note);
+  var fast = fieldsOf(qa.run(LIVE_PAGE, { live: live({ ms: 2900, ttfbMs: 790 }) }));
+  assert.ok(fast.indexOf('structure:check:Load time') === -1 && fast.indexOf('structure:check:Server response (TTFB)') === -1);
+  assert.strictEqual(slow.facts.live.ttfbMs, 900);
+  assert.strictEqual(slow.facts.live.runs, 3);
+});
+
+test('83. crawlRow carries redirects and timings for the table and the CSV', function () {
+  var lv = live({ redirects: [{ url: 'https://kone.es/contacto', status: 301, to: 'https://www.kone.es/contacto/', ms: 80 }],
+    redirectMs: 80, ttfbMs: 300, ms: 900, bytes: 9000 });
+  var row = qa.crawlRow(qa.run(LIVE_PAGE, { live: lv }), lv);
+  assert.strictEqual(row.redirects, 1);
+  assert.strictEqual(row.redirectChain, 'https://kone.es/contacto (301) → https://www.kone.es/contacto/');
+  assert.deepStrictEqual([row.redirectMs, row.ttfbMs, row.loadMs, row.bytes], [80, 300, 900, 9000]);
+});
+
+// ─── FormAssembly forms ───────────────────────────────────────────────────
+// The real kone.ae AEM page carries its form as AEM's integration component:
+// data-target-id="1491" and <script src="https://kone.tfaforms.net/publish/1491">,
+// no form markup and no digitalData. The rendered-markup shapes below are
+// synthetic — built from the team's three-line 752 example — because no page
+// with FormAssembly's markup served in its HTML has been supplied.
+
+var KONE_AE = load('fixtures/kone-ae-elevator-modernization.html');
+var TFA_752 = '<div class="wFormContainer"><div class="wForm" id="752-WRPR" data-language="en_GB">' +
+  '<h3 class="wFormTitle" id="752-T">Contact us &amp; get a quote</h3>' +
+  '<form method="post" action="https://kone.tfaforms.net/api_v2/rest/workflow/processor" class="hintsBelow labelsAbove" id="752">' +
+  '<input type="text" id="tfa_1" name="tfa_1">' +
+  '<div id="g-recaptcha-render-div"></div>' +
+  '<input type="submit" id="submit_button" class="primaryAction" value="Submit">' +
+  '<input type="hidden" value="752" name="tfa_dbFormId" id="tfa_dbFormId">' +
+  '<input type="hidden" value="" name="tfa_dbResponseId" id="tfa_dbResponseId">' +
+  '<input type="hidden" value="9f3a" name="tfa_dbControl" id="tfa_dbControl">' +
+  '<input type="hidden" value="27" name="tfa_dbVersionId" id="tfa_dbVersionId">' +
+  '</form></div></div><script src="https://kone.tfaforms.net/js/localization-en_GB.js"></script>';
+function aePage(body, extra) {
+  return '<!DOCTYPE html><html lang="en"><head><title>Contact us | KONE</title>' +
+    '<link rel="canonical" href="https://www.kone.ae/about-kone/contact.html">' + (extra || '') + '</head>' +
+    '<body><main><h1>Contact us</h1><h3>Find the right solution for you</h3>' + body + '</main></body></html>';
+}
+function formRow(r) { return cat(r, 'structure').rows.filter(function (x) { return x.field === 'Form Assembly ID'; })[0]; }
+
+test('84. the real kone.ae page: form 1491 is read from the AEM component, and is a mismatch against UAE\'s 752', function () {
+  var r = qa.run(KONE_AE);
+  assert.strictEqual(r.facts.digitalData, null, 'the AEM page carries no digitalData at all');
+  assert.strictEqual(r.facts.forms.length, 1);
+  var f = r.facts.forms[0];
+  assert.strictEqual(f.formId, '1491');
+  assert.strictEqual(f.embed, 'aem-component');
+  assert.deepStrictEqual(f.ids, { targetId: '1491', publish: '1491' });
+  assert.strictEqual(f.scriptUrl, 'https://kone.tfaforms.net/publish/1491');
+  assert.strictEqual(f.anchor, 'form-assembly', 'the anchor the page\'s own FAQ links to');
+  assert.strictEqual(f.where, 'Page body — "Find the right solution for you"');
+  assert.strictEqual(f.rendered, false);
+  assert.strictEqual(f.submit, null, 'not read — the form is injected by script, not "no submit button"');
+  var row = formRow(r);
+  assert.deepStrictEqual([row.state, row.expected, row.found], ['differs', '752', '1491']);
+  var d = cat(r, 'structure').deviations.filter(function (x) { return x.field === 'Form Assembly ID'; });
+  assert.strictEqual(d.length, 1);
+  assert.strictEqual(d[0].severity, 'break');
+  assert.ok(/embeds FormAssembly form 1491 \(kone\.tfaforms\.net\/publish\/1491\), but UAE pages are expected to use 752/.test(d[0].note), d[0].note);
+  assert.ok(!/digitalData/.test(d[0].note), 'no longer "carries no digitalData" on an AEM page');
+  assert.ok(!cat(r, 'structure').deviations.some(function (x) { return x.field === 'Form wiring'; }), 'component and script agree');
+});
+
+test('85. the same page named on a crawl list with 1491 matches; with 752 it is a fix naming the URL list', function () {
+  assert.strictEqual(formRow(qa.run(KONE_AE, { expectedFormId: '1491' })).state, 'matches');
+  var r = qa.run(KONE_AE, { expectedFormId: '752' });
+  var d = cat(r, 'structure').deviations.filter(function (x) { return x.field === 'Form Assembly ID'; })[0];
+  assert.ok(/form 752 was expected on this URL/.test(d.note) && !/pageOverrides/.test(d.note), d.note);
+});
+
+test('86. rendered FormAssembly markup (synthetic, from the team\'s 752 example): every field read, and it passes', function () {
+  var r = qa.run(aePage(TFA_752));
+  var f = r.facts.forms[0];
+  assert.strictEqual(r.facts.forms.length, 1);
+  assert.deepStrictEqual([f.formId, f.idSource, f.embed], ['752', 'tfa_dbFormId', 'markup']);
+  assert.deepStrictEqual(f.ids, { dbFormId: '752', formElement: '752', wrapper: '752' });
+  assert.deepStrictEqual([f.formElementId, f.wrapperId, f.postHost, f.version], ['752', '752-WRPR', 'kone.tfaforms.net', '27']);
+  assert.strictEqual(f.title, 'Contact us & get a quote');
+  assert.deepStrictEqual([f.language, f.localization, f.submit, f.captcha], ['en_GB', 'en_GB', true, true]);
+  assert.strictEqual(formRow(r).state, 'matches');
+  assert.ok(!cat(r, 'structure').deviations.some(function (x) { return /Form/.test(x.field); }));
+});
+
+test('87. a form whose parts name different forms is a wiring fix, each part named', function () {
+  var r = qa.run(aePage(TFA_752.replace('id="752-WRPR"', 'id="753-WRPR"')));
+  var d = cat(r, 'structure').deviations.filter(function (x) { return x.field === 'Form wiring'; })[0];
+  assert.strictEqual(d.severity, 'break');
+  assert.strictEqual(d.found, 'form id 752 · tfa_dbFormId 752 · wrapper 753-WRPR');
+  var aem = qa.run(KONE_AE.replace('data-target-id="1491"', 'data-target-id="1490"'));
+  var w = cat(aem, 'structure').deviations.filter(function (x) { return x.field === 'Form wiring'; })[0];
+  assert.strictEqual(w.found, 'embed URL 1491 · data-target-id 1490');
+});
+
+test('88. with no form markup, the id is still read: form id, wrapper, embed script, iframe', function () {
+  var noDb = qa.run(aePage(TFA_752.replace(/<input type="hidden" value="752" name="tfa_dbFormId" id="tfa_dbFormId">/, '')));
+  assert.deepStrictEqual([noDb.facts.forms[0].formId, noDb.facts.forms[0].idSource], ['752', 'form id']);
+  var script = qa.run(aePage('<div id="c"></div><script src="https://kone.tfaforms.net/publish/752" defer></script>'));
+  assert.deepStrictEqual([script.facts.forms[0].formId, script.facts.forms[0].embed, script.facts.forms[0].idSource], ['752', 'script', 'embed script URL']);
+  var iframe = qa.run(aePage('<iframe src="https://kone.tfaforms.net/752" height="900"></iframe>'));
+  assert.deepStrictEqual([iframe.facts.forms[0].formId, iframe.facts.forms[0].embed], ['752', 'iframe']);
+  var support = qa.run(aePage('<script src="https://kone.tfaforms.net/js/FA__DOMContentLoadedEventDispatcher.js"></script>'));
+  assert.strictEqual(support.facts.forms.length, 0, 'FormAssembly\'s support scripts carry no form id and are not a form');
+});
+
+test('89. no form at all says "No forms found" — not a failure; a commented-out form is not a form', function () {
+  var r = qa.run(aePage('<p>Call us.</p><!-- <script src="https://kone.tfaforms.net/publish/752"></script> -->'));
+  assert.strictEqual(r.facts.forms.length, 0);
+  assert.strictEqual(formRow(r).state, 'no-form');
+  assert.ok(!cat(r, 'structure').deviations.some(function (x) { return /Form/.test(x.field); }));
+});
+
+test('90. two forms are two entries; a form in a hidden modal says so', function () {
+  var r = qa.run(aePage(TFA_752 + '<div class="modal" style="display:none"><script src="https://kone.tfaforms.net/publish/1491"></script></div>'));
+  assert.deepStrictEqual(r.facts.forms.map(function (f) { return f.formId; }), ['752', '1491']);
+  assert.strictEqual(r.facts.forms[1].hidden, true);
+  assert.ok(/\(hidden\)$/.test(r.facts.forms[1].where), r.facts.forms[1].where);
+  assert.strictEqual(formRow(r).state, 'differs', '1491 is not UAE\'s 752');
+  assert.strictEqual(formRow(r).found, '752, 1491');
+});
+
+test('91. digitalData naming one form and the page embedding another is a check', function () {
+  var dd = '<script>var digitalData = { page: { pageInfo: { "FormAssemblyId": "752" } } };</script>';
+  var r = qa.run(aePage('<script src="https://kone.tfaforms.net/publish/1491"></script>', dd));
+  var d = cat(r, 'structure').deviations.filter(function (x) { return x.field === 'Form Assembly ID' && x.severity === 'check'; })[0];
+  assert.ok(d && /digitalData names form 752, but the form embedded on it is 1491/.test(d.note), notes(cat(r, 'structure').deviations));
+});
+
+test('92. crawlRow carries each form, and the crawl URL list reads an optional expected form id', function () {
+  var row = qa.crawlRow(qa.run(KONE_AE, { expectedFormId: '1491' }), null);
+  assert.strictEqual(row.formId, 'matches');
+  assert.strictEqual(row.formIdFound, '1491');
+  assert.strictEqual(row.expectedFormId, '1491');
+  assert.deepStrictEqual(row.forms, [{ formId: '1491', idSource: 'embed script URL', embed: 'aem-component', postHost: null,
+    version: null, title: null, language: null, localization: null, submit: null, captcha: null }]);
+  assert.deepStrictEqual(BriefQA.parseUrlList('url,expected_form_id\nhttps://www.kone.ae/a/, 752\nwww.kone.ae/b/\t1491\n\nhttps://www.kone.ae/c/\nhttps://www.kone.ae/a/ 9'), [
+    { url: 'https://www.kone.ae/a/', expectedFormId: '752' },
+    { url: 'https://www.kone.ae/b/', expectedFormId: '1491' },
+    { url: 'https://www.kone.ae/c/', expectedFormId: null }
+  ]);
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

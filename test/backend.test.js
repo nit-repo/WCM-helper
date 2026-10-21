@@ -57,6 +57,8 @@ var server = http.createServer(function (req, res) {
         .map(function (p) { return '<url><loc>http://www.kone.be:' + PORT + p + '</loc></url>'; }).join('') + '</urlset>');
     }
   }
+  var hopN = /^\/hop\/(\d+)$/.exec(url);
+  if (hopN) return send(301, 'text/html', '', { location: +hopN[1] > 0 ? '/hop/' + (+hopN[1] - 1) : '/page' });
   switch (url) {
     case '/page': return send(200, 'text/html; charset=utf-8', zlib.gzipSync(PAGE), { 'content-encoding': 'gzip' });
     case '/redirect': return send(301, 'text/html', '', { location: '/redirect2' });
@@ -64,6 +66,10 @@ var server = http.createServer(function (req, res) {
     case '/off': return send(302, 'text/html', '', { location: 'http://evil.example:' + PORT + '/x' });
     case '/login-redir': return send(302, 'text/html', '', { location: '/sso/login?next=/x' });
     case '/loop': return send(302, 'text/html', '', { location: '/loop' });
+    case '/a': return send(301, 'text/html', '', { location: '/b' });
+    case '/b': return send(302, 'text/html', '', { location: '/a' });
+    case '/cookie-loop': return send(302, 'text/html', '', { location: '/cookie-loop', 'set-cookie': 'seen=1; Path=/' });
+    case '/late': return setTimeout(function () { send(200, 'text/html', PAGE); }, 300);
     case '/missing': return send(404, 'text/html', 'gone');
     case '/boom': return send(503, 'text/html', 'down');
     case '/blocked': return send(403, 'text/html', 'no bots');
@@ -206,9 +212,47 @@ test('12. fetchPage: 404 and 503 are dead; 403 on a live host is unverified', fu
 
 test('13. fetchPage: too many redirects, an oversized page, a PDF', function () {
   return Promise.all([at('/loop'), at('/big'), at('/pdf')].map(fetcher.fetchPage)).then(function (rs) {
-    assert.ok(rs[0].verdict === 'unverified' && /more than 5 redirects/.test(rs[0].reason), rs[0].reason);
+    assert.ok(rs[0].verdict === 'dead' && rs[0].loop && /redirect loop/.test(rs[0].reason), rs[0].reason);
     assert.ok(rs[1].verdict === 'unverified' && /larger than/.test(rs[1].reason), rs[1].reason);
     assert.ok(rs[2].verdict === 'unverified' && /not an HTML page/.test(rs[2].reason), rs[2].reason);
+  });
+});
+
+test('13a. fetchPage: each redirect hop is timed, and the final page has its own TTFB', function () {
+  return fetcher.fetchPage(at('/hop/3')).then(function (r) {
+    assert.strictEqual(r.verdict, 'ok');
+    assert.strictEqual(r.redirects.length, 4);
+    assert.ok(r.redirects.every(function (h) { return typeof h.ms === 'number' && h.status === 301; }));
+    var sum = r.redirects.reduce(function (t, h) { return t + h.ms; }, 0);
+    assert.strictEqual(r.redirectMs, sum);
+    assert.ok(typeof r.ttfbMs === 'number' && r.ttfbMs <= r.ms && r.redirectMs <= r.ms);
+    assert.strictEqual(r.loop, false);
+  });
+});
+
+test('13b. fetchPage: a loop is dead and names the round; with a cookie it is only unverified', function () {
+  return Promise.all([at('/a'), at('/cookie-loop')].map(fetcher.fetchPage)).then(function (rs) {
+    assert.strictEqual(rs[0].verdict, 'dead');
+    assert.ok(rs[0].loop);
+    assert.ok(rs[0].reason === 'redirect loop — ' + at('/a') + ' → ' + at('/b') + ' → ' + at('/a'), rs[0].reason);
+    assert.strictEqual(rs[1].verdict, 'unverified');
+    assert.ok(rs[1].loop && /setting a cookie/.test(rs[1].reason) && /by hand/.test(rs[1].reason), rs[1].reason);
+  });
+});
+
+test('13c. fetchPage: past 10 redirects it stops, unverified', function () {
+  return fetcher.fetchPage(at('/hop/12')).then(function (r) {
+    assert.ok(r.verdict === 'unverified' && /more than 10 redirects/.test(r.reason), r.reason);
+    assert.strictEqual(r.loop, false);
+  });
+});
+
+test('13d. fetchPage: TTFB is the wait for the first byte, load time the whole fetch', function () {
+  return fetcher.fetchPage(at('/late')).then(function (r) {
+    assert.strictEqual(r.verdict, 'ok');
+    assert.ok(r.ttfbMs >= 250, String(r.ttfbMs));
+    assert.ok(r.ms >= r.ttfbMs);
+    assert.strictEqual(r.redirectMs, 0);
   });
 });
 

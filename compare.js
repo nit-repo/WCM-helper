@@ -414,6 +414,160 @@
     };
   }
 
+  // ─── FORMASSEMBLY FORMS ON THE PAGE ──────────────────────────────────────
+  // A FormAssembly form reaches a KONE page three ways, and a page may show
+  // any of them:
+  //   - AEM's integration component: a wrapper naming the form in
+  //     data-target-id, and a <script src=".../publish/<id>"> that injects
+  //     the form when the page loads (the real kone.ae page: no form markup
+  //     at all in the served HTML);
+  //   - a bare embed: that script, or an <iframe src=".../<id>">;
+  //   - the rendered form itself (a pasted outerHTML, or a site that serves
+  //     it): <form action="…tfaforms…" id="752">, its hidden tfa_dbFormId,
+  //     and the div.wForm wrapper "752-WRPR".
+  // One entry per form, every id each source carries kept apart, so the id
+  // can be read whichever way the form arrived and the sources compared.
+
+  function tfaIdFromUrl(url) {
+    var m = /^https?:\/\/[^\/?#]*\btfaforms\.(?:net|com)\/(?:publish\/|rest\/forms\/view\/|forms\/view\/)?(\d+)(?:[\/?#]|$)/i.exec(String(url || '').trim());
+    return m ? m[1] : null;
+  }
+
+  function hasClass(tag, cls) {
+    return (' ' + attr(tag, 'class').split(/\s+/).join(' ') + ' ').indexOf(' ' + cls + ' ') !== -1;
+  }
+
+  function formsIn(html) {
+    html = String(html == null ? '' : html);
+    // Comments and script bodies blanked, offsets kept: a commented-out or
+    // templated form is not on the page. Script tags themselves stay, for
+    // their src.
+    var src = html.replace(/<!--[\s\S]*?-->/g, function (m) { return m.replace(/[^\n]/g, ' '); })
+      .replace(/(<script\b[^>]*>)([\s\S]*?)(<\/script>)/gi, function (m, a, b, c) { return a + b.replace(/[^\n]/g, ' ') + c; });
+    var forms = [], m;
+    function inside(f, at) { return at >= f.start && at < f.end; }
+    function holder(at) {
+      for (var i = 0; i < forms.length; i++) if (forms[i].embed === 'aem-component' && inside(forms[i], at)) return forms[i];
+      return null;
+    }
+    function blank(start, end, embed) {
+      return { start: start, end: end, embed: embed, formId: null, idSource: null, ids: {},
+        formElementId: null, wrapperId: null, postHost: null, action: null, version: null, title: null,
+        language: null, localization: null, submit: null, captcha: null, anchor: null, rendered: false };
+    }
+
+    // 1. AEM's integration component.
+    var aemRe = /<([a-z][a-z0-9-]*)\b[^>]*>/gi;
+    while ((m = aemRe.exec(src)) !== null) {
+      var tag = m[0];
+      if (!/data-nc\s*=\s*["']FormAssemblyIntegration["']/i.test(tag) && !hasClass(tag, 'FormAssemblyIntegration__wrapper')) continue;
+      var f = blank(m.index, elementEnd(src, m[1], m.index), 'aem-component');
+      var target = attr(tag, 'data-target-id');
+      if (/^\d+$/.test(target)) f.ids.targetId = target;
+      forms.push(f);
+      aemRe.lastIndex = f.end;
+    }
+
+    // 2. Embed scripts and iframes. Inside a component (or pointed at an
+    // element inside one by data-qp-target-id) they belong to it; anywhere
+    // else they are a form of their own. FormAssembly's support scripts
+    // carry no id and are not a form.
+    var embedRe = /<(script|iframe)\b[^>]*>/gi;
+    while ((m = embedRe.exec(src)) !== null) {
+      var url = attr(m[0], 'src'), id = tfaIdFromUrl(url);
+      if (!id) continue;
+      var kind = m[1].toLowerCase();
+      var owner = holder(m.index);
+      var qp = attr(m[0], 'data-qp-target-id');
+      if (!owner && qp) {
+        var ti = src.search(new RegExp('\\sid\\s*=\\s*["\']' + qp.replace(/[^\w-]/g, '') + '["\']'));
+        if (ti !== -1) owner = holder(ti);
+      }
+      if (!owner) {
+        owner = blank(m.index, m.index + m[0].length, kind === 'iframe' ? 'iframe' : 'script');
+        forms.push(owner);
+      }
+      if (!owner.ids.publish) { owner.ids.publish = id; owner.scriptUrl = url; }
+    }
+
+    // 3. The rendered form: its <form>, the hidden tfa_dbFormId inside it,
+    // and the div.wForm "<id>-WRPR" around it (or, in an abridged paste,
+    // inside it).
+    var wforms = [];
+    var wRe = /<div\b[^>]*>/gi;
+    while ((m = wRe.exec(src)) !== null) if (hasClass(m[0], 'wForm')) wforms.push({ at: m.index, tag: m[0], used: false });
+    var formRe = /<form\b[^>]*>/gi;
+    while ((m = formRe.exec(src)) !== null) {
+      var fs = m.index, close = src.toLowerCase().indexOf('</form', fs);
+      var fe = close === -1 ? src.length : close;
+      var body = src.slice(fs, fe);
+      var action = attr(m[0], 'action');
+      if (!/tfaforms/i.test(action) && !/name\s*=\s*["']tfa_dbFormId["']/i.test(body)) continue;
+      var w = wforms.filter(function (x) { return !x.used && x.at > fs && x.at < fe; })[0] ||
+        wforms.filter(function (x) { return !x.used && x.at < fs; }).pop() || null;
+      if (w) w.used = true;
+      var regionStart = w ? Math.min(w.at, fs) : fs, region = src.slice(regionStart, fe);
+      var rf = holder(fs);
+      if (!rf) { rf = blank(regionStart, fe, 'markup'); forms.push(rf); }
+      rf.rendered = true;
+      var input = function (name) {
+        var t = new RegExp('<input\\b[^>]*\\b(?:name|id)\\s*=\\s*["\']' + name + '["\'][^>]*>', 'i').exec(region);
+        return t ? attr(t[0], 'value') || null : null;
+      };
+      var dbId = input('tfa_dbFormId');
+      if (dbId) rf.ids.dbFormId = dbId;
+      var elId = attr(m[0], 'id');
+      if (elId) rf.formElementId = elId;
+      if (/^\d+$/.test(elId)) rf.ids.formElement = elId;
+      if (w) {
+        rf.wrapperId = attr(w.tag, 'id') || null;
+        var wm = /^(\d+)-WRPR$/i.exec(rf.wrapperId || '');
+        if (wm) rf.ids.wrapper = wm[1];
+        rf.language = attr(w.tag, 'data-language') || null;
+      }
+      rf.action = action || null;
+      var hm = /^https?:\/\/([^\/?#]+)/i.exec(action || '');
+      rf.postHost = hm ? hm[1].toLowerCase() : null;
+      rf.version = input('tfa_dbVersionId');
+      var tm = /<h3\b[^>]*\bclass\s*=\s*["'][^"']*\bwFormTitle\b[^"']*["'][^>]*>([\s\S]*?)<\/h3>/i.exec(region);
+      rf.title = tm ? stripTags(decodeEntities(tm[1])) || null : null;
+      rf.submit = /<(?:input|button)\b[^>]*\bid\s*=\s*["']submit_button["']/i.test(region);
+      rf.captcha = /\bid\s*=\s*["'](?:g-recaptcha-render-div|tfa_captcha_text)["']/i.test(region);
+    }
+
+    // A tfa_dbFormId with no <form> around it — a fragment pasted on its own.
+    if (!forms.some(function (f) { return f.rendered; })) {
+      var lone = /<input\b[^>]*\b(?:name|id)\s*=\s*["']tfa_dbFormId["'][^>]*>/i.exec(src);
+      if (lone && attr(lone[0], 'value')) {
+        var lf = holder(lone.index) || (function () { var x = blank(lone.index, lone.index + lone[0].length, 'markup'); forms.push(x); return x; }());
+        lf.rendered = true;
+        lf.ids.dbFormId = attr(lone[0], 'value');
+      }
+    }
+
+    // The language file FormAssembly loads, and the id of the nearest
+    // ancestor — the in-page anchor a "contact us" link can point at.
+    var loc = /localization-([a-z]{2,3}_[a-z]{2})\.js/i.exec(html);
+    forms.sort(function (a, b) { return a.start - b.start; });
+    forms.forEach(function (f) {
+      if (loc && f.rendered) f.localization = loc[1];
+      var before = src.slice(0, f.start), idRe = /<(div|section|article|aside)\b[^>]*\sid\s*=\s*["']([^"']+)["'][^>]*>/gi, a, seen = [];
+      while ((a = idRe.exec(before)) !== null) seen.push({ at: a.index, name: a[1], id: a[2] });
+      f.anchor = null;
+      for (var k = seen.length - 1; k >= 0; k--) {
+        if (elementEnd(src, seen[k].name, seen[k].at) > f.start) { f.anchor = seen[k].id; break; }
+      }
+      // The id, by the strongest source first: what FormAssembly itself
+      // submits, then the form, its wrapper, the embed URL, the component.
+      var order = [['dbFormId', 'tfa_dbFormId'], ['formElement', 'form id'], ['wrapper', 'wForm wrapper'],
+        ['publish', f.embed === 'iframe' ? 'iframe URL' : 'embed script URL'], ['targetId', 'AEM data-target-id']];
+      for (var i = 0; i < order.length; i++) {
+        if (f.ids[order[i][0]]) { f.formId = f.ids[order[i][0]]; f.idSource = order[i][1]; break; }
+      }
+    });
+    return forms;
+  }
+
   // The one place a location string is built. What is stable lives in the
   // name — the component's type, its position when the type repeats, and the
   // field path, which is the component's schema and identical wherever it is
@@ -677,7 +831,9 @@
       // Scoped to the whole page, not the main region above: the digitalData
       // script sits in <head> or just before </body>, never inside the
       // content region the rest of this function's extractions are scoped to.
-      digitalData: digitalDataIn(html)
+      digitalData: digitalDataIn(html),
+      // Whole page too: AEM puts the form in a container of its own.
+      forms: formsIn(html)
     };
   }
 
@@ -1903,39 +2059,82 @@
       found: found || null, state: state, soft: false, basis: 'expected' };
   }
 
-  function formIdFinding(expect, page, sitesCfg) {
+  // The form ids the page carries: the FormAssembly forms embedded in it
+  // when there are any (AEM pages carry no digitalData at all), otherwise
+  // the id its digitalData names (Tridion). Returns { ids, source, forms }.
+  function carriedFormIds(page) {
+    var forms = (page && page.forms) || [];
+    var ids = [];
+    forms.forEach(function (f) { if (f.formId && ids.indexOf(f.formId) === -1) ids.push(f.formId); });
+    if (forms.length) return { ids: ids, source: 'embedded', forms: forms };
+    var dd = page && page.digitalData && page.digitalData.formAssemblyId;
+    return { ids: dd ? [String(dd)] : [], source: dd ? 'digitalData' : null, forms: forms };
+  }
+
+  function formIdFinding(expect, page, sitesCfg, opts) {
     sitesCfg = sitesCfg || DEFAULT_SITES;
-    var country = resolveFormIdCountry(expect, page, sitesCfg);
-    if (!country) {
-      var note1 = 'This page’s market could not be determined (no Market row in the ' +
-        'brief, and its domain is not one of the configured country sites), so its Form Assembly ID was not checked.';
-      return { checked: false, country: null, note: note1, row: formIdRow(null, null, null, 'not-checked') };
+    opts = opts || {};
+    var carried = carriedFormIds(page);
+    var foundAll = carried.ids.length ? carried.ids.join(', ') : null;
+    var expectedId = null, label = null, override = null, country = null;
+    if (opts.expectedFormId) {
+      // Named for this very URL (a crawl list's expected_form_id): it wins
+      // over the market's id, and needs no market at all.
+      expectedId = String(opts.expectedFormId);
+      label = 'expected for this URL';
+    } else {
+      country = resolveFormIdCountry(expect, page, sitesCfg);
+      if (!country) {
+        var note1 = 'This page’s market could not be determined (no Market row in the ' +
+          'brief, and its domain is not one of the configured country sites), so its Form Assembly ID was not checked.';
+        return { checked: false, country: null, note: note1, row: formIdRow(null, null, foundAll, 'not-checked') };
+      }
+      if (country.ambiguous) {
+        var note2 = country.base + ' has more than one language variant configured, and ' +
+          'nothing here (brief or page path) says which one this page is, so its Form Assembly ID was not checked.';
+        return { checked: false, country: null, note: note2, row: formIdRow(country.base, null, foundAll, 'not-checked') };
+      }
+      override = formIdOverride(page, sitesCfg);
+      expectedId = override ? String(override.formAssemblyId) : country.formAssemblyId;
+      label = override ? (override.label || country.name + ' (page override)') : country.name;
+      if (!expectedId) {
+        var note3 = 'No expected Form Assembly ID is configured for ' + country.name + ' yet.';
+        return { checked: false, country: label, note: note3, row: formIdRow(label, null, foundAll, 'not-checked') };
+      }
     }
-    if (country.ambiguous) {
-      var note2 = country.base + ' has more than one language variant configured, and ' +
-        'nothing here (brief or page path) says which one this page is, so its Form Assembly ID was not checked.';
-      return { checked: false, country: null, note: note2, row: formIdRow(country.base, null, null, 'not-checked') };
-    }
-    var override = formIdOverride(page, sitesCfg);
-    var expectedId = override ? String(override.formAssemblyId) : country.formAssemblyId;
-    var label = override ? (override.label || country.name + ' (page override)') : country.name;
-    if (!expectedId) {
-      var note3 = 'No expected Form Assembly ID is configured for ' + country.name + ' yet.';
-      return { checked: false, country: label, note: note3, row: formIdRow(label, null, null, 'not-checked') };
-    }
-    var actual = page && page.digitalData && page.digitalData.formAssemblyId;
-    if (!actual) {
-      var note4 = label + ' pages are expected to carry Form Assembly ID ' + expectedId + ', but this page carries no digitalData/FormAssemblyId at all.';
-      return { checked: true, severity: 'break', country: label, note: note4,
+    // A form is there but no id could be read from it by any source.
+    if (carried.forms.length && !carried.ids.length) {
+      var noteU = 'This page carries a FormAssembly form, but no form id could be read from it ' +
+        '(no tfa_dbFormId, form id, -WRPR wrapper, embed URL or data-target-id).';
+      return { checked: true, severity: 'break', country: label, note: noteU,
         expected: expectedId, found: null, row: formIdRow(label, expectedId, null, 'missing') };
     }
-    if (String(actual) !== expectedId) {
-      var note5 = 'This page carries Form Assembly ID ' + actual + ', but ' + label + ' pages are expected to use ' + expectedId + '.';
-      return { checked: true, severity: 'break', country: label, note: note5,
-        expected: expectedId, found: String(actual), row: formIdRow(label, expectedId, String(actual), 'differs') };
+    if (!carried.ids.length) {
+      // No form at all is a fact about the page, not a failure — unless this
+      // URL was named as carrying one.
+      if (opts.expectedFormId) {
+        return { checked: true, severity: 'break', country: label,
+          note: 'Form ' + expectedId + ' was expected on this URL, but no form was found on the page.',
+          expected: expectedId, found: null, row: formIdRow(label, expectedId, null, 'missing') };
+      }
+      return { checked: true, severity: null, country: label, expected: expectedId, found: null, noForm: true,
+        note: 'No forms found on this page.', row: formIdRow(label, expectedId, null, 'no-form') };
     }
-    return { checked: true, severity: null, country: label, expected: expectedId, found: String(actual),
-      row: formIdRow(label, expectedId, String(actual), 'matches') };
+    var wrong = carried.ids.filter(function (id) { return id !== expectedId; });
+    if (wrong.length) {
+      var how = carried.source === 'digitalData' ? 'carries Form Assembly ID ' + wrong.join(', ')
+        : 'embeds FormAssembly form ' + wrong.map(function (id) {
+          var f = carried.forms.filter(function (x) { return x.formId === id; })[0];
+          return id + (f && f.scriptUrl ? ' (' + f.scriptUrl.replace(/^https?:\/\//, '') + ')' : f && f.idSource ? ' (' + f.idSource + ')' : '');
+        }).join(', ');
+      var note5 = 'This page ' + how + ', but ' + (opts.expectedFormId ? 'form ' + expectedId + ' was expected on this URL'
+        : label + ' pages are expected to use ' + expectedId) + '.' +
+        (!opts.expectedFormId && !override ? ' If this page is meant to carry its own form, add it to pageOverrides in config/sites.json.' : '');
+      return { checked: true, severity: 'break', country: label, note: note5,
+        expected: expectedId, found: foundAll, row: formIdRow(label, expectedId, foundAll, 'differs') };
+    }
+    return { checked: true, severity: null, country: label, expected: expectedId, found: foundAll,
+      row: formIdRow(label, expectedId, foundAll, 'matches') };
   }
 
   // Analyse mode has no page at all — only the question "what should this
@@ -2214,7 +2413,7 @@
       // future bulk QA mode can run the same check compare() uses above,
       // without a brief: pass expect: null to resolve the country from the
       // page's own domain alone.
-      formIdFinding: function (expect, page) { return formIdFinding(expect, page, sitesCfg); },
+      formIdFinding: function (expect, page, opts) { return formIdFinding(expect, page, sitesCfg, opts); },
       // Every finding the page carries about itself, with no brief at all —
       // QA starts from these rather than re-implementing any of them.
       pageOnlyCategories: function (page) { return pageOnlyCategories(page, cfg); },
@@ -2233,6 +2432,7 @@
       // region), with the label a finding uses — for placing links that sit
       // in the header or footer as well as in the content.
       modules: function (h) { return modulesIn(String(h == null ? '' : h), cfg); },
+      forms: formsIn,
       moduleLabel: moduleLabel,
       splitRows: splitRows,
       normalise: normalise,

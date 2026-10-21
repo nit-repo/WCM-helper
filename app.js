@@ -75,6 +75,7 @@
     liveUrl: document.getElementById('live-url'),
     liveBtn: document.getElementById('live-btn'),
     liveLinks: document.getElementById('live-links'),
+    liveRuns: document.getElementById('live-runs'),
     crawlPanel: document.getElementById('crawl-panel'),
     crawlSites: document.getElementById('crawl-sites'),
     crawlSitemap: document.getElementById('crawl-sitemap'),
@@ -420,6 +421,10 @@
       if (src !== 'crawl' && state.mode === 'qa' && state.qaSource === src && state.lastQa && el.html.value.trim()) runQa();
     });
   });
+  try { el.liveRuns.checked = window.localStorage.getItem('wcm.liveRuns') === '1'; } catch (e) { /* no storage */ }
+  el.liveRuns.addEventListener('change', function () {
+    try { window.localStorage.setItem('wcm.liveRuns', el.liveRuns.checked ? '1' : '0'); } catch (e) { /* no storage */ }
+  });
   function linkSuggestionsOn() {
     var box = SITEMAP_OPTS[state.qaSource] || el.pageSitemapLinks;
     return box.checked;
@@ -700,6 +705,7 @@
         'missing': ['bad', 'not on the page'],
         'not-in-brief': ['idle', 'not defined in the brief'],
         'not-checked': ['idle', 'market could not be determined'],
+        'no-form': ['idle', 'no forms found'],
         'present': ['ok', 'on the page'],
         'absent': ['idle', 'not on the page'],
         'green': ['score-green', verdictWord('green')],
@@ -1066,6 +1072,7 @@
       factLine('TCM ID', tcm) +
       factLine('Market', f.market ? esc(f.market) : '<i>could not be determined</i>') +
       factLine('Language', lang) +
+      formFactLine(f) +
       liveFactLines(f) + linkCheckLine(f, opts));
 
     var tally = r.breaks + r.checks
@@ -1227,22 +1234,78 @@
     return lines.join('\n');
   }
 
+  // The FormAssembly forms on the page: which form, how it arrives, where it
+  // sits, and what its markup says when the markup is there to read.
+  var EMBED_LABEL = { 'aem-component': 'AEM form component', script: 'embed script', iframe: 'iframe', markup: 'form markup' };
+  function formFactLine(f) {
+    var forms = f.forms || [];
+    if (!forms.length) return factLine('Forms', '<i>No forms found</i>');
+    return factLine(forms.length === 1 ? 'Form' : 'Forms', forms.map(function (fm) {
+      var yes = function (v) { return v == null ? null : v ? '✓' : '✗'; };
+      var bits = [
+        fm.postHost ? 'posts to ' + esc(fm.postHost) : null,
+        fm.version ? 'version ' + esc(fm.version) : null,
+        fm.language || fm.localization ? 'language ' + esc([fm.language, fm.localization && fm.localization !== fm.language ? fm.localization + '.js' : null].filter(Boolean).join(' / ')) : null,
+        yes(fm.submit) ? 'submit button ' + yes(fm.submit) : null,
+        yes(fm.captcha) ? 'CAPTCHA ' + yes(fm.captcha) : null
+      ].filter(Boolean);
+      return '<span class="form-id">' + (fm.formId ? esc(fm.formId) : '<i>id unreadable</i>') + '</span>' +
+        (fm.idSource ? ' <small>from ' + esc(fm.idSource) + '</small>' : '') +
+        ' · ' + esc(EMBED_LABEL[fm.embed] || fm.embed) + (fm.title ? ' · "' + esc(fm.title) + '"' : '') +
+        '<br><small>' + esc(fm.where || '') + (fm.anchor ? ' · #' + esc(fm.anchor) : '') + '</small>' +
+        (bits.length ? '<br><small>' + bits.join(' · ') + '</small>' : '') +
+        (!fm.rendered ? '<br><small>Injected by script when the page loads — its title, version, language, submit button and CAPTCHA ' +
+          'are read when you paste the page\'s outerHTML from Inspect.</small>' : '');
+    }).join('<br>'));
+  }
+
   // What the backend saw fetching the page: the answer, where it ended up,
   // and the certificate it was served with.
   function liveFactLines(f) {
     var lv = f.live;
     if (!lv) return '';
-    var hops = (lv.redirects || []).map(function (h) { return h.status + ' ' + esc(h.url); }).join(' → ');
-    var served = esc(lv.finalUrl || lv.url) + (hops ? '<br><small>via ' + hops + '</small>' : '');
+    var speed = lv.speed || window.BriefQA.DEFAULT_QA.speed;
+    var n = (lv.redirects || []).length;
+    var redirects = !n ? 'none'
+      : '<span class="pill ' + (n > speed.maxRedirects ? 'red">fix' : n > 1 ? 'amber">check' : 'green">pass') + '</span> ' +
+        n + ' redirect' + (n === 1 ? '' : 's') + ' · ' + seconds(lv.redirectMs) + '<br><small>' + chainHtml(lv) + '</small>';
+    var timed = function (ms, limit) {
+      return ms == null ? '<i>not measured</i>' : ms > limit ? '<span class="pill amber">' + seconds(ms) + '</span>' : seconds(ms);
+    };
+    var load = 'TTFB ' + timed(lv.ttfbMs, speed.slowTtfbMs) + ' · HTML ' + timed(lv.ms, speed.slowMs) +
+      (lv.redirectMs ? ' (' + seconds(lv.redirectMs) + ' of it redirects)' : '') + ' · ' + kb(lv.bytes) +
+      (lv.runs > 1 ? ' · average of ' + lv.runs + ' fetches (' + lv.runMs.map(seconds).join(', ') + ')' : '') +
+      '<br><small>Measured from the backend\'s server, not from the market\'s country, HTML only. For LCP, INP and CLS use ' +
+      '<a href="https://pagespeed.web.dev/analysis?url=' + encodeURIComponent(lv.finalUrl || lv.url) +
+      '" target="_blank" rel="noopener">PageSpeed Insights</a>.</small>';
+    var served = esc(lv.finalUrl || lv.url);
     var tls = !lv.tls ? (/^https:/i.test(lv.finalUrl || '') ? '<i>not read</i>' : '<i>none — plain http</i>')
       : lv.tls.valid
         ? 'valid until ' + esc(String(lv.tls.validTo).slice(0, 10)) + ' (' + lv.tls.daysLeft + ' days)' +
           (lv.tls.issuer ? ' · ' + esc(lv.tls.issuer) : '')
         : '<b>not valid</b> — ' + esc(lv.tls.error || 'unknown reason');
-    return factLine('HTTP status', '<span class="pill ' + esc(lv.verdict) + '">' + esc(lv.status) + '</span> fetched live in ' +
-        (lv.ms / 1000).toFixed(1) + ' s') +
+    return factLine('HTTP status', '<span class="pill ' + (lv.status === 200 ? esc(lv.verdict) : 'red') + '">' + esc(lv.status) + '</span>') +
       factLine('Served at', served) +
+      factLine('Redirects', redirects) +
+      factLine('Load time', load) +
       factLine('Certificate', tls);
+  }
+
+  // Each address in a redirect chain with the status it answered, ending
+  // where the fetch ended.
+  function chainHtml(r) {
+    var hops = r.redirects || [];
+    if (!hops.length) return '';
+    return hops.map(function (h) { return esc(h.url) + ' (' + esc(h.status) + ')'; })
+      .concat(esc(r.finalUrl || hops[hops.length - 1].to)).join(' → ');
+  }
+
+  function seconds(ms) {
+    return ms == null ? '' : (ms < 1000 ? (ms / 1000).toFixed(2) : (ms / 1000).toFixed(1)) + ' s';
+  }
+
+  function kb(bytes) {
+    return bytes == null ? '' : bytes < 1024 ? bytes + ' B' : Math.round(bytes / 1024) + ' KB';
   }
 
   function linkCheckLine(f, opts) {
@@ -1428,7 +1491,11 @@
     if (!url) { toast('Paste the page URL first.'); return; }
     el.liveBtn.disabled = true;
     el.output.innerHTML = section('Fetching', '<p class="prog-text">Asking the backend for ' + esc(url) + '…</p>');
+    var runs = el.liveRuns.checked ? 3 : 1;
     state.backend.fetchPage(url).then(function (r) {
+      if (r.verdict !== 'ok' || !r.html || runs === 1) return r;
+      return timeAgain(url, r, runs);
+    }).then(function (r) {
       el.liveBtn.disabled = false;
       if (r.verdict !== 'ok' || !r.html) { renderLiveFailure(r); return; }
       var html = r.html.trim();
@@ -1444,18 +1511,41 @@
     });
   }
 
+  // The same page fetched again, one after another, for steadier timings:
+  // the report keeps the first fetch and takes the average of every fetch
+  // that came back whole.
+  function timeAgain(url, first, runs) {
+    var timings = [first];
+    function next(i) {
+      if (i > runs) return Promise.resolve();
+      el.output.innerHTML = section('Fetching', '<p class="prog-text">Timing: fetch ' + i + ' of ' + runs + '…</p>');
+      return state.backend.fetchPage(url).then(function (r) {
+        if (r.verdict === 'ok') timings.push(r);
+      }, function () { /* a failed retry only leaves fewer timings */ }).then(function () { return next(i + 1); });
+    }
+    return next(2).then(function () {
+      var avg = function (key) {
+        var vals = timings.map(function (t) { return t[key]; }).filter(function (v) { return typeof v === 'number'; });
+        return vals.length ? Math.round(vals.reduce(function (a, b) { return a + b; }, 0) / vals.length) : null;
+      };
+      return Object.assign({}, first, { ms: avg('ms'), ttfbMs: avg('ttfbMs'), redirectMs: avg('redirectMs') || 0,
+        runs: timings.length, runMs: timings.map(function (t) { return t.ms; }) });
+    });
+  }
+
   // A fetch that did not produce a page says exactly why — a dead page, a
   // login wall, a host the backend will not touch — and never looks like a pass.
   function renderLiveFailure(r) {
     var title = { dead: 'The page is broken', unverified: 'Could not verify the page', refused: 'Not fetched' }[r.verdict] || 'No page';
-    var hops = (r.redirects || []).map(function (h) { return h.status + ' ' + esc(h.url); }).join(' → ');
+    var hops = chainHtml(r);
     var login = /login|bookmarklet/i.test(r.reason || '');
     el.output.innerHTML = section(title,
       '<p class="headline"><span class="pill ' + esc(r.verdict) + '">' + esc(r.verdict) + '</span> ' + esc(capital(r.reason || '')) + '</p>' +
       factLine('URL', esc(r.url)) +
       (r.status ? factLine('HTTP status', esc(r.status)) : '') +
       (r.finalUrl && r.finalUrl !== r.url ? factLine('Ended at', esc(r.finalUrl)) : '') +
-      (hops ? factLine('Redirects', hops) : '') +
+      (hops ? factLine(r.loop ? 'Redirect loop' : 'Redirects', (r.redirects.length + ' redirect' +
+        (r.redirects.length === 1 ? '' : 's') + (r.redirectMs ? ' · ' + seconds(r.redirectMs) : '')) + '<br><small>' + hops + '</small>') : '') +
       (login ? '<p class="note">Open it in your own signed-in browser and send it back with the bookmarklet: ' +
         '<button type="button" class="btn-ghost" id="live-open-page" data-url="' + esc(r.url) + '">Open page</button></p>' : ''));
   }
@@ -1656,10 +1746,12 @@
     var full = crawl.useSitemap;
     var limit = crawlLimit();
     if (state.crawlSrc === 'list') {
-      var seen = {};
-      var urls = el.crawlUrls.value.split(/\n/).map(normaliseUrl).filter(function (u) { return u && !seen[u] && (seen[u] = true); });
-      if (!urls.length) throw new Error('Paste at least one URL.');
-      var items = urls.map(function (u) { return { url: u, site: hostKey(u).replace(/^www\./, ''), sitemapSite: siteOfUrl(u) }; });
+      var listed = window.BriefQA.parseUrlList(el.crawlUrls.value);
+      if (!listed.length) throw new Error('Paste at least one URL.');
+      var urls = listed.map(function (x) { return x.url; });
+      var items = listed.map(function (x) {
+        return { url: x.url, site: hostKey(x.url).replace(/^www\./, ''), sitemapSite: siteOfUrl(x.url), expectedFormId: x.expectedFormId };
+      });
       return (full ? readSitemapsFor(urls) : Promise.resolve()).then(function () { return items; });
     }
     if (state.crawlSrc === 'sitemap') {
@@ -1745,13 +1837,14 @@
       var row;
       if (r.verdict === 'ok' && r.html) {
         var live = Object.assign({}, r, { html: undefined });
-        var result = state.qa.run(r.html, { live: live, sitemap: crawlSitemap(w) });
+        var result = state.qa.run(r.html, { live: live, sitemap: crawlSitemap(w), expectedFormId: w.expectedFormId || null });
         row = state.qa.crawlRow(result, live);
         row.result = result;
         if (crawl.checkLinks) row.links = state.qa.linksToCheck(r.html, r.finalUrl);
       } else {
         row = { url: r.url, finalUrl: r.finalUrl, status: r.status, verdict: r.verdict, reason: r.reason,
-          breaks: 0, checks: 0, known: 0 };
+          breaks: 0, checks: 0, known: 0, loop: !!r.loop, redirects: (r.redirects || []).length,
+          redirectChain: window.BriefQA.redirectChain(r), redirectMs: r.redirectMs || 0 };
       }
       row.site = w.site;
       row.market = row.market || w.market || null;
@@ -1825,8 +1918,19 @@
     ['breaks', 'To fix', function (r) { return r.breaks > 0; }],
     ['title', 'Title format', function (r) { return r.titleFormat === 'red' || r.titleFormat === 'amber'; }],
     ['form', 'Form ID wrong', function (r) { return r.formId === 'differs' || r.formId === 'missing'; }],
+    ['redirects', 'Redirects', function (r) { return r.loop || r.redirects > speedOf(r).maxRedirects; }],
+    ['slow', 'Slow', function (r) { return isSlow(r); }],
     ['links', 'Broken links', function (r) { return r.brokenLinks > 0; }]
   ];
+
+  // The thresholds a crawled page was judged by.
+  function speedOf(r) {
+    return r.result && r.result.facts.live && r.result.facts.live.speed || window.BriefQA.DEFAULT_QA.speed;
+  }
+  function isSlow(r) {
+    var sp = speedOf(r);
+    return r.loadMs > sp.slowMs || r.ttfbMs > sp.slowTtfbMs;
+  }
 
   function renderCrawl() {
     if (state.mode !== 'qa' || state.qaSource !== 'crawl') return;
@@ -1916,7 +2020,7 @@
       }).join('') + '</tbody></table></div>');
   }
 
-  var FORM_LABEL = { matches: 'right', differs: 'wrong', missing: 'missing', 'not-checked': 'not checked' };
+  var FORM_LABEL = { matches: 'right', differs: 'wrong', missing: 'missing', 'not-checked': 'not checked', 'no-form': 'no form' };
 
   function renderCrawlTable(rows) {
     var crawl = state.crawl;
@@ -1932,18 +2036,28 @@
       var r = rows[i];
       var status = '<span class="pill ' + esc(r.verdict) + '">' + esc(r.status || r.verdict) + '</span>';
       var title = r.titleFormat ? '<span class="pill ' + esc(r.titleFormat) + '">' + esc(verdictWord(r.titleFormat)) + '</span>' : '';
-      var form = r.formId ? '<span class="pill ' + esc(r.formId) + '">' + esc(FORM_LABEL[r.formId] || r.formId) + '</span>' : '';
+      var form = r.formId ? '<span class="pill ' + esc(r.formId) + '">' + esc(FORM_LABEL[r.formId] || r.formId) + '</span>' +
+        (r.formIdFound ? ' ' + esc(r.formIdFound) : '') : '';
       var detail = r.result ? '' : '<br><small>' + esc(capital(r.reason || '')) + '</small>';
+      var speed = speedOf(r);
+      var redir = r.loop ? '<span class="pill red">loop</span>'
+        : r.redirects > speed.maxRedirects ? '<span class="pill red">' + r.redirects + '</span>'
+        : r.redirects ? String(r.redirects) : '';
+      var slow = isSlow(r);
+      var load = r.loadMs == null ? '' : '<span title="TTFB / HTML">' + (slow ? '<span class="pill amber">' : '') +
+        (r.ttfbMs == null ? '–' : (r.ttfbMs / 1000).toFixed(2)) + ' / ' + seconds(r.loadMs) + (slow ? '</span>' : '') + '</span>';
       return '<tr class="' + (r.result ? 'open-row' : '') + '"' + (r.result ? ' data-row="' + i + '"' : '') + '>' +
-        '<td class="url">' + esc(r.url) + detail + '</td><td>' + status + '</td><td>' + title + '</td><td>' + form + '</td>' +
+        '<td class="url">' + esc(r.url) + detail + '</td><td>' + status + '</td><td class="num">' + redir + '</td><td class="time">' + load + '</td>' +
+        '<td>' + title + '</td><td>' + form + '</td>' +
         '<td class="num">' + (r.result ? r.breaks : '') + '</td><td class="num">' + (r.result ? r.checks : '') + '</td>' +
         (crawl.links ? '<td class="num">' + (r.brokenLinks || '') + '</td>' : '') +
         '<td>' + (r.tcmId ? esc(r.tcmId) : '') + '</td></tr>';
     }).join('');
     return '<section class="card"><h3>Pages — ' + shown.length + '</h3><div class="filters">' + chips + '</div>' +
-      '<div class="table-wrap"><table class="crawl"><thead><tr><th>Page</th><th>Status</th><th>Title</th><th>Form ID</th>' +
+      '<div class="table-wrap"><table class="crawl"><thead><tr><th>Page</th><th>Status</th><th>Redirects</th><th>TTFB / load</th>' +
+      '<th>Title</th><th>Form ID</th>' +
       '<th>To fix</th><th>To check</th>' + (crawl.links ? '<th>Broken links</th>' : '') + '<th>TCM ID</th></tr></thead><tbody>' +
-      (body || '<tr><td colspan="8"><i>No pages match this filter.</i></td></tr>') + '</tbody></table></div>' +
+      (body || '<tr><td colspan="10"><i>No pages match this filter.</i></td></tr>') + '</tbody></table></div>' +
       '<div class="input-actions"><button type="button" class="btn-ghost" id="crawl-csv">Export CSV</button></div>' +
       '<p class="caution">Click a page for its full report. The export carries CME edit links — keep it within the team.</p></section>';
   }
@@ -2003,15 +2117,32 @@
     return '"' + s.replace(/"/g, '""') + '"';
   }
 
+  // One CSV cell for every form on a page, joined.
+  function formCol(read) {
+    return function (r) { return (r.forms || []).map(function (f) { var v = read(f); return v == null ? '' : v; }).join(' | '); };
+  }
+
   function exportCrawlCsv() {
     var crawl = state.crawl;
     if (!crawl || !crawl.rows.length) return;
     var cols = [['URL', 'url'], ['Final URL', 'finalUrl'], ['HTTP status', 'status'], ['Verdict', 'verdict'], ['Reason', 'reason'],
+      ['Redirects', 'redirects'], ['Redirect chain', 'redirectChain'], ['Redirect time (ms)', 'redirectMs'],
+      ['TTFB (ms)', 'ttfbMs'], ['Load time (ms)', 'loadMs'], ['Size (bytes)', 'bytes'],
       ['Site', 'site'], ['Market', 'market'], ['Title', 'title'], ['Title format', 'titleFormat'], ['Form ID', 'formId'],
-      ['Form ID found', 'formIdFound'], ['To fix', 'breaks'], ['To check', 'checks'], ['Known template issues', 'known'],
+      ['Form ID found', 'formIdFound'], ['Expected form ID', 'expectedFormId'],
+      ['Embed', formCol(function (f) { return EMBED_LABEL[f.embed] || f.embed; })],
+      ['Form ID source', formCol(function (f) { return f.idSource; })],
+      ['Post host', formCol(function (f) { return f.postHost; })], ['Form version', formCol(function (f) { return f.version; })],
+      ['Form title', formCol(function (f) { return f.title; })],
+      ['Form language', formCol(function (f) { return [f.language, f.localization].filter(Boolean).join(' / '); })],
+      ['Submit button', formCol(function (f) { return f.submit == null ? 'not read' : f.submit ? 'yes' : 'no'; })],
+      ['CAPTCHA', formCol(function (f) { return f.captcha == null ? 'not read' : f.captcha ? 'yes' : 'no'; })],
+      ['To fix', 'breaks'], ['To check', 'checks'], ['Known template issues', 'known'],
       ['Broken links', 'brokenLinks'], ['TCM ID', 'tcmId'], ['Open in CME', 'cme']];
     var lines = [cols.map(function (c) { return csvCell(c[0]); }).join(',')].concat(crawl.rows.map(function (r) {
-      return cols.map(function (c) { return csvCell(c[1] === 'titleFormat' && r.titleFormat ? verdictWord(r.titleFormat) : r[c[1]]); }).join(',');
+      return cols.map(function (c) {
+        return csvCell(typeof c[1] === 'function' ? c[1](r) : c[1] === 'titleFormat' && r.titleFormat ? verdictWord(r.titleFormat) : r[c[1]]);
+      }).join(',');
     }));
     var blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a');

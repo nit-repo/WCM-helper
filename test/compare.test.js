@@ -1925,15 +1925,22 @@ test('142. a shared domain (kone.be) is disambiguated by the first path segment'
   assert.strictEqual(comparer.formIdFinding(null, nlPage).severity, null, 'NL path expects 753');
 });
 
-test('143. a page with no digitalData at all is a real mismatch, not a silent skip', function () {
+test('143. a page with no form at all says "No forms found" — checked, not a failure (team rule, 2026-10-21)', function () {
   var page = comparer.readPage(pageWith('https://www.kone.es/contacto/'));
   var f = comparer.formIdFinding(null, page);
-  assert.strictEqual(f.checked, true);
-  assert.strictEqual(f.severity, 'break');
+  assert.strictEqual(f.checked, true, 'checked — never a silent skip');
+  assert.strictEqual(f.severity, null);
+  assert.strictEqual(f.noForm, true);
+  assert.strictEqual(f.note, 'No forms found on this page.');
   assert.strictEqual(f.found, null, 'null, not the string "none" — renderRows() renders a null found as "nothing on the page"');
-  assert.strictEqual(f.row.state, 'missing');
+  assert.strictEqual(f.row.state, 'no-form');
   assert.strictEqual(f.row.expected, '758');
   assert.strictEqual(f.row.found, null);
+  // Named on the URL list as carrying a form, the same page is a fix.
+  var named = comparer.formIdFinding(null, page, { expectedFormId: '758' });
+  assert.strictEqual(named.severity, 'break');
+  assert.strictEqual(named.row.state, 'missing');
+  assert.ok(/expected on this URL, but no form was found/.test(named.note), named.note);
 });
 
 test('144. a page whose market cannot be determined is not checked, never a false pass', function () {
@@ -1942,7 +1949,7 @@ test('144. a page whose market cannot be determined is not checked, never a fals
   assert.strictEqual(f.checked, false);
   assert.ok(f.note, 'says why, rather than staying quiet');
   assert.strictEqual(f.row.state, 'not-checked');
-  assert.strictEqual(f.row.found, null);
+  assert.strictEqual(f.row.found, '758', 'the id the page carries is still shown — only the comparison is skipped');
   assert.strictEqual(f.row.expected, null);
 });
 
