@@ -36,6 +36,10 @@
       'hier klicken', 'hier', 'mehr', 'weiterlesen', 'mehr erfahren',
       'cliquez ici', 'ici', 'en savoir plus', 'lire la suite'
     ],
+    // Redirects and load time, judged on what the backend saw: more
+    // redirects than this is a fix; the HTML taking longer than slowMs, or
+    // its first byte longer than slowTtfbMs, is a check.
+    speed: { maxRedirects: 3, slowMs: 3000, slowTtfbMs: 800 },
     cme: {
       newUi: 'https://web-cms.kone.com/ui/editor/page?activeItem={id}&item={id}&tab=general.constraints',
       oldUi: 'https://web-cms.kone.com/WebUI/item.aspx?tcm=64#id={id}'
@@ -420,9 +424,23 @@
     return hostOf(a) === hostOf(b) && pathOf(a) === pathOf(b);
   }
 
-  function liveFindings(live, facts, pathOf) {
+  function seconds(ms) {
+    return ms == null ? '' : (ms < 1000 ? (ms / 1000).toFixed(2) : (ms / 1000).toFixed(1)) + ' s';
+  }
+
+  // A fetch's redirects as one line: each address with the status it
+  // answered, ending where the fetch ended. Empty when there were none.
+  function redirectChain(live) {
+    var hops = (live && live.redirects) || [];
+    if (!hops.length) return '';
+    return hops.map(function (h) { return h.url + ' (' + h.status + ')'; })
+      .concat(live.finalUrl || hops[hops.length - 1].to).join(' → ');
+  }
+
+  function liveFindings(live, facts, pathOf, speed) {
     var out = [];
     if (!live) return out;
+    speed = speed || DEFAULT_QA.speed;
     var finalUrl = live.finalUrl || live.url || '';
     if (/^http:\/\//i.test(finalUrl)) {
       out.push({ category: 'structure', severity: 'break', field: 'HTTPS',
@@ -439,9 +457,31 @@
         note: 'the certificate expires in ' + tls.daysLeft + ' day' + (tls.daysLeft === 1 ? '' : 's') + ' — make sure it renews' });
     }
     var hops = (live.redirects || []).length;
-    if (hops > 1) {
+    if (hops > speed.maxRedirects) {
+      out.push({ category: 'links', severity: 'break', field: 'Redirect chain',
+        found: redirectChain(live), note: hops + ' redirects — more than ' + speed.maxRedirects +
+          '; link straight to the final URL and shorten the chain' });
+    } else if (hops > 1) {
       out.push({ category: 'links', severity: 'check', field: 'Redirect chain',
-        found: live.url, note: 'reached through ' + hops + ' redirects — links to it should point at the final URL' });
+        found: redirectChain(live), note: 'reached through ' + hops + ' redirects — links to it should point at the final URL' });
+    }
+    if (live.status && live.status !== 200) {
+      out.push({ category: 'structure', severity: 'break', field: 'Final status',
+        found: String(live.status), note: 'the page answered ' + live.status + ', not 200 — browsers and search engines may not treat it as a normal page' });
+    }
+    // Server and network time for the HTML alone, from the backend's server:
+    // not what a visitor in the market sees, and not browser metrics.
+    var timed = live.runs > 1 ? ' (average of ' + live.runs + ' fetches)' : '';
+    if (typeof live.ms === 'number' && live.ms > speed.slowMs) {
+      out.push({ category: 'structure', severity: 'check', field: 'Load time',
+        found: seconds(live.ms), note: 'the HTML took ' + seconds(live.ms) + timed +
+          (live.redirectMs ? ', ' + seconds(live.redirectMs) + ' of it redirects' : '') +
+          ' — over ' + seconds(speed.slowMs) + '; measured from the backend\'s server, HTML only' });
+    }
+    if (typeof live.ttfbMs === 'number' && live.ttfbMs > speed.slowTtfbMs) {
+      out.push({ category: 'structure', severity: 'check', field: 'Server response (TTFB)',
+        found: seconds(live.ttfbMs), note: 'the first byte took ' + seconds(live.ttfbMs) + timed +
+          ' — over ' + seconds(speed.slowTtfbMs) + '; measured from the backend\'s server' });
     }
     // On a preview build the canonical names the live page on purpose.
     if (facts.canonical && finalUrl && !/^preview(-[a-z]+)?\./.test(hostOf(finalUrl).replace(/^www\./, '')) &&
@@ -656,6 +696,7 @@
     var wt = config['work-types'] || {};
     var qaCfg = wt.qa || {};
     var cme = qaCfg.cme || DEFAULT_QA.cme;
+    var speed = Object.assign({}, DEFAULT_QA.speed, qaCfg.speed || {});
     var comparerConfig = { 'work-types': wt };
     if (config['sites']) comparerConfig['sites'] = config['sites'];
     var comparer = Compare.create(comparerConfig);
@@ -776,13 +817,15 @@
         .concat(keywordFindings(page))
         .concat(h1Findings(html, normalise))
         .concat(linkTextFindings(comparer.mainRegion(html).html, qaCfg, normalise))
-        .concat(liveFindings(options.live, facts, pathOf))
+        .concat(liveFindings(options.live, facts, pathOf, speed))
         .concat(linkStatusFindings(options.links, koneDomains, linkPlacesOf()));
 
       if (options.live) {
         var lv = options.live;
         facts.live = { url: lv.url, finalUrl: lv.finalUrl, status: lv.status, verdict: lv.verdict,
-          redirects: lv.redirects || [], tls: lv.tls || null, ms: lv.ms, bytes: lv.bytes };
+          redirects: lv.redirects || [], tls: lv.tls || null, ms: lv.ms, bytes: lv.bytes,
+          ttfbMs: lv.ttfbMs == null ? null : lv.ttfbMs, redirectMs: lv.redirectMs || 0, loop: !!lv.loop,
+          runs: lv.runs || 1, runMs: lv.runMs || null, speed: speed };
       }
       if (options.links) {
         var tallyOf = function (v) { return options.links.filter(function (l) { return l.verdict === v; }).length; };
@@ -983,7 +1026,13 @@
         tcmId: r.facts.tcmId,
         cme: r.facts.cmeNewUi,
         market: r.facts.market,
-        environment: r.facts.environment.label
+        environment: r.facts.environment.label,
+        redirects: live ? (live.redirects || []).length : null,
+        redirectChain: live ? redirectChain(live) : '',
+        redirectMs: live ? live.redirectMs || 0 : null,
+        ttfbMs: live && live.ttfbMs != null ? live.ttfbMs : null,
+        loadMs: live ? live.ms : null,
+        bytes: live ? live.bytes : null
       };
     }
 
@@ -1019,5 +1068,5 @@
     return { run: run, crawlRow: crawlRow, linksToCheck: linksToCheck, withLinkStatuses: withLinkStatuses };
   }
 
-  return { create: create, DEFAULT_QA: DEFAULT_QA, linksToCheck: linksToCheck, linkPlaces: linkPlaces };
+  return { create: create, DEFAULT_QA: DEFAULT_QA, linksToCheck: linksToCheck, linkPlaces: linkPlaces, redirectChain: redirectChain };
 }));

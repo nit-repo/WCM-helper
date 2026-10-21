@@ -498,7 +498,8 @@
     table.crawl td { padding: 7px 8px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
     table.crawl tr.open-row { cursor: pointer; }
     table.crawl tr.open-row:hover td { background: var(--bg-blue); }
-    table.crawl td.url { max-width: 360px; word-break: break-all; }
+    table.crawl td.url { min-width: 220px; max-width: 360px; word-break: break-all; }
+    table.crawl td.time { white-space: nowrap; font-variant-numeric: tabular-nums; }
     table.crawl td.num { text-align: right; font-variant-numeric: tabular-nums; }
     .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; white-space: nowrap; }
     .pill.ok, .pill.green, .pill.matches { background: var(--green-bg); color: var(--green); }
@@ -572,6 +573,7 @@
             <button id="live-btn" class="btn-primary" type="button">Fetch and QA</button>
           </div>
           <label class="opt"><input type="checkbox" id="live-links"> Check its links too — KONE and external, status only</label>
+          <label class="opt"><input type="checkbox" id="live-runs"> Time it 3 times — load time is the average of three fetches</label>
           <label class="opt"><input type="checkbox" id="live-sitemap-links" checked> Link suggestions — read the site's full sitemap, so the page's report judges its links and suggests destinations</label>
           <p class="hint">Fetched from live sites.</p>
         </div>
@@ -699,18 +701,18 @@
        entry belonging to the old one. app.js reads the same value back out of
        its own src and shows it in the sidebar, so there is one string to bump
        and what it displays is necessarily the file that is running. -->
-  <script src="brief.js?v=2026-10-21c"></script>
-  <script src="engine.js?v=2026-10-21c"></script>
-  <script src="compare.js?v=2026-10-21c"></script>
-  <script src="readers.js?v=2026-10-21c"></script>
-  <script src="filler.js?v=2026-10-21c"></script>
-  <script src="page-model.js?v=2026-10-21c"></script>
-  <script src="mock-page.js?v=2026-10-21c"></script>
-  <script src="linkmatch.js?v=2026-10-21c"></script>
-  <script src="proof.js?v=2026-10-21c"></script>
-  <script src="qa.js?v=2026-10-21c"></script>
-  <script src="backend-client.js?v=2026-10-21c"></script>
-  <script src="app.js?v=2026-10-21c"></script>
+  <script src="brief.js?v=2026-10-21d"></script>
+  <script src="engine.js?v=2026-10-21d"></script>
+  <script src="compare.js?v=2026-10-21d"></script>
+  <script src="readers.js?v=2026-10-21d"></script>
+  <script src="filler.js?v=2026-10-21d"></script>
+  <script src="page-model.js?v=2026-10-21d"></script>
+  <script src="mock-page.js?v=2026-10-21d"></script>
+  <script src="linkmatch.js?v=2026-10-21d"></script>
+  <script src="proof.js?v=2026-10-21d"></script>
+  <script src="qa.js?v=2026-10-21d"></script>
+  <script src="backend-client.js?v=2026-10-21d"></script>
+  <script src="app.js?v=2026-10-21d"></script>
 </body>
 
 </html>

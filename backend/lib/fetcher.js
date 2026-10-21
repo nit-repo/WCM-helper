@@ -28,7 +28,7 @@ var USER_AGENT = 'WCM-Helper-QA/1.0 (KONE web content QA; status and page checks
 var DEFAULTS = {
   headersMs: 10000,
   totalMs: 15000,
-  maxRedirects: 5,
+  maxRedirects: 10,
   maxHtmlBytes: 4 * 1024 * 1024,   // Vercel's response limit is 4.5 MB
   maxXmlBytes: 15 * 1024 * 1024
 };
@@ -92,11 +92,12 @@ function createFetcher(options) {
   function hop(url, o) {
     return new Promise(function (resolve) {
       var lib = url.protocol === 'https:' ? https : http;
-      var done = false, req = null, timers = [];
+      var done = false, req = null, timers = [], sent = now();
       function finish(result) {
         if (done) return;
         done = true;
         timers.forEach(clearTimeout);
+        result.ms = now() - sent;
         resolve(result);
       }
       function fail(code, message) {
@@ -129,7 +130,7 @@ function createFetcher(options) {
         if (url.protocol === 'https:' && res.socket && res.socket.getPeerCertificate) {
           tls = tlsSummary(res.socket.getPeerCertificate(), res.socket.authorized, res.socket.authorizationError, now());
         }
-        var base = { status: res.statusCode, headers: res.headers, tls: tls, body: null, truncated: false };
+        var base = { status: res.statusCode, headers: res.headers, tls: tls, body: null, truncated: false, ttfbMs: now() - sent };
         var ct = String(res.headers['content-type'] || '').toLowerCase();
         if (!o.wantBody || !o.wantsType(ct) || (res.statusCode >= 300 && res.statusCode < 400)) {
           finish(base);
@@ -164,21 +165,28 @@ function createFetcher(options) {
     return { verdict: 'unverified', reason: ERRORS[err.code] ? ERRORS[err.code] + (err.code === 'ETIMEDOUT' ? ' — ' + err.message : '') : err.message };
   }
 
-  // Follow redirects by hand, re-checking every hop.
+  // Follow redirects by hand, re-checking every hop. Each hop is timed:
+  // ttfbMs is request sent → headers back (DNS, connection and TLS included,
+  // as no connection is reused), ms is → last byte. The result's ttfbMs is
+  // the final page's own; redirectMs is what the hops before it cost.
   function walk(raw, o) {
     var started = now();
     var checked = guard.checkUrl(raw, { koneOnly: o.koneOnly, bases: bases, allowPorts: allowPorts });
     var out = { url: String(raw || ''), finalUrl: null, status: null, verdict: null, reason: null,
-      redirects: [], contentType: null, bytes: 0, ms: 0, tls: null, body: null, truncated: false };
+      redirects: [], redirectMs: 0, ttfbMs: null, loop: false,
+      contentType: null, bytes: 0, ms: 0, tls: null, body: null, truncated: false };
     if (!checked.ok) return Promise.resolve(Object.assign(out, { verdict: 'refused', reason: checked.reason }));
     var current = checked.url;
+    var visited = {}, cookied = {};
 
     function step(n) {
+      visited[current.href] = true;
       return hop(current, o).then(function (r) {
         out.finalUrl = current.href;
         out.ms = now() - started;
         if (r.error) return Object.assign(out, errorResult(r.error));
         out.status = r.status;
+        out.ttfbMs = r.ttfbMs;
         if (r.tls) out.tls = r.tls;
         var loc = r.headers.location;
         if (r.status >= 300 && r.status < 400 && loc) {
@@ -186,7 +194,23 @@ function createFetcher(options) {
           try { next = new URL(loc, current); } catch (e) {
             return Object.assign(out, { verdict: 'unverified', reason: 'redirects to an unreadable Location: ' + loc });
           }
-          out.redirects.push({ url: current.href, status: r.status, to: next.href });
+          out.redirects.push({ url: current.href, status: r.status, to: next.href, ms: r.ms });
+          out.redirectMs += r.ms;
+          out.ttfbMs = null;
+          if (r.headers['set-cookie']) cookied[current.href] = true;
+          // A Location already visited is a loop: a browser gives up on it
+          // too. A server that sets a cookie on the way round may be waiting
+          // for it to come back, which a fetch without cookies cannot do.
+          if (visited[next.href]) {
+            var from = out.redirects.map(function (h) { return h.url; }).indexOf(next.href);
+            var round = out.redirects.slice(from < 0 ? 0 : from);
+            var path = round.map(function (h) { return h.url; }).concat(next.href).join(' → ');
+            out.loop = true;
+            return round.some(function (h) { return cookied[h.url]; })
+              ? Object.assign(out, { verdict: 'unverified', reason: 'redirects in a loop while setting a cookie (' + path +
+                  ') — a browser may get through; check it by hand' })
+              : Object.assign(out, { verdict: 'dead', reason: 'redirect loop — ' + path });
+          }
           if (n >= cfg.maxRedirects) {
             return Object.assign(out, { verdict: 'unverified', reason: 'more than ' + cfg.maxRedirects + ' redirects' });
           }
@@ -272,7 +296,7 @@ function createFetcher(options) {
       return walk(raw, Object.assign({ method: 'GET' }, base));
     }).then(function (r) {
       return { url: r.url, finalUrl: r.finalUrl, status: r.status, verdict: r.verdict, reason: r.reason,
-        redirects: r.redirects.length, tlsError: r.tls && !r.tls.valid ? r.tls.error : null };
+        redirects: r.redirects.length, loop: r.loop, tlsError: r.tls && !r.tls.valid ? r.tls.error : null };
     });
   }
 

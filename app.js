@@ -75,6 +75,7 @@
     liveUrl: document.getElementById('live-url'),
     liveBtn: document.getElementById('live-btn'),
     liveLinks: document.getElementById('live-links'),
+    liveRuns: document.getElementById('live-runs'),
     crawlPanel: document.getElementById('crawl-panel'),
     crawlSites: document.getElementById('crawl-sites'),
     crawlSitemap: document.getElementById('crawl-sitemap'),
@@ -419,6 +420,10 @@
       // Re-run a report that is on screen for the HTML in the box.
       if (src !== 'crawl' && state.mode === 'qa' && state.qaSource === src && state.lastQa && el.html.value.trim()) runQa();
     });
+  });
+  try { el.liveRuns.checked = window.localStorage.getItem('wcm.liveRuns') === '1'; } catch (e) { /* no storage */ }
+  el.liveRuns.addEventListener('change', function () {
+    try { window.localStorage.setItem('wcm.liveRuns', el.liveRuns.checked ? '1' : '0'); } catch (e) { /* no storage */ }
   });
   function linkSuggestionsOn() {
     var box = SITEMAP_OPTS[state.qaSource] || el.pageSitemapLinks;
@@ -1232,17 +1237,48 @@
   function liveFactLines(f) {
     var lv = f.live;
     if (!lv) return '';
-    var hops = (lv.redirects || []).map(function (h) { return h.status + ' ' + esc(h.url); }).join(' → ');
-    var served = esc(lv.finalUrl || lv.url) + (hops ? '<br><small>via ' + hops + '</small>' : '');
+    var speed = lv.speed || window.BriefQA.DEFAULT_QA.speed;
+    var n = (lv.redirects || []).length;
+    var redirects = !n ? 'none'
+      : '<span class="pill ' + (n > speed.maxRedirects ? 'red">fix' : n > 1 ? 'amber">check' : 'green">pass') + '</span> ' +
+        n + ' redirect' + (n === 1 ? '' : 's') + ' · ' + seconds(lv.redirectMs) + '<br><small>' + chainHtml(lv) + '</small>';
+    var timed = function (ms, limit) {
+      return ms == null ? '<i>not measured</i>' : ms > limit ? '<span class="pill amber">' + seconds(ms) + '</span>' : seconds(ms);
+    };
+    var load = 'TTFB ' + timed(lv.ttfbMs, speed.slowTtfbMs) + ' · HTML ' + timed(lv.ms, speed.slowMs) +
+      (lv.redirectMs ? ' (' + seconds(lv.redirectMs) + ' of it redirects)' : '') + ' · ' + kb(lv.bytes) +
+      (lv.runs > 1 ? ' · average of ' + lv.runs + ' fetches (' + lv.runMs.map(seconds).join(', ') + ')' : '') +
+      '<br><small>Measured from the backend\'s server, not from the market\'s country, HTML only. For LCP, INP and CLS use ' +
+      '<a href="https://pagespeed.web.dev/analysis?url=' + encodeURIComponent(lv.finalUrl || lv.url) +
+      '" target="_blank" rel="noopener">PageSpeed Insights</a>.</small>';
+    var served = esc(lv.finalUrl || lv.url);
     var tls = !lv.tls ? (/^https:/i.test(lv.finalUrl || '') ? '<i>not read</i>' : '<i>none — plain http</i>')
       : lv.tls.valid
         ? 'valid until ' + esc(String(lv.tls.validTo).slice(0, 10)) + ' (' + lv.tls.daysLeft + ' days)' +
           (lv.tls.issuer ? ' · ' + esc(lv.tls.issuer) : '')
         : '<b>not valid</b> — ' + esc(lv.tls.error || 'unknown reason');
-    return factLine('HTTP status', '<span class="pill ' + esc(lv.verdict) + '">' + esc(lv.status) + '</span> fetched live in ' +
-        (lv.ms / 1000).toFixed(1) + ' s') +
+    return factLine('HTTP status', '<span class="pill ' + (lv.status === 200 ? esc(lv.verdict) : 'red') + '">' + esc(lv.status) + '</span>') +
       factLine('Served at', served) +
+      factLine('Redirects', redirects) +
+      factLine('Load time', load) +
       factLine('Certificate', tls);
+  }
+
+  // Each address in a redirect chain with the status it answered, ending
+  // where the fetch ended.
+  function chainHtml(r) {
+    var hops = r.redirects || [];
+    if (!hops.length) return '';
+    return hops.map(function (h) { return esc(h.url) + ' (' + esc(h.status) + ')'; })
+      .concat(esc(r.finalUrl || hops[hops.length - 1].to)).join(' → ');
+  }
+
+  function seconds(ms) {
+    return ms == null ? '' : (ms < 1000 ? (ms / 1000).toFixed(2) : (ms / 1000).toFixed(1)) + ' s';
+  }
+
+  function kb(bytes) {
+    return bytes == null ? '' : bytes < 1024 ? bytes + ' B' : Math.round(bytes / 1024) + ' KB';
   }
 
   function linkCheckLine(f, opts) {
@@ -1428,7 +1464,11 @@
     if (!url) { toast('Paste the page URL first.'); return; }
     el.liveBtn.disabled = true;
     el.output.innerHTML = section('Fetching', '<p class="prog-text">Asking the backend for ' + esc(url) + '…</p>');
+    var runs = el.liveRuns.checked ? 3 : 1;
     state.backend.fetchPage(url).then(function (r) {
+      if (r.verdict !== 'ok' || !r.html || runs === 1) return r;
+      return timeAgain(url, r, runs);
+    }).then(function (r) {
       el.liveBtn.disabled = false;
       if (r.verdict !== 'ok' || !r.html) { renderLiveFailure(r); return; }
       var html = r.html.trim();
@@ -1444,18 +1484,41 @@
     });
   }
 
+  // The same page fetched again, one after another, for steadier timings:
+  // the report keeps the first fetch and takes the average of every fetch
+  // that came back whole.
+  function timeAgain(url, first, runs) {
+    var timings = [first];
+    function next(i) {
+      if (i > runs) return Promise.resolve();
+      el.output.innerHTML = section('Fetching', '<p class="prog-text">Timing: fetch ' + i + ' of ' + runs + '…</p>');
+      return state.backend.fetchPage(url).then(function (r) {
+        if (r.verdict === 'ok') timings.push(r);
+      }, function () { /* a failed retry only leaves fewer timings */ }).then(function () { return next(i + 1); });
+    }
+    return next(2).then(function () {
+      var avg = function (key) {
+        var vals = timings.map(function (t) { return t[key]; }).filter(function (v) { return typeof v === 'number'; });
+        return vals.length ? Math.round(vals.reduce(function (a, b) { return a + b; }, 0) / vals.length) : null;
+      };
+      return Object.assign({}, first, { ms: avg('ms'), ttfbMs: avg('ttfbMs'), redirectMs: avg('redirectMs') || 0,
+        runs: timings.length, runMs: timings.map(function (t) { return t.ms; }) });
+    });
+  }
+
   // A fetch that did not produce a page says exactly why — a dead page, a
   // login wall, a host the backend will not touch — and never looks like a pass.
   function renderLiveFailure(r) {
     var title = { dead: 'The page is broken', unverified: 'Could not verify the page', refused: 'Not fetched' }[r.verdict] || 'No page';
-    var hops = (r.redirects || []).map(function (h) { return h.status + ' ' + esc(h.url); }).join(' → ');
+    var hops = chainHtml(r);
     var login = /login|bookmarklet/i.test(r.reason || '');
     el.output.innerHTML = section(title,
       '<p class="headline"><span class="pill ' + esc(r.verdict) + '">' + esc(r.verdict) + '</span> ' + esc(capital(r.reason || '')) + '</p>' +
       factLine('URL', esc(r.url)) +
       (r.status ? factLine('HTTP status', esc(r.status)) : '') +
       (r.finalUrl && r.finalUrl !== r.url ? factLine('Ended at', esc(r.finalUrl)) : '') +
-      (hops ? factLine('Redirects', hops) : '') +
+      (hops ? factLine(r.loop ? 'Redirect loop' : 'Redirects', (r.redirects.length + ' redirect' +
+        (r.redirects.length === 1 ? '' : 's') + (r.redirectMs ? ' · ' + seconds(r.redirectMs) : '')) + '<br><small>' + hops + '</small>') : '') +
       (login ? '<p class="note">Open it in your own signed-in browser and send it back with the bookmarklet: ' +
         '<button type="button" class="btn-ghost" id="live-open-page" data-url="' + esc(r.url) + '">Open page</button></p>' : ''));
   }
@@ -1751,7 +1814,8 @@
         if (crawl.checkLinks) row.links = state.qa.linksToCheck(r.html, r.finalUrl);
       } else {
         row = { url: r.url, finalUrl: r.finalUrl, status: r.status, verdict: r.verdict, reason: r.reason,
-          breaks: 0, checks: 0, known: 0 };
+          breaks: 0, checks: 0, known: 0, loop: !!r.loop, redirects: (r.redirects || []).length,
+          redirectChain: window.BriefQA.redirectChain(r), redirectMs: r.redirectMs || 0 };
       }
       row.site = w.site;
       row.market = row.market || w.market || null;
@@ -1825,8 +1889,19 @@
     ['breaks', 'To fix', function (r) { return r.breaks > 0; }],
     ['title', 'Title format', function (r) { return r.titleFormat === 'red' || r.titleFormat === 'amber'; }],
     ['form', 'Form ID wrong', function (r) { return r.formId === 'differs' || r.formId === 'missing'; }],
+    ['redirects', 'Redirects', function (r) { return r.loop || r.redirects > speedOf(r).maxRedirects; }],
+    ['slow', 'Slow', function (r) { return isSlow(r); }],
     ['links', 'Broken links', function (r) { return r.brokenLinks > 0; }]
   ];
+
+  // The thresholds a crawled page was judged by.
+  function speedOf(r) {
+    return r.result && r.result.facts.live && r.result.facts.live.speed || window.BriefQA.DEFAULT_QA.speed;
+  }
+  function isSlow(r) {
+    var sp = speedOf(r);
+    return r.loadMs > sp.slowMs || r.ttfbMs > sp.slowTtfbMs;
+  }
 
   function renderCrawl() {
     if (state.mode !== 'qa' || state.qaSource !== 'crawl') return;
@@ -1934,16 +2009,25 @@
       var title = r.titleFormat ? '<span class="pill ' + esc(r.titleFormat) + '">' + esc(verdictWord(r.titleFormat)) + '</span>' : '';
       var form = r.formId ? '<span class="pill ' + esc(r.formId) + '">' + esc(FORM_LABEL[r.formId] || r.formId) + '</span>' : '';
       var detail = r.result ? '' : '<br><small>' + esc(capital(r.reason || '')) + '</small>';
+      var speed = speedOf(r);
+      var redir = r.loop ? '<span class="pill red">loop</span>'
+        : r.redirects > speed.maxRedirects ? '<span class="pill red">' + r.redirects + '</span>'
+        : r.redirects ? String(r.redirects) : '';
+      var slow = isSlow(r);
+      var load = r.loadMs == null ? '' : '<span title="TTFB / HTML">' + (slow ? '<span class="pill amber">' : '') +
+        (r.ttfbMs == null ? '–' : (r.ttfbMs / 1000).toFixed(2)) + ' / ' + seconds(r.loadMs) + (slow ? '</span>' : '') + '</span>';
       return '<tr class="' + (r.result ? 'open-row' : '') + '"' + (r.result ? ' data-row="' + i + '"' : '') + '>' +
-        '<td class="url">' + esc(r.url) + detail + '</td><td>' + status + '</td><td>' + title + '</td><td>' + form + '</td>' +
+        '<td class="url">' + esc(r.url) + detail + '</td><td>' + status + '</td><td class="num">' + redir + '</td><td class="time">' + load + '</td>' +
+        '<td>' + title + '</td><td>' + form + '</td>' +
         '<td class="num">' + (r.result ? r.breaks : '') + '</td><td class="num">' + (r.result ? r.checks : '') + '</td>' +
         (crawl.links ? '<td class="num">' + (r.brokenLinks || '') + '</td>' : '') +
         '<td>' + (r.tcmId ? esc(r.tcmId) : '') + '</td></tr>';
     }).join('');
     return '<section class="card"><h3>Pages — ' + shown.length + '</h3><div class="filters">' + chips + '</div>' +
-      '<div class="table-wrap"><table class="crawl"><thead><tr><th>Page</th><th>Status</th><th>Title</th><th>Form ID</th>' +
+      '<div class="table-wrap"><table class="crawl"><thead><tr><th>Page</th><th>Status</th><th>Redirects</th><th>TTFB / load</th>' +
+      '<th>Title</th><th>Form ID</th>' +
       '<th>To fix</th><th>To check</th>' + (crawl.links ? '<th>Broken links</th>' : '') + '<th>TCM ID</th></tr></thead><tbody>' +
-      (body || '<tr><td colspan="8"><i>No pages match this filter.</i></td></tr>') + '</tbody></table></div>' +
+      (body || '<tr><td colspan="10"><i>No pages match this filter.</i></td></tr>') + '</tbody></table></div>' +
       '<div class="input-actions"><button type="button" class="btn-ghost" id="crawl-csv">Export CSV</button></div>' +
       '<p class="caution">Click a page for its full report. The export carries CME edit links — keep it within the team.</p></section>';
   }
@@ -2007,6 +2091,8 @@
     var crawl = state.crawl;
     if (!crawl || !crawl.rows.length) return;
     var cols = [['URL', 'url'], ['Final URL', 'finalUrl'], ['HTTP status', 'status'], ['Verdict', 'verdict'], ['Reason', 'reason'],
+      ['Redirects', 'redirects'], ['Redirect chain', 'redirectChain'], ['Redirect time (ms)', 'redirectMs'],
+      ['TTFB (ms)', 'ttfbMs'], ['Load time (ms)', 'loadMs'], ['Size (bytes)', 'bytes'],
       ['Site', 'site'], ['Market', 'market'], ['Title', 'title'], ['Title format', 'titleFormat'], ['Form ID', 'formId'],
       ['Form ID found', 'formIdFound'], ['To fix', 'breaks'], ['To check', 'checks'], ['Known template issues', 'known'],
       ['Broken links', 'brokenLinks'], ['TCM ID', 'tcmId'], ['Open in CME', 'cme']];

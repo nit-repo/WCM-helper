@@ -686,5 +686,51 @@ test('79. a link in a hidden component says so — the kone.eg header case (synt
   assert.strictEqual(r.linkPlaces['https://www.kone.eg/en/contact/'][0].where, 'Page body — "New buildings" (hidden)');
 });
 
+test('80. redirects: more than 3 is a fix with the chain spelled out; 2–3 a check; 1 nothing', function () {
+  function hops(n) {
+    var out = [];
+    for (var i = 0; i < n; i++) out.push({ url: 'https://kone.es/r' + i, status: i % 2 ? 302 : 301, to: 'x', ms: 50 });
+    return out;
+  }
+  var four = qa.run(LIVE_PAGE, { live: live({ redirects: hops(4), redirectMs: 200 }) });
+  assert.ok(fieldsOf(four).indexOf('links:break:Redirect chain') !== -1, fieldsOf(four).join(', '));
+  var d = cat(four, 'links').deviations.filter(function (x) { return x.field === 'Redirect chain'; })[0];
+  assert.strictEqual(d.found, 'https://kone.es/r0 (301) → https://kone.es/r1 (302) → https://kone.es/r2 (301) → ' +
+    'https://kone.es/r3 (302) → https://www.kone.es/contacto/');
+  assert.ok(/4 redirects — more than 3/.test(d.note), d.note);
+  var three = qa.run(LIVE_PAGE, { live: live({ redirects: hops(3) }) });
+  assert.ok(fieldsOf(three).indexOf('links:check:Redirect chain') !== -1);
+  assert.ok(fieldsOf(three).indexOf('links:break:Redirect chain') === -1);
+  assert.ok(fieldsOf(qa.run(LIVE_PAGE, { live: live({ redirects: hops(1) }) })).every(function (f) { return !/Redirect chain/.test(f); }));
+});
+
+test('81. a final page that answers anything but 200 is a fix', function () {
+  var r = qa.run(LIVE_PAGE, { live: live({ status: 203 }) });
+  assert.ok(fieldsOf(r).indexOf('structure:break:Final status') !== -1);
+  assert.ok(fieldsOf(qa.run(LIVE_PAGE, { live: live() })).indexOf('structure:break:Final status') === -1);
+});
+
+test('82. load time over 3 s and TTFB over 0.8 s are checks, said to be the backend\'s HTML timings', function () {
+  var slow = qa.run(LIVE_PAGE, { live: live({ ms: 3500, ttfbMs: 900, redirectMs: 400, runs: 3 }) });
+  var f = fieldsOf(slow);
+  assert.ok(f.indexOf('structure:check:Load time') !== -1, f.join(', '));
+  assert.ok(f.indexOf('structure:check:Server response (TTFB)') !== -1);
+  var d = cat(slow, 'structure').deviations.filter(function (x) { return x.field === 'Load time'; })[0];
+  assert.ok(/3\.5 s \(average of 3 fetches\), 0\.40 s of it redirects/.test(d.note) && /HTML only/.test(d.note), d.note);
+  var fast = fieldsOf(qa.run(LIVE_PAGE, { live: live({ ms: 2900, ttfbMs: 790 }) }));
+  assert.ok(fast.indexOf('structure:check:Load time') === -1 && fast.indexOf('structure:check:Server response (TTFB)') === -1);
+  assert.strictEqual(slow.facts.live.ttfbMs, 900);
+  assert.strictEqual(slow.facts.live.runs, 3);
+});
+
+test('83. crawlRow carries redirects and timings for the table and the CSV', function () {
+  var lv = live({ redirects: [{ url: 'https://kone.es/contacto', status: 301, to: 'https://www.kone.es/contacto/', ms: 80 }],
+    redirectMs: 80, ttfbMs: 300, ms: 900, bytes: 9000 });
+  var row = qa.crawlRow(qa.run(LIVE_PAGE, { live: lv }), lv);
+  assert.strictEqual(row.redirects, 1);
+  assert.strictEqual(row.redirectChain, 'https://kone.es/contacto (301) → https://www.kone.es/contacto/');
+  assert.deepStrictEqual([row.redirectMs, row.ttfbMs, row.loadMs, row.bytes], [80, 300, 900, 9000]);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
