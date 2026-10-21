@@ -705,6 +705,7 @@
         'missing': ['bad', 'not on the page'],
         'not-in-brief': ['idle', 'not defined in the brief'],
         'not-checked': ['idle', 'market could not be determined'],
+        'no-form': ['idle', 'no forms found'],
         'present': ['ok', 'on the page'],
         'absent': ['idle', 'not on the page'],
         'green': ['score-green', verdictWord('green')],
@@ -1071,6 +1072,7 @@
       factLine('TCM ID', tcm) +
       factLine('Market', f.market ? esc(f.market) : '<i>could not be determined</i>') +
       factLine('Language', lang) +
+      formFactLine(f) +
       liveFactLines(f) + linkCheckLine(f, opts));
 
     var tally = r.breaks + r.checks
@@ -1230,6 +1232,31 @@
       lines.push('');
     });
     return lines.join('\n');
+  }
+
+  // The FormAssembly forms on the page: which form, how it arrives, where it
+  // sits, and what its markup says when the markup is there to read.
+  var EMBED_LABEL = { 'aem-component': 'AEM form component', script: 'embed script', iframe: 'iframe', markup: 'form markup' };
+  function formFactLine(f) {
+    var forms = f.forms || [];
+    if (!forms.length) return factLine('Forms', '<i>No forms found</i>');
+    return factLine(forms.length === 1 ? 'Form' : 'Forms', forms.map(function (fm) {
+      var yes = function (v) { return v == null ? null : v ? '✓' : '✗'; };
+      var bits = [
+        fm.postHost ? 'posts to ' + esc(fm.postHost) : null,
+        fm.version ? 'version ' + esc(fm.version) : null,
+        fm.language || fm.localization ? 'language ' + esc([fm.language, fm.localization && fm.localization !== fm.language ? fm.localization + '.js' : null].filter(Boolean).join(' / ')) : null,
+        yes(fm.submit) ? 'submit button ' + yes(fm.submit) : null,
+        yes(fm.captcha) ? 'CAPTCHA ' + yes(fm.captcha) : null
+      ].filter(Boolean);
+      return '<span class="form-id">' + (fm.formId ? esc(fm.formId) : '<i>id unreadable</i>') + '</span>' +
+        (fm.idSource ? ' <small>from ' + esc(fm.idSource) + '</small>' : '') +
+        ' · ' + esc(EMBED_LABEL[fm.embed] || fm.embed) + (fm.title ? ' · "' + esc(fm.title) + '"' : '') +
+        '<br><small>' + esc(fm.where || '') + (fm.anchor ? ' · #' + esc(fm.anchor) : '') + '</small>' +
+        (bits.length ? '<br><small>' + bits.join(' · ') + '</small>' : '') +
+        (!fm.rendered ? '<br><small>Injected by script when the page loads — its title, version, language, submit button and CAPTCHA ' +
+          'are read when you paste the page\'s outerHTML from Inspect.</small>' : '');
+    }).join('<br>'));
   }
 
   // What the backend saw fetching the page: the answer, where it ended up,
@@ -1719,10 +1746,12 @@
     var full = crawl.useSitemap;
     var limit = crawlLimit();
     if (state.crawlSrc === 'list') {
-      var seen = {};
-      var urls = el.crawlUrls.value.split(/\n/).map(normaliseUrl).filter(function (u) { return u && !seen[u] && (seen[u] = true); });
-      if (!urls.length) throw new Error('Paste at least one URL.');
-      var items = urls.map(function (u) { return { url: u, site: hostKey(u).replace(/^www\./, ''), sitemapSite: siteOfUrl(u) }; });
+      var listed = window.BriefQA.parseUrlList(el.crawlUrls.value);
+      if (!listed.length) throw new Error('Paste at least one URL.');
+      var urls = listed.map(function (x) { return x.url; });
+      var items = listed.map(function (x) {
+        return { url: x.url, site: hostKey(x.url).replace(/^www\./, ''), sitemapSite: siteOfUrl(x.url), expectedFormId: x.expectedFormId };
+      });
       return (full ? readSitemapsFor(urls) : Promise.resolve()).then(function () { return items; });
     }
     if (state.crawlSrc === 'sitemap') {
@@ -1808,7 +1837,7 @@
       var row;
       if (r.verdict === 'ok' && r.html) {
         var live = Object.assign({}, r, { html: undefined });
-        var result = state.qa.run(r.html, { live: live, sitemap: crawlSitemap(w) });
+        var result = state.qa.run(r.html, { live: live, sitemap: crawlSitemap(w), expectedFormId: w.expectedFormId || null });
         row = state.qa.crawlRow(result, live);
         row.result = result;
         if (crawl.checkLinks) row.links = state.qa.linksToCheck(r.html, r.finalUrl);
@@ -1991,7 +2020,7 @@
       }).join('') + '</tbody></table></div>');
   }
 
-  var FORM_LABEL = { matches: 'right', differs: 'wrong', missing: 'missing', 'not-checked': 'not checked' };
+  var FORM_LABEL = { matches: 'right', differs: 'wrong', missing: 'missing', 'not-checked': 'not checked', 'no-form': 'no form' };
 
   function renderCrawlTable(rows) {
     var crawl = state.crawl;
@@ -2007,7 +2036,8 @@
       var r = rows[i];
       var status = '<span class="pill ' + esc(r.verdict) + '">' + esc(r.status || r.verdict) + '</span>';
       var title = r.titleFormat ? '<span class="pill ' + esc(r.titleFormat) + '">' + esc(verdictWord(r.titleFormat)) + '</span>' : '';
-      var form = r.formId ? '<span class="pill ' + esc(r.formId) + '">' + esc(FORM_LABEL[r.formId] || r.formId) + '</span>' : '';
+      var form = r.formId ? '<span class="pill ' + esc(r.formId) + '">' + esc(FORM_LABEL[r.formId] || r.formId) + '</span>' +
+        (r.formIdFound ? ' ' + esc(r.formIdFound) : '') : '';
       var detail = r.result ? '' : '<br><small>' + esc(capital(r.reason || '')) + '</small>';
       var speed = speedOf(r);
       var redir = r.loop ? '<span class="pill red">loop</span>'
@@ -2087,6 +2117,11 @@
     return '"' + s.replace(/"/g, '""') + '"';
   }
 
+  // One CSV cell for every form on a page, joined.
+  function formCol(read) {
+    return function (r) { return (r.forms || []).map(function (f) { var v = read(f); return v == null ? '' : v; }).join(' | '); };
+  }
+
   function exportCrawlCsv() {
     var crawl = state.crawl;
     if (!crawl || !crawl.rows.length) return;
@@ -2094,10 +2129,20 @@
       ['Redirects', 'redirects'], ['Redirect chain', 'redirectChain'], ['Redirect time (ms)', 'redirectMs'],
       ['TTFB (ms)', 'ttfbMs'], ['Load time (ms)', 'loadMs'], ['Size (bytes)', 'bytes'],
       ['Site', 'site'], ['Market', 'market'], ['Title', 'title'], ['Title format', 'titleFormat'], ['Form ID', 'formId'],
-      ['Form ID found', 'formIdFound'], ['To fix', 'breaks'], ['To check', 'checks'], ['Known template issues', 'known'],
+      ['Form ID found', 'formIdFound'], ['Expected form ID', 'expectedFormId'],
+      ['Embed', formCol(function (f) { return EMBED_LABEL[f.embed] || f.embed; })],
+      ['Form ID source', formCol(function (f) { return f.idSource; })],
+      ['Post host', formCol(function (f) { return f.postHost; })], ['Form version', formCol(function (f) { return f.version; })],
+      ['Form title', formCol(function (f) { return f.title; })],
+      ['Form language', formCol(function (f) { return [f.language, f.localization].filter(Boolean).join(' / '); })],
+      ['Submit button', formCol(function (f) { return f.submit == null ? 'not read' : f.submit ? 'yes' : 'no'; })],
+      ['CAPTCHA', formCol(function (f) { return f.captcha == null ? 'not read' : f.captcha ? 'yes' : 'no'; })],
+      ['To fix', 'breaks'], ['To check', 'checks'], ['Known template issues', 'known'],
       ['Broken links', 'brokenLinks'], ['TCM ID', 'tcmId'], ['Open in CME', 'cme']];
     var lines = [cols.map(function (c) { return csvCell(c[0]); }).join(',')].concat(crawl.rows.map(function (r) {
-      return cols.map(function (c) { return csvCell(c[1] === 'titleFormat' && r.titleFormat ? verdictWord(r.titleFormat) : r[c[1]]); }).join(',');
+      return cols.map(function (c) {
+        return csvCell(typeof c[1] === 'function' ? c[1](r) : c[1] === 'titleFormat' && r.titleFormat ? verdictWord(r.titleFormat) : r[c[1]]);
+      }).join(',');
     }));
     var blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a');

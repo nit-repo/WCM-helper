@@ -492,6 +492,58 @@
     return out;
   }
 
+  // ─── URL LIST ────────────────────────────────────────────────────────────
+  // A crawl's URL list: one URL per line, optionally followed by the form id
+  // that page should carry — "https://www.kone.ae/contact/, 752", tab- or
+  // space-separated too. A header line ("url,expected_form_id") is skipped.
+  function parseUrlList(text) {
+    var out = [], seen = {};
+    String(text == null ? '' : text).split(/\r?\n/).forEach(function (line) {
+      var parts = line.trim().split(/\s*[,;\t]\s*|\s+/).filter(Boolean);
+      if (!parts.length || /^url$/i.test(parts[0])) return;
+      var url = /^https?:\/\//i.test(parts[0]) ? parts[0] : 'https://' + parts[0];
+      if (seen[url]) return;
+      seen[url] = true;
+      var id = parts[1] && /^\d+$/.test(parts[1]) ? parts[1] : null;
+      out.push({ url: url, expectedFormId: id });
+    });
+    return out;
+  }
+
+  // ─── FORMS ───────────────────────────────────────────────────────────────
+  // Whether each embedded FormAssembly form is wired to one id: the form
+  // element, the hidden tfa_dbFormId FormAssembly submits and the -WRPR
+  // wrapper are rendered from the same form, and AEM's component names the
+  // form twice (data-target-id and the publish script). Any two that differ
+  // is a form built from mismatched parts. Which id the page should carry is
+  // the Form Assembly ID check's question, not this one.
+
+  var FORM_ID_SOURCES = [['formElement', 'form id'], ['dbFormId', 'tfa_dbFormId'], ['wrapper', 'wrapper'],
+    ['publish', 'embed URL'], ['targetId', 'data-target-id']];
+
+  function formFindings(forms, digitalData) {
+    var out = [];
+    (forms || []).forEach(function (f) {
+      var seen = FORM_ID_SOURCES.filter(function (s) { return f.ids[s[0]]; });
+      var values = seen.map(function (s) { return f.ids[s[0]]; }).filter(function (v, i, all) { return all.indexOf(v) === i; });
+      if (values.length > 1) {
+        out.push({ category: 'structure', severity: 'break', field: 'Form wiring',
+          found: seen.map(function (s) { return s[1] + ' ' + (s[0] === 'wrapper' ? f.wrapperId : f.ids[s[0]]); }).join(' · '),
+          where: f.where || null,
+          note: 'the parts of this FormAssembly form name different forms — they must all carry the same number' });
+      }
+    });
+    var dd = digitalData && digitalData.formAssemblyId;
+    var embedded = (forms || []).map(function (f) { return f.formId; }).filter(Boolean);
+    if (dd && embedded.length && embedded.indexOf(String(dd)) === -1) {
+      out.push({ category: 'structure', severity: 'check', field: 'Form Assembly ID', expected: String(dd),
+        found: embedded.join(', '),
+        note: 'the page\'s digitalData names form ' + dd + ', but the form embedded on it is ' + embedded.join(', ') +
+          ' — analytics and the form disagree' });
+    }
+    return out;
+  }
+
   // One rule for what a link's address is, shared by the status check and
   // by placing a link on the page, so the two always agree on the key.
   function absHref(href, baseUrl) {
@@ -584,7 +636,20 @@
 
   // { absoluteUrl: [{ where, hidden, anchor }] }, every place a link appears.
   function linkPlaces(html, baseUrl, modules, moduleLabel) {
+    return scanPlaces(html, modules, moduleLabel, null).links(baseUrl);
+  }
+
+  // Where anything else sits — a form, by the offset it starts at — in the
+  // same terms as a link.
+  function placesAt(html, offsets, modules, moduleLabel) {
+    return scanPlaces(html, modules, moduleLabel, offsets).probes;
+  }
+
+  function scanPlaces(html, modules, moduleLabel, offsets) {
     html = String(html == null ? '' : html);
+    var pending = (offsets || []).map(function (at, i) { return { at: at, i: i }; })
+      .sort(function (a, b) { return a.at - b.at; });
+    var probes = [];
     var scan = html.replace(/<!--[\s\S]*?-->|<(script|style|noscript|template)\b[^>]*>[\s\S]*?<\/\1>/gi,
       function (m) { return m.replace(/[^\n]/g, ' '); });
     var byStart = {};
@@ -592,6 +657,11 @@
     var stack = [], counters = {}, links = [], re = /<(\/?)([a-z][a-z0-9-]*)\b[^>]*>/gi, m;
     while ((m = re.exec(scan)) !== null) {
       var name = m[2].toLowerCase();
+      // Every probe at or before this tag sits inside what is open now.
+      while (pending.length && pending[0].at <= m.index) {
+        var p0 = pending.shift();
+        probes[p0.i] = { start: p0.at, ancestors: stack.slice(), selfTag: !m[1] && m.index === p0.at ? m[0] : null };
+      }
       if (m[1]) {
         for (var i = stack.length - 1; i >= 0; i--) {
           if (stack[i].name === name) { stack[i].end = m.index; stack.length = i; break; }
@@ -620,12 +690,10 @@
       }
       stack.push(el);
     }
+    pending.forEach(function (p0) { probes[p0.i] = { start: p0.at, ancestors: stack.slice(), selfTag: null }; });
 
-    var out = {};
-    links.forEach(function (l) {
-      var abs = absHref(attr(l.el.tag, 'href'), baseUrl);
-      if (!abs) return;
-      var chain = l.ancestors, hidden = l.el.hidden, modEl = null, itemEl = null, landEl = null, land = null;
+    function describe(chain, hidden, start) {
+      var modEl = null, itemEl = null, landEl = null, land = null;
       for (var i = chain.length - 1; i >= 0; i--) {
         var a = chain[i];
         if (a.hidden) hidden = true;
@@ -640,22 +708,36 @@
       var title = null;
       if (!box) {
         // Outside any component: the nearest heading above it, to find it by.
-        var above = titlesIn(scan.slice(0, l.el.start));
+        var above = titlesIn(scan.slice(0, start));
         title = above.length ? above[above.length - 1] : null;
       } else {
-        var before = titlesIn(scan.slice(box.start, l.el.start));
+        var before = titlesIn(scan.slice(box.start, start));
         title = before.length ? before[before.length - 1]
           : (titlesIn(scan.slice(box.start, box.end == null ? scan.length : box.end))[0] || null);
       }
       var where = (mod ? moduleLabel(mod) : landEl ? landmarkOf(landEl) : 'Page body') +
         (itemEl ? ' › ' + itemEl.item.noun + ' ' + itemEl.item.ordinal : '') +
         (title ? ' — "' + clipTitle(title) + '"' : '') + (hidden ? ' (hidden)' : '');
-      var list = out[abs] = out[abs] || [];
-      if (!list.some(function (p) { return p.where === where; })) {
-        list.push({ where: where, hidden: hidden, anchor: mod && mod.id ? '#' + mod.id : null });
-      }
-    });
-    return out;
+      return { where: where, hidden: hidden, anchor: mod && mod.id ? '#' + mod.id : null };
+    }
+
+    return {
+      links: function (baseUrl) {
+        var out = {};
+        links.forEach(function (l) {
+          var abs = absHref(attr(l.el.tag, 'href'), baseUrl);
+          if (!abs) return;
+          var place = describe(l.ancestors, l.el.hidden, l.el.start);
+          var list = out[abs] = out[abs] || [];
+          if (!list.some(function (p) { return p.where === place.where; })) list.push(place);
+        });
+        return out;
+      },
+      probes: probes.map(function (p) {
+        var self = p.selfTag ? hiddenTag(p.selfTag, classesIn(p.selfTag)) : false;
+        return describe(p.ancestors, self, p.start);
+      })
+    };
   }
 
   function isKone(url, domains) {
@@ -759,7 +841,13 @@
       }
       var placed = page;
       if (!page.canonical && options.live && options.live.finalUrl) placed = Object.assign({}, page, { canonical: options.live.finalUrl });
-      var formId = comparer.formIdFinding(expect, placed);
+      var formId = comparer.formIdFinding(expect, placed, { expectedFormId: options.expectedFormId || null });
+      // Each FormAssembly form on the page, placed like a link.
+      var forms = (page.forms || []).map(function (f) { return Object.assign({}, f); });
+      if (forms.length) {
+        placesAt(html, forms.map(function (f) { return f.start; }), comparer.modules(html), comparer.moduleLabel)
+          .forEach(function (pl, i) { forms[i].where = pl.where; forms[i].hidden = pl.hidden; });
+      }
       var market = comparer.marketOf(expect, placed);
 
       var facts = {
@@ -779,6 +867,8 @@
         site: market && !market.ambiguous && market.domain ? { domain: market.domain, langPath: market.langPath || null } : null,
         robots: robotsTag ? attr(robotsTag, 'content') : null,
         digitalData: page.digitalData || null,
+        forms: forms,
+        expectedFormId: options.expectedFormId || null,
         hreflang: []
       };
 
@@ -818,7 +908,8 @@
         .concat(h1Findings(html, normalise))
         .concat(linkTextFindings(comparer.mainRegion(html).html, qaCfg, normalise))
         .concat(liveFindings(options.live, facts, pathOf, speed))
-        .concat(linkStatusFindings(options.links, koneDomains, linkPlacesOf()));
+        .concat(linkStatusFindings(options.links, koneDomains, linkPlacesOf()))
+        .concat(formFindings(forms, page.digitalData));
 
       if (options.live) {
         var lv = options.live;
@@ -1032,7 +1123,12 @@
         redirectMs: live ? live.redirectMs || 0 : null,
         ttfbMs: live && live.ttfbMs != null ? live.ttfbMs : null,
         loadMs: live ? live.ms : null,
-        bytes: live ? live.bytes : null
+        bytes: live ? live.bytes : null,
+        expectedFormId: r.facts.expectedFormId || null,
+        forms: (r.facts.forms || []).map(function (f) {
+          return { formId: f.formId, idSource: f.idSource, embed: f.embed, postHost: f.postHost, version: f.version,
+            title: f.title, language: f.language, localization: f.localization, submit: f.submit, captcha: f.captcha };
+        })
       };
     }
 
@@ -1068,5 +1164,6 @@
     return { run: run, crawlRow: crawlRow, linksToCheck: linksToCheck, withLinkStatuses: withLinkStatuses };
   }
 
-  return { create: create, DEFAULT_QA: DEFAULT_QA, linksToCheck: linksToCheck, linkPlaces: linkPlaces, redirectChain: redirectChain };
+  return { create: create, DEFAULT_QA: DEFAULT_QA, linksToCheck: linksToCheck, linkPlaces: linkPlaces, placesAt: placesAt,
+    redirectChain: redirectChain, parseUrlList: parseUrlList };
 }));
