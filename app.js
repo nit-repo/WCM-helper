@@ -706,6 +706,7 @@
         'not-in-brief': ['idle', 'not defined in the brief'],
         'not-checked': ['idle', 'market could not be determined'],
         'no-form': ['idle', 'no forms found'],
+        'aem': ['idle', 'AEM forms'],
         'present': ['ok', 'on the page'],
         'absent': ['idle', 'not on the page'],
         'green': ['score-green', verdictWord('green')],
@@ -970,7 +971,7 @@
     var key = siteKey(site);
     state.sitemaps[key] = { status: 'loading' };
     updateSitemapStatus();
-    state.backend.discover({ domain: site.domain, langPath: site.langPath }, { perSiteLimit: 0 }).then(function (r) {
+    state.backend.discover({ domain: site.domain, langPath: site.langPath, sitemap: site.sitemap || null }, { perSiteLimit: 0 }).then(function (r) {
       if (!r.urls.length) {
         var other = r.excluded && r.excluded.otherHost;
         throw new Error(r.error || ('the sitemap lists no pages on ' + site.domain + (other ? ' (' + other + ' URL' + (other === 1 ? ' is' : 's are') + ' on other hosts)' : '')));
@@ -988,11 +989,11 @@
   function sitemapStatusText(sm, result) {
     var a = result.audit && result.audit.sitemap;
     if (sm.status === 'pasted') return a ? 'Sitemap: pasted, ' + a.count + ' URLs' : 'Sitemap: pasted, but no URLs could be read from it';
-    if (sm.status === 'fetched') return a ? 'Sitemap: ' + sm.site.domain + ', ' + a.count + ' URLs, fetched automatically'
-      : 'Sitemap: ' + sm.site.domain + '\'s could not be read — paste it in the Page card';
-    if (sm.status === 'start' || sm.status === 'loading') return 'Sitemap: fetching ' + sm.site.domain + '\'s sitemap — link suggestions appear when it lands';
+    if (sm.status === 'fetched') return a ? 'Sitemap: ' + siteLabel(sm.site) + ', ' + a.count + ' URLs, fetched automatically'
+      : 'Sitemap: ' + siteLabel(sm.site) + '\'s could not be read — paste it in the Page card';
+    if (sm.status === 'start' || sm.status === 'loading') return 'Sitemap: fetching ' + siteLabel(sm.site) + '\'s sitemap — link suggestions appear when it lands';
     if (sm.status === 'off') return 'Sitemap: not read — link suggestions are off for this page';
-    if (sm.status === 'failed') return 'Sitemap: could not fetch ' + sm.site.domain + '\'s (' + sm.error + ') — paste it in the Page card for link suggestions';
+    if (sm.status === 'failed') return 'Sitemap: could not fetch ' + siteLabel(sm.site) + '\'s (' + sm.error + ') — paste it in the Page card for link suggestions';
     return 'Sitemap: none — link suggestions skipped. ' + (state.backend ? 'The page\'s market could not be determined, so its sitemap was not fetched; paste one in the Page card.' : 'Paste the site\'s sitemap in the Page card.');
   }
 
@@ -1069,7 +1070,10 @@
       '<p class="headline">' + esc(f.environment.label) + '</p>' +
       '<p class="sub">' + esc(f.environment.why) + '</p>' +
       factLine('Canonical', f.canonical ? esc(f.canonical) : '<i>none on the page</i>') +
-      factLine('TCM ID', tcm) +
+      (f.aemPath && !f.tcmId ? '' : factLine('TCM ID', tcm)) +
+      (f.aemPath ? factLine('AEM', esc(f.aemPath) +
+        ' · <a href="' + esc(f.aemUrl) + '" target="_blank" rel="noopener noreferrer">Open in AEM</a>' +
+        ' · <button type="button" class="btn-ghost qa-copy" data-copy="' + esc(f.aemPath) + '">Copy</button>') : '') +
       factLine('Market', f.market ? esc(f.market) : '<i>could not be determined</i>') +
       factLine('Language', lang) +
       formFactLine(f) +
@@ -1142,7 +1146,7 @@
     if (!site2) { toast('This page\'s site is not in the registry, so its sitemap cannot be fetched.'); renderQa(row.result, null, crawlRowOpts(row)); return; }
     var cached = state.sitemaps[siteKey(site2)];
     var get = cached && cached.status === 'ready' ? Promise.resolve(cached.urls)
-      : state.backend.discover({ domain: site2.domain, langPath: site2.langPath }, { perSiteLimit: 0 }).then(function (r) {
+      : state.backend.discover({ domain: site2.domain, langPath: site2.langPath, sitemap: site2.sitemap || null }, { perSiteLimit: 0 }).then(function (r) {
         if (!r.urls.length) throw new Error(r.error || 'the sitemap lists no pages on ' + site2.domain);
         keepSitemap(site2, r.urls);
         return r.urls;
@@ -1234,13 +1238,45 @@
     return lines.join('\n');
   }
 
-  // The FormAssembly forms on the page: which form, how it arrives, where it
-  // sits, and what its markup says when the markup is there to read.
-  var EMBED_LABEL = { 'aem-component': 'AEM form component', script: 'embed script', iframe: 'iframe', markup: 'form markup' };
+  // The forms on the page: which form, how it arrives, where it sits, and
+  // what its markup says when the markup is there to read. AEM's own forms
+  // are listed once per form path — the contact page repeats one form under
+  // many topics — with the market they post to and the lead fields they send.
+  var EMBED_LABEL = { 'aem-component': 'AEM form component', script: 'embed script', iframe: 'iframe', markup: 'form markup',
+    'aem-form': 'AEM form', other: 'unrecognised form' };
+  function aemFormLines(forms) {
+    var groups = [], byPath = {};
+    forms.forEach(function (fm) {
+      var g = byPath[fm.formPath];
+      if (!g) { g = byPath[fm.formPath] = { first: fm, topics: [] }; groups.push(g); }
+      if (fm.topic && g.topics.indexOf(fm.topic) === -1) g.topics.push(fm.topic);
+    });
+    return groups.map(function (g) {
+      var fm = g.first, yes = function (v) { return v == null ? null : v ? '✓' : '✗'; };
+      var bits = [
+        fm.businessType ? esc(fm.businessType) : null,
+        'koneCountry ' + (fm.koneCountry ? esc(fm.koneCountry) : '<i>none</i>'),
+        fm.aemSite ? 'site ' + esc(fm.aemSite) : '<i>no frontlines site in its action</i>',
+        fm.steps ? fm.steps + ' steps' : null,
+        yes(fm.captcha) ? 'reCAPTCHA v3 ' + yes(fm.captcha) : null,
+        yes(fm.submit) ? 'submit ' + yes(fm.submit) : null
+      ].filter(Boolean);
+      var topics = g.topics.length > 1 ? 'used under ' + g.topics.length + ' topics: ' + g.topics.map(esc).join(', ')
+        : g.topics.length ? '"' + esc(g.topics[0]) + '"' : esc(fm.where || '');
+      return '<span class="pill no-form">AEM</span> <span class="form-id">' + esc(fm.formPath) + '</span>' +
+        '<br><small>' + topics + '</small><br><small>' + bits.join(' · ') + '</small>';
+    });
+  }
   function formFactLine(f) {
     var forms = f.forms || [];
     if (!forms.length) return factLine('Forms', '<i>No forms found</i>');
-    return factLine(forms.length === 1 ? 'Form' : 'Forms', forms.map(function (fm) {
+    var aem = forms.filter(function (fm) { return fm.embed === 'aem-form'; });
+    var others = forms.filter(function (fm) { return fm.embed === 'other'; }).map(function (fm) {
+      return '<span class="pill amber">unrecognised form</span> posts to ' + esc(fm.action || 'this page') +
+        '<br><small>' + esc(fm.where || '') + '</small>';
+    });
+    var fa = forms.filter(function (fm) { return fm.embed !== 'aem-form' && fm.embed !== 'other'; });
+    return factLine(forms.length === 1 ? 'Form' : 'Forms', fa.map(function (fm) {
       var yes = function (v) { return v == null ? null : v ? '✓' : '✗'; };
       var bits = [
         fm.postHost ? 'posts to ' + esc(fm.postHost) : null,
@@ -1256,7 +1292,7 @@
         (bits.length ? '<br><small>' + bits.join(' · ') + '</small>' : '') +
         (!fm.rendered ? '<br><small>Injected by script when the page loads — its title, version, language, submit button and CAPTCHA ' +
           'are read when you paste the page\'s outerHTML from Inspect.</small>' : '');
-    }).join('<br>'));
+    }).concat(aemFormLines(aem), others).join('<br>'));
   }
 
   // What the backend saw fetching the page: the answer, where it ended up,
@@ -1594,20 +1630,24 @@
   function markets() {
     var countries = (state.sites && state.sites.countries) || {};
     return Object.keys(countries).map(function (name) {
-      return { name: name, domain: countries[name].domain, langPath: countries[name].langPath || null };
+      var c = countries[name];
+      return { name: name, domain: c.domain, langPath: c.langPath || null, sitemap: c.sitemap || null,
+        formerDomains: c.formerDomains || [] };
     });
   }
   function regions() { return (state.sites && state.sites.regions) || { areas: {}, frontlines: {} }; }
+  function groupCodes() { var r = regions(); return Object.keys(r.areas).concat(Object.keys(r.frontlines)); }
   function frontlineMarkets(fl) { return regions().frontlines[fl] || []; }
   function areaMarkets(area) {
     return (regions().areas[area] || []).reduce(function (all, fl) { return all.concat(frontlineMarkets(fl)); }, []);
   }
 
-  function chip(kind, value, label, list) {
+  function chip(kind, value, label, list, title) {
     var picked = list.filter(function (m) { return state.crawlPick[m]; }).length;
     var all = list.length && picked === list.length;
     return '<button type="button" class="chip' + (!all && picked ? ' some' : '') + '" data-pick="' + kind + '" data-value="' +
-      esc(value) + '" aria-pressed="' + all + '">' + esc(label) + '<span class="n">' + list.length + '</span></button>';
+      esc(value) + '" aria-pressed="' + all + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + esc(label) +
+      '<span class="n">' + list.length + '</span></button>';
   }
 
   function renderPicker() {
@@ -1615,9 +1655,12 @@
     var r = regions();
     el.crawlScope.innerHTML = chip('all', '', 'Every site', all) +
       '<button type="button" class="chip" data-pick="none" data-value="">Clear</button>';
-    el.crawlAreas.innerHTML = Object.keys(r.areas).map(function (a) { return chip('area', a, a, areaMarkets(a)); }).join('') ||
-      '<span class="hint">No areas in config/sites.json.</span>';
-    el.crawlFrontlines.innerHTML = Object.keys(r.frontlines).map(function (f) { return chip('frontline', f, f, frontlineMarkets(f)); }).join('') ||
+    el.crawlAreas.innerHTML = Object.keys(r.areas).map(function (a) {
+      return chip('area', a, a, areaMarkets(a), a + ' — ' + r.areas[a].join(', '));
+    }).join('') || '<span class="hint">No areas in config/sites.json.</span>';
+    el.crawlFrontlines.innerHTML = Object.keys(r.frontlines).map(function (f) {
+      return chip('frontline', f, f, frontlineMarkets(f), f + ' — ' + frontlineMarkets(f).join(', '));
+    }).join('') ||
       '<span class="hint">No frontlines in config/sites.json.</span>';
     el.crawlMarkets.innerHTML = markets().map(function (m) {
       return '<label><input type="checkbox" data-market="' + esc(m.name) + '"' + (state.crawlPick[m.name] ? ' checked' : '') + '>' +
@@ -1709,16 +1752,33 @@
   }
 
   // Which registry site a URL belongs to: by host, and by language path where
-  // a domain carries two languages.
+  // a domain carries more than one market or language — the longest
+  // langPath the URL sits under wins (kone.com/en-us is KONE US; a kone.com
+  // page under no registered path is no market's, the corporate site).
   function siteOfUrl(url) {
     var host = hostKey(url).replace(/^(www|preview(-[a-z]+)?)\./, '');
     var hits = markets().filter(function (m) { return m.domain === host; });
-    if (!hits.length) return null;
-    if (hits.length === 1) return { domain: host, langPath: hits[0].langPath };
-    var seg = '';
-    try { seg = new URL(url).pathname.split('/')[1] || ''; } catch (e) { /* no path */ }
-    var bySeg = hits.filter(function (m) { return m.langPath && m.langPath.toLowerCase() === seg.toLowerCase(); })[0];
-    return bySeg ? { domain: host, langPath: bySeg.langPath } : null;
+    if (!hits.length) {
+      // A page still on a domain its market has moved from (kone.in) is read
+      // against the market's current site.
+      var moved = markets().filter(function (m) { return m.formerDomains.indexOf(host) !== -1; })[0];
+      return moved ? siteOf(moved) : null;
+    }
+    var path = '';
+    try { path = new URL(url).pathname.toLowerCase().replace(/\.(aspx|html?)$/, '').replace(/\/+$/, ''); } catch (e) { /* no path */ }
+    var onPath = hits.filter(function (m) {
+      var p = m.langPath && '/' + String(m.langPath).replace(/^\/+|\/+$/g, '').toLowerCase();
+      return p && (path === p || path.indexOf(p + '/') === 0);
+    }).sort(function (a, b) { return b.langPath.length - a.langPath.length; })[0];
+    if (onPath) return siteOf(onPath);
+    var whole = hits.filter(function (m) { return !m.langPath; });
+    return whole.length === 1 ? siteOf(whole[0]) : null;
+  }
+  // What the backend needs to find a market's pages: its domain, its path,
+  // and its own sitemap when the registry names one.
+  function siteOf(m) { return { domain: m.domain, langPath: m.langPath || null, sitemap: m.sitemap || null }; }
+  function siteLabel(site, url) {
+    return site ? site.domain + (site.langPath ? '/' + site.langPath : '') : hostKey(url).replace(/^www\./, '');
   }
 
   // For a pasted URL list: each distinct site's sitemap, read once.
@@ -1733,7 +1793,7 @@
     crawl.phase = 'Reading sitemaps for link suggestions';
     renderCrawlSoon();
     return pool(list, function () { return 'discover'; }, function (site) {
-      return state.backend.discover({ domain: site.domain, langPath: site.langPath }, { perSiteLimit: 0 }).then(function (r) {
+      return state.backend.discover({ domain: site.domain, langPath: site.langPath, sitemap: site.sitemap || null }, { perSiteLimit: 0 }).then(function (r) {
         if (r.urls.length) keepSitemap(site, r.urls);
         else crawl.notes.push(site.domain + ' — no sitemap for link suggestions' + (r.error ? ': ' + r.error : ''));
       }, function (err) { crawl.notes.push(site.domain + ' — no sitemap for link suggestions: ' + err.message); });
@@ -1746,13 +1806,29 @@
     var full = crawl.useSitemap;
     var limit = crawlLimit();
     if (state.crawlSrc === 'list') {
-      var listed = window.BriefQA.parseUrlList(el.crawlUrls.value);
-      if (!listed.length) throw new Error('Paste at least one URL.');
+      var all = window.BriefQA.parseUrlList(el.crawlUrls.value, regions());
+      all.filter(function (x) { return x.invalid; }).forEach(function (x) {
+        crawl.notes.push('"' + x.invalid + '" skipped — not a URL or an area/frontline code (' + groupCodes().join(', ') + ').');
+      });
+      var listed = all.filter(function (x) { return x.url; });
+      // An area or frontline code crawls its markets as the KONE-sites picker
+      // would — sitemap, pages per site — beside the URLs listed.
+      var named = {};
+      all.forEach(function (x) { (x.markets || []).forEach(function (m) { named[m] = true; }); });
+      var groupMarkets = markets().filter(function (m) { return named[m.name]; });
+      if (!listed.length && !groupMarkets.length) throw new Error('Paste at least one URL, or an area or frontline code such as ITIB.');
       var urls = listed.map(function (x) { return x.url; });
       var items = listed.map(function (x) {
-        return { url: x.url, site: hostKey(x.url).replace(/^www\./, ''), sitemapSite: siteOfUrl(x.url), expectedFormId: x.expectedFormId };
+        var site = siteOfUrl(x.url);
+        return { url: x.url, site: siteLabel(site, x.url), sitemapSite: site, expectedFormId: x.expectedFormId };
       });
-      return (full ? readSitemapsFor(urls) : Promise.resolve()).then(function () { return items; });
+      return (full ? readSitemapsFor(urls) : Promise.resolve())
+        .then(function () { return groupMarkets.length ? discoverMarkets(groupMarkets) : []; })
+        .then(function (fromGroups) {
+          var seen = {};
+          items.forEach(function (w) { seen[w.url] = true; });
+          return items.concat(fromGroups.filter(function (w) { return !seen[w.url]; }));
+        });
     }
     if (state.crawlSrc === 'sitemap') {
       var sm = normaliseUrl(el.crawlSitemapUrl.value);
@@ -1766,17 +1842,25 @@
         if (r.available > taken.length) crawl.notes.push(taken.length + ' of ' + r.available + ' URLs taken (pages per site).');
         var site = r.urls.length ? siteOfUrl(r.urls[0]) : null;
         if (full && site) keepSitemap(site, r.urls);
-        return taken.map(function (u) { return { url: u, site: hostKey(u).replace(/^www\./, ''), sitemapSite: site }; });
+        return taken.map(function (u) { return { url: u, site: siteLabel(site, u), sitemapSite: site }; });
       });
     }
     var picked = markets().filter(function (m) { return state.crawlPick[m.name]; });
     if (!picked.length) throw new Error('Pick at least one site — a market, a frontline, an area, or every site.');
+    return discoverMarkets(picked);
+  }
+
+  // Each market's sitemap, read through the backend, cut to the worklist.
+  function discoverMarkets(picked) {
+    var crawl = state.crawl;
+    var full = crawl.useSitemap;
+    var limit = crawlLimit();
     var work = [], done = 0;
     var prefix = el.crawlPrefix.value.trim();
     crawl.phase = 'Reading sitemaps — 0 of ' + picked.length + ' sites';
     renderCrawlSoon();
     return pool(picked, function () { return 'discover'; }, function (m) {
-      var site = { domain: m.domain, langPath: m.langPath };
+      var site = siteOf(m);
       // With link suggestions on, the whole sitemap is read (no prefix, no
       // cap) and the worklist is cut from it here.
       var opts = full ? { perSiteLimit: 0 } : { perSiteLimit: limit, pathPrefix: prefix };
@@ -1917,7 +2001,7 @@
     ['unverified', 'Unverified', function (r) { return r.verdict === 'unverified' || r.verdict === 'refused'; }],
     ['breaks', 'To fix', function (r) { return r.breaks > 0; }],
     ['title', 'Title format', function (r) { return r.titleFormat === 'red' || r.titleFormat === 'amber'; }],
-    ['form', 'Form ID wrong', function (r) { return r.formId === 'differs' || r.formId === 'missing'; }],
+    ['form', 'Form ID wrong', function (r) { return r.formId === 'differs' || r.formId === 'missing' || r.formMarket === 'fix'; }],
     ['redirects', 'Redirects', function (r) { return r.loop || r.redirects > speedOf(r).maxRedirects; }],
     ['slow', 'Slow', function (r) { return isSlow(r); }],
     ['links', 'Broken links', function (r) { return r.brokenLinks > 0; }]
@@ -2006,7 +2090,7 @@
       if (r.verdict === 'ok') g.ok++; else if (r.verdict === 'dead') g.dead++; else g.unverified++;
       g.breaks += r.breaks; g.checks += r.checks;
       if (r.titleFormat === 'red' || r.titleFormat === 'amber') g.title++;
-      if (r.formId === 'differs' || r.formId === 'missing') g.form++;
+      if (r.formId === 'differs' || r.formId === 'missing' || r.formMarket === 'fix') g.form++;
     });
     var list = Object.keys(sites).sort().map(function (k) { return sites[k]; });
     if (list.length < 2) return '';
@@ -2021,6 +2105,7 @@
   }
 
   var FORM_LABEL = { matches: 'right', differs: 'wrong', missing: 'missing', 'not-checked': 'not checked', 'no-form': 'no form' };
+  var MARKET_PILL = { fix: ['red', 'fix'], check: ['amber', 'check'], pass: ['green', 'pass'], 'not-checked': ['not-checked', 'not checked'] };
 
   function renderCrawlTable(rows) {
     var crawl = state.crawl;
@@ -2036,8 +2121,13 @@
       var r = rows[i];
       var status = '<span class="pill ' + esc(r.verdict) + '">' + esc(r.status || r.verdict) + '</span>';
       var title = r.titleFormat ? '<span class="pill ' + esc(r.titleFormat) + '">' + esc(verdictWord(r.titleFormat)) + '</span>' : '';
-      var form = r.formId ? '<span class="pill ' + esc(r.formId) + '">' + esc(FORM_LABEL[r.formId] || r.formId) + '</span>' +
-        (r.formIdFound ? ' ' + esc(r.formIdFound) : '') : '';
+      var mp = MARKET_PILL[r.formMarket];
+      var form = r.formId === 'aem'
+        ? '<span title="' + esc(r.formIdFound || '') + '">AEM ×' + r.aemForms + '</span>' +
+          (mp ? ' <span class="pill ' + mp[0] + '" title="Form market">' + mp[1] + '</span>' : '')
+        : r.formId ? '<span class="pill ' + esc(r.formId) + '">' + esc(FORM_LABEL[r.formId] || r.formId) + '</span>' +
+          (r.formIdFound ? ' ' + esc(r.formIdFound) : '') +
+          (mp ? ' <span class="pill ' + mp[0] + '" title="Form market (AEM forms)">' + mp[1] + '</span>' : '') : '';
       var detail = r.result ? '' : '<br><small>' + esc(capital(r.reason || '')) + '</small>';
       var speed = speedOf(r);
       var redir = r.loop ? '<span class="pill red">loop</span>'
@@ -2051,12 +2141,13 @@
         '<td>' + title + '</td><td>' + form + '</td>' +
         '<td class="num">' + (r.result ? r.breaks : '') + '</td><td class="num">' + (r.result ? r.checks : '') + '</td>' +
         (crawl.links ? '<td class="num">' + (r.brokenLinks || '') + '</td>' : '') +
-        '<td>' + (r.tcmId ? esc(r.tcmId) : '') + '</td></tr>';
+        '<td>' + (r.tcmId ? esc(r.tcmId) : r.aem ? '<a href="' + esc(r.aem) + '" target="_blank" rel="noopener noreferrer" title="' +
+          esc(r.aemPath) + '">Open in AEM</a>' : '') + '</td></tr>';
     }).join('');
     return '<section class="card"><h3>Pages — ' + shown.length + '</h3><div class="filters">' + chips + '</div>' +
       '<div class="table-wrap"><table class="crawl"><thead><tr><th>Page</th><th>Status</th><th>Redirects</th><th>TTFB / load</th>' +
       '<th>Title</th><th>Form ID</th>' +
-      '<th>To fix</th><th>To check</th>' + (crawl.links ? '<th>Broken links</th>' : '') + '<th>TCM ID</th></tr></thead><tbody>' +
+      '<th>To fix</th><th>To check</th>' + (crawl.links ? '<th>Broken links</th>' : '') + '<th>TCM ID / AEM</th></tr></thead><tbody>' +
       (body || '<tr><td colspan="10"><i>No pages match this filter.</i></td></tr>') + '</tbody></table></div>' +
       '<div class="input-actions"><button type="button" class="btn-ghost" id="crawl-csv">Export CSV</button></div>' +
       '<p class="caution">Click a page for its full report. The export carries CME edit links — keep it within the team.</p></section>';
@@ -2122,6 +2213,15 @@
     return function (r) { return (r.forms || []).map(function (f) { var v = read(f); return v == null ? '' : v; }).join(' | '); };
   }
 
+  // One CSV cell for a field's distinct values across the page's forms.
+  function distinctCol(read) {
+    return function (r) {
+      var out = [];
+      (r.forms || []).forEach(function (f) { var v = read(f); if (v != null && v !== '' && out.indexOf(v) === -1) out.push(v); });
+      return out.join(' | ');
+    };
+  }
+
   function exportCrawlCsv() {
     var crawl = state.crawl;
     if (!crawl || !crawl.rows.length) return;
@@ -2130,6 +2230,15 @@
       ['TTFB (ms)', 'ttfbMs'], ['Load time (ms)', 'loadMs'], ['Size (bytes)', 'bytes'],
       ['Site', 'site'], ['Market', 'market'], ['Title', 'title'], ['Title format', 'titleFormat'], ['Form ID', 'formId'],
       ['Form ID found', 'formIdFound'], ['Expected form ID', 'expectedFormId'],
+      ['Form provider', function (r) {
+        return (r.forms || []).map(function (f) { return f.provider || 'unrecognised'; })
+          .filter(function (v, i, all) { return all.indexOf(v) === i; }).join(' | ');
+      }],
+      ['Form market', 'formMarket'],
+      ['AEM form paths', distinctCol(function (f) { return f.formPath; })],
+      ['AEM site', distinctCol(function (f) { return f.aemSite; })],
+      ['koneCountry', distinctCol(function (f) { return f.embed === 'aem-form' ? f.koneCountry || 'none' : null; })],
+      ['Business types', distinctCol(function (f) { return f.businessType; })],
       ['Embed', formCol(function (f) { return EMBED_LABEL[f.embed] || f.embed; })],
       ['Form ID source', formCol(function (f) { return f.idSource; })],
       ['Post host', formCol(function (f) { return f.postHost; })], ['Form version', formCol(function (f) { return f.version; })],
@@ -2138,7 +2247,8 @@
       ['Submit button', formCol(function (f) { return f.submit == null ? 'not read' : f.submit ? 'yes' : 'no'; })],
       ['CAPTCHA', formCol(function (f) { return f.captcha == null ? 'not read' : f.captcha ? 'yes' : 'no'; })],
       ['To fix', 'breaks'], ['To check', 'checks'], ['Known template issues', 'known'],
-      ['Broken links', 'brokenLinks'], ['TCM ID', 'tcmId'], ['Open in CME', 'cme']];
+      ['Broken links', 'brokenLinks'], ['TCM ID', 'tcmId'], ['Open in CME', 'cme'],
+      ['AEM path', 'aemPath'], ['Open in AEM', 'aem']];
     var lines = [cols.map(function (c) { return csvCell(c[0]); }).join(',')].concat(crawl.rows.map(function (r) {
       return cols.map(function (c) {
         return csvCell(typeof c[1] === 'function' ? c[1](r) : c[1] === 'titleFormat' && r.titleFormat ? verdictWord(r.titleFormat) : r[c[1]]);

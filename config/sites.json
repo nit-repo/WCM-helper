@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "The KONE site registry: one entry per country site (or language variant of one). domain and langPath identify a page's market — kone.be, kone.ch and kone.ca carry two languages each and are told apart by the first path segment; a preview host (preview.kone.es) resolves to the same market as its live one. formAssemblyId is the FormAssembly form every page on that site is expected to carry (read from the page's 'var digitalData' script); a market with no formAssemblyId is not form-checked. siteNames are the confirmed 'KONE <name>' site names a page title may end in, in the market's own spelling — a title ending in one scores green. siteNamesDraft are unconfirmed spellings: a title using one scores amber, never red, until it is moved into siteNames. pageOverrides lets a campaign/landing page carry its own form id; match is a path prefix.",
+  "note": "The KONE site registry: one entry per country site (or language variant of one). domain and langPath identify a page's market — kone.be, kone.ch and kone.ca carry two languages each, told apart by langPath, and a market can live under a path on a shared domain (United States is kone.com + en-us and India kone.com + en-in, beside the corporate site) — a page belongs to the entry whose langPath its path starts with, longest first, and a kone.com page under no registered path belongs to no market; a preview host (preview.kone.es) resolves to the same market as its live one. formAssemblyId is the FormAssembly form every page on that site is expected to carry (read from the page's 'var digitalData' script); a market with no formAssemblyId is not form-checked. siteNames are the confirmed 'KONE <name>' site names a page title may end in, in the market's own spelling — a title ending in one scores green. siteNamesDraft are unconfirmed spellings: a title using one scores amber, never red, until it is moved into siteNames. pageOverrides lets a campaign/landing page carry its own form id; match is a path prefix. aemSite (e.g. \"us/en\") is the market's AEM content root under /content/experience-fragments/frontlines/ — every AEM form on its pages must post there — and koneCountry the value its AEM forms' hidden koneCountry field must carry. corporateTitle false means a '| KONE Corporation' title is not accepted on that market's pages. sitemap is the market's own sitemap URL, read first when its pages are discovered (a market under a path keeps its sitemap there — the root sitemap of a shared domain is another site's). formerDomains are domains a market has moved from (India from kone.in): their pages still resolve to the market, and their links are still checked, but crawls use the current domain. aemContentRoot is the market's page tree in AEM author (US: /content/frontlines/us-temp/en — not the published /content/frontlines/us/en), from which each page's 'Open in AEM' link is built: the page path after langPath, without .html, appended to it. titleSeparator, when set, is the only separator accepted before the site name (US: 'Page name | KONE US').",
   "countries": {
     "Germany": {
       "domain": "kone.de",
@@ -200,13 +200,19 @@
       ]
     },
     "United States": {
-      "domain": "kone.us",
+      "domain": "kone.com",
+      "langPath": "en-us",
+      "sitemap": "https://www.kone.com/en-us/sitemap.xml",
+      "aemContentRoot": "/content/frontlines/us-temp/en",
       "formAssemblyId": "1488",
-      "siteNames": [],
-      "siteNamesDraft": [
-        "USA",
-        "United States"
-      ]
+      "aemSite": "us/en",
+      "koneCountry": "USA",
+      "corporateTitle": false,
+      "titleSeparator": "|",
+      "siteNames": [
+        "US"
+      ],
+      "siteNamesDraft": []
     },
     "Canada (EN)": {
       "domain": "kone.ca",
@@ -227,8 +233,17 @@
       ]
     },
     "India": {
-      "domain": "kone.in",
+      "domain": "kone.com",
+      "langPath": "en-in",
+      "sitemap": "https://www.kone.com/en-in/sitemap.xml",
+      "aemContentRoot": "/content/frontlines/in-temp/en",
+      "formerDomains": [
+        "kone.in"
+      ],
       "formAssemblyId": "1490",
+      "aemSite": "in/en",
+      "koneCountry": "India",
+      "corporateTitle": false,
       "siteNames": [
         "India"
       ],
@@ -394,32 +409,50 @@
         "Slovenija"
       ],
       "siteNamesDraft": []
+    },
+    "Australia": {
+      "domain": "kone.com.au",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "Australia"
+      ]
+    },
+    "New Zealand": {
+      "domain": "kone.co.nz",
+      "siteNames": [],
+      "siteNamesDraft": [
+        "New Zealand"
+      ]
     }
   },
   "regions": {
-    "draft": true,
-    "note": "Areas and frontlines group the markets for the crawl picker in QA. DRAFTED from the order of the form-ID list, not from an official KONE org chart — correct the names and memberships here, then set draft to false. Every market belongs to exactly one frontline, every frontline to exactly one area.",
+    "draft": false,
+    "note": "Areas and frontlines group the markets for the crawl picker, using KONE's own codes (confirmed by the team, 2026-10-27). Every market belongs to exactly one frontline, every frontline to exactly one area. The codes can also be typed into a crawl URL list (a line reading ITIB crawls Italy, Spain and Portugal).",
     "areas": {
-      "Europe": [
-        "Central Europe",
-        "West Europe",
-        "South Europe",
-        "North Europe"
+      "EU": [
+        "ITIB",
+        "EEM",
+        "GIN",
+        "NORD",
+        "FBL"
       ],
-      "Middle East & Africa": [
-        "Middle East",
-        "Africa"
+      "APM": [
+        "KANZ",
+        "KMTA",
+        "KSEA",
+        "KEI"
       ],
-      "Americas": [
-        "North America"
-      ],
-      "Asia-Pacific": [
-        "India",
-        "Southeast Asia"
+      "AME": [
+        "USCA"
       ]
     },
     "frontlines": {
-      "Central Europe": [
+      "ITIB": [
+        "Italy",
+        "Spain",
+        "Portugal"
+      ],
+      "EEM": [
         "Germany",
         "Austria",
         "Switzerland (DE)",
@@ -429,38 +462,31 @@
         "Slovakia",
         "Slovenia"
       ],
-      "West Europe": [
-        "France",
-        "Belgium (FR)",
-        "Belgium (NL)",
+      "GIN": [
         "Great Britain",
         "Ireland",
         "Netherlands"
       ],
-      "South Europe": [
-        "Spain",
-        "Portugal",
-        "Italy"
-      ],
-      "North Europe": [
-        "Sweden",
+      "NORD": [
         "Finland",
-        "Denmark",
+        "Sweden",
         "Norway",
+        "Denmark",
+        "Iceland",
         "Estonia",
         "Latvia",
-        "Lithuania",
-        "Iceland"
+        "Lithuania"
       ],
-      "North America": [
-        "United States",
-        "Canada (EN)",
-        "Canada (FR)"
+      "FBL": [
+        "France",
+        "Belgium (FR)",
+        "Belgium (NL)"
       ],
-      "India": [
-        "India"
+      "KANZ": [
+        "Australia",
+        "New Zealand"
       ],
-      "Middle East": [
+      "KMTA": [
         "UAE",
         "Bahrain",
         "Egypt",
@@ -468,22 +494,28 @@
         "Oman",
         "Qatar",
         "Saudi Arabia",
-        "Turkey"
-      ],
-      "Africa": [
+        "Turkey",
         "Kenya",
         "Morocco",
         "South Africa",
         "Tunisia",
         "Uganda"
       ],
-      "Southeast Asia": [
+      "KSEA": [
         "Singapore",
         "Indonesia",
         "Vietnam",
         "Malaysia",
         "Thailand",
         "Philippines"
+      ],
+      "KEI": [
+        "India"
+      ],
+      "USCA": [
+        "United States",
+        "Canada (EN)",
+        "Canada (FR)"
       ]
     }
   },

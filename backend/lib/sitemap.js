@@ -168,35 +168,80 @@ function createSitemaps(fetcher, options) {
       });
     }
 
+    // Where a site keeps its sitemap. A market under a path on a shared
+    // domain keeps its own under that path (kone.com/en-us/sitemap.xml) — the
+    // root robots.txt and sitemap there are the corporate site's — so those
+    // are read first: the registry's own sitemap URL, <langPath>/sitemap.xml,
+    // and any robots.txt sitemap under the path. Only when they give no page
+    // under the path does the root sitemap get read, as for a whole domain.
+    function onDomain(u) {
+      try {
+        var x = new URL(u);
+        return /^https?:$/.test(x.protocol) && bareHost(x.hostname) === domain;
+      } catch (e) { return false; }
+    }
+    function pathOf(u) { try { return new URL(u).pathname; } catch (e) { return ''; } }
+
     return robotsFrom(0).then(function (found) {
       if (found && found.refused) { result.error = found.refused; return result; }
       var robots = found ? found.robots : { sitemaps: [], rules: [] };
       result.host = found ? found.host : 'www.' + domain;
-      var start = robots.sitemaps.length ? robots.sitemaps
+      var root = robots.sitemaps.length ? robots.sitemaps
         : found ? [originOf(result.host) + '/sitemap.xml']
         : hosts.map(function (h) { return originOf(h) + '/sitemap.xml'; });
-      return walk(start).then(function (w) {
-        result.sitemaps = w.read;
-        result.partial = w.partial;
-        if (!w.read.length) {
-          result.error = 'no sitemap could be read' + (w.failed.length ? ' — ' + w.failed[0].url + ': ' + w.failed[0].reason : '');
-          return result;
-        }
-        var kept = [];
+      var own = [];
+      function add(u) { if (u && own.indexOf(u) === -1) own.push(u); }
+      if (site && site.sitemap && onDomain(site.sitemap)) add(String(site.sitemap).trim());
+      if (langPath) {
+        add(originOf(result.host) + '/' + langPath.replace(/^\/+|\/+$/g, '') + '/sitemap.xml');
+        robots.sitemaps.forEach(function (u) { if (underPath(pathOf(u), langPath)) add(u); });
+      }
+      var tried = [];
+      function keep(w) {
+        var kept = [], excluded = { robots: 0, otherHost: 0, outsidePath: 0 };
         w.urls.forEach(function (u) {
           var url;
-          try { url = new URL(u); } catch (e) { result.excluded.otherHost++; return; }
-          if (bareHost(url.hostname) !== domain) { result.excluded.otherHost++; return; }
+          try { url = new URL(u); } catch (e) { excluded.otherHost++; return; }
+          if (bareHost(url.hostname) !== domain) { excluded.otherHost++; return; }
           if (!underPath(url.pathname, langPath) || !withinPrefix(url.pathname, langPath, opts.pathPrefix)) {
-            result.excluded.outsidePath++;
+            excluded.outsidePath++;
             return;
           }
-          if (!robotsAllows(url.pathname + url.search, robots.rules)) { result.excluded.robots++; return; }
+          if (!robotsAllows(url.pathname + url.search, robots.rules)) { excluded.robots++; return; }
           kept.push(url.href);
         });
-        result.available = kept.length;
-        result.urls = limit ? kept.slice(0, limit) : kept;
+        return { kept: kept, excluded: excluded };
+      }
+      function finish(w, k) {
+        result.sitemaps = w.read;
+        result.partial = w.partial;
+        result.excluded = k.excluded;
+        result.available = k.kept.length;
+        result.urls = limit ? k.kept.slice(0, limit) : k.kept;
         return result;
+      }
+      function fail() {
+        result.error = 'no sitemap could be read — tried ' + tried.map(function (f) { return f.url + ' (' + f.reason + ')'; }).join(', ');
+        return result;
+      }
+      // Whether the site's own sitemaps listed any page of the site — under
+      // the path, before the prefix and robots.txt narrow it.
+      function anyUnderPath(w) {
+        return w.urls.some(function (u) { return onDomain(u) && underPath(pathOf(u), langPath); });
+      }
+      var first = own.length ? walk(own) : Promise.resolve(null);
+      return first.then(function (w) {
+        if (w) {
+          tried = tried.concat(w.failed);
+          if (w.read.length && anyUnderPath(w)) return finish(w, keep(w));
+        }
+        var rest = root.filter(function (u) { return own.indexOf(u) === -1; });
+        if (!rest.length) return w && w.read.length ? finish(w, keep(w)) : fail();
+        return walk(rest).then(function (w2) {
+          tried = tried.concat(w2.failed);
+          if (!w2.read.length) return w && w.read.length ? finish(w, keep(w)) : fail();
+          return finish(w2, keep(w2));
+        });
       });
     });
   }

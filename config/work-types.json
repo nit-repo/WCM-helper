@@ -83,7 +83,7 @@
   },
 
   "qa": {
-    "note": "QA reads a page on its own, no brief. internalHosts are host fragments that must never appear in a live page's links or resources (a preview build legitimately links to them, and QA says so instead of flagging each). genericLinkText is link text that says nothing about its destination, per market language — matched on the whole label, case-insensitively. cme builds the 'open in CME' links from the page's pagetcmid; {id} is replaced with the TCM ID.",
+    "note": "QA reads a page on its own, no brief. internalHosts are host fragments that must never appear in a live page's links or resources (a preview build legitimately links to them, and QA says so instead of flagging each). genericLinkText is link text that says nothing about its destination, per market language — matched on the whole label, case-insensitively. cme builds the 'open in CME' links from the page's pagetcmid; {id} is replaced with the TCM ID. aem builds the 'Open in AEM' link for an AEM page; {path} is replaced with the page's author path, from its market's aemContentRoot in sites.json.",
     "internalHosts": ["preview.kone", "preview-training.kone", "web-cms.kone.com", "staging", "-dev.", "localhost", "127.0.0.1"],
     "genericLinkText": ["click here", "here", "read more", "more", "learn more", "find out more", "this link", "link",
       "clicca qui", "qui", "leggi di più", "scopri di più", "scopri",
@@ -94,6 +94,9 @@
     "cme": {
       "newUi": "https://web-cms.kone.com/ui/editor/page?activeItem={id}&item={id}&tab=general.constraints",
       "oldUi": "https://web-cms.kone.com/WebUI/item.aspx?tcm=64#id={id}"
+    },
+    "aem": {
+      "sites": "https://author-p156420-e1658594.adobeaemcloud.com/ui#/aem/sites.html{path}"
     }
   },
 

@@ -2023,5 +2023,165 @@ test('149. compare() carries the Form Assembly ID as its own sixth category', fu
   assert.strictEqual(formIdCat.rows[0].found, '758');
 });
 
+// ─── KONE US ON kone.com/en-us (AEM) ───────────────────────────────────────
+// The real KONE US contact page, kone.com/en-us/contact.html, pasted by the
+// team on 2026-10-27 and trimmed (see the fixture's header). Markets are read
+// from the real config/sites.json.
+var SITES = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'sites.json'), 'utf8'));
+var registry = BriefCompare.create({ 'work-types': config['work-types'], sites: SITES });
+var US_CONTACT = fs.readFileSync(path.join(__dirname, 'fixtures', 'kone-com-en-us-contact.html'), 'utf8');
+function marketAt(url, cmp) {
+  var m = (cmp || registry).marketOf(null, { canonical: url });
+  return m ? (m.ambiguous ? 'ambiguous ' + m.base : m.name) : null;
+}
+
+test('150. a market can live under a path on a shared domain: kone.com/en-us is KONE US, kone.com/global is no market', function () {
+  assert.strictEqual(marketAt('https://www.kone.com/en-us.html'), 'United States', 'the home page, /en-us.html');
+  assert.strictEqual(marketAt('https://www.kone.com/en-us/contact.html'), 'United States');
+  assert.strictEqual(marketAt('https://preview.kone.com/en-us/contact.html'), 'United States', 'a preview host is the same market');
+  assert.strictEqual(marketAt('https://www.kone.com/global/en.html'), null, 'the corporate site is not KONE US');
+  assert.strictEqual(marketAt('https://www.kone.com/'), null);
+  assert.strictEqual(marketAt('https://www.kone.com/en-usa/contact.html'), null, 'whole path segments only');
+  assert.strictEqual(marketAt('https://www.kone.com/en-us/contact.html', comparer), 'United States', 'the in-code registry mirror agrees');
+  assert.strictEqual(marketAt('https://www.kone.us/'), null, 'kone.us is retired');
+  var f = registry.formIdFinding(null, registry.readPage(pageWith('https://www.kone.com/en-us/contact/', DIGITALDATA_SCRIPT.replace('"758"', '"1491"'))));
+  assert.strictEqual(f.country, 'United States');
+  assert.strictEqual(f.expected, '1488', 'a FormAssembly page on KONE US is still held to 1488');
+});
+
+test('151. shared language domains keep their rule: kone.be /fr and /nl, ambiguous without one; a multi-segment langPath matches, longest first', function () {
+  assert.strictEqual(marketAt('https://www.kone.be/fr/contact/'), 'Belgium (FR)');
+  assert.strictEqual(marketAt('https://www.kone.be/nl/contact/'), 'Belgium (NL)');
+  assert.strictEqual(marketAt('https://www.kone.be/de/contact/'), 'ambiguous Belgium');
+  assert.strictEqual(marketAt('https://www.kone.ae/contact/'), 'UAE');
+  // Synthetic: kone.com's language selector lists /au/de and /be/nl paths.
+  var cfg = { countries: {
+    'Corporate test': { domain: 'kone.com', langPath: 'au' },
+    'Austria (DE) test': { domain: 'kone.com', langPath: 'au/de' }
+  } };
+  var c = BriefCompare.create({ 'work-types': config['work-types'], sites: cfg });
+  assert.strictEqual(marketAt('https://www.kone.com/au/de/kontakt.html', c), 'Austria (DE) test');
+  assert.strictEqual(marketAt('https://www.kone.com/au/en.html', c), 'Corporate test');
+  assert.strictEqual(marketAt('https://www.kone.com/global/en.html', c), null, 'different markets on one domain: no guess');
+});
+
+test('152. the real KONE US contact page: four AEM forms read by path, market, lead fields and topic — the header search form is not one', function () {
+  var forms = registry.forms(US_CONTACT);
+  assert.deepStrictEqual(forms.map(function (f) { return f.embed; }), ['aem-form', 'aem-form', 'aem-form', 'aem-form']);
+  assert.deepStrictEqual(forms.map(function (f) { return f.formPath; }), [
+    'sales-form-with-sfdc/sales-master', 'sales-form-with-sfdc/sales-form-master---mod-trb',
+    'customer-service-master-variation/master', 'customer-service-master-variation-2/master']);
+  assert.deepStrictEqual(forms.map(function (f) { return f.topic; }), [
+    'Adding new equipment to an existing building', 'Upgrading or replacing equipment in an existing building',
+    'Customer service › Maintenance services', 'Customer service › Content on this website']);
+  var sales = forms[0];
+  assert.deepStrictEqual([sales.provider, sales.formId, sales.idSource, sales.aemSite], ['AEM', 'sales-form-with-sfdc/sales-master', 'AEM form path', 'us/en']);
+  assert.deepStrictEqual([sales.koneCountry, sales.businessType, sales.leadSource, sales.sourceIdentifier, sales.recordTypeId],
+    ['USA', 'Modernization (FRB)', 'Web', 'AEM Web', '012200000000DYMAA2']);
+  assert.deepStrictEqual([sales.errorRedirect, sales.captcha, sales.submit, sales.steps, sales.method, sales.formElementId],
+    ['https://www.kone.com/en-us/500', true, true, 3, 'post', 'new_form']);
+  assert.strictEqual(forms[1].businessType, 'Modernization (TRB)');
+  assert.deepStrictEqual(forms.slice(2).map(function (f) { return [f.koneCountry, f.businessType, f.honeypot]; }),
+    [[null, null, true], [null, null, false]], 'the customer-service forms carry no koneCountry');
+  assert.deepStrictEqual(forms.map(function (f) { return f.emptyLegends; }), [1, 1, 2, 2]);
+  assert.deepStrictEqual(forms.map(function (f) { return f.unlabelled; }), [[], [], [], []]);
+});
+
+test('153. AEM-only page: the Form Assembly ID row says AEM forms, 1488 not applicable — no fix, no "no digitalData"', function () {
+  var f = registry.formIdFinding(null, registry.readPage(US_CONTACT));
+  assert.strictEqual(f.severity, null);
+  assert.strictEqual(f.row.state, 'aem');
+  assert.strictEqual(f.row.stateLabel, 'FormAssembly 1488 not applicable');
+  assert.ok(/^AEM forms \(4\): sales-form-with-sfdc\/sales-master, /.test(f.row.found), f.row.found);
+  // A crawl list naming the form by path: present passes, absent is a fix.
+  var page = registry.readPage(US_CONTACT);
+  assert.strictEqual(registry.formIdFinding(null, page, { expectedFormId: 'customer-service-master-variation-2/master' }).severity, null);
+  var miss = registry.formIdFinding(null, page, { expectedFormId: 'sales-form-with-sfdc9/sales-master' });
+  assert.strictEqual(miss.severity, 'break');
+  assert.ok(/AEM form sales-form-with-sfdc9\/sales-master was expected on this URL/.test(miss.note));
+  var num = registry.formIdFinding(null, page, { expectedFormId: '1488' });
+  assert.strictEqual(num.severity, 'break');
+  assert.ok(/carries AEM forms only/.test(num.note), num.note);
+});
+
+test('154. Form market on the real page: every form posts to frontlines/us/en; the two without koneCountry are one check', function () {
+  var m = registry.aemMarketFinding(null, registry.readPage(US_CONTACT));
+  assert.strictEqual(m.checked, true);
+  assert.strictEqual(m.row.state, 'matches');
+  assert.strictEqual(m.row.expected, 'frontlines/us/en · koneCountry USA');
+  assert.deepStrictEqual(m.findings.map(function (f) { return f.severity; }), ['check']);
+  assert.ok(/^customer-service-master-variation\/master and customer-service-master-variation-2\/master carry no koneCountry — confirm their leads route to United States/.test(m.findings[0].note), m.findings[0].note);
+  assert.strictEqual(registry.aemMarketFinding(null, registry.readPage(pageWith('https://www.kone.com/en-us/x/'))), null, 'no AEM forms, no finding');
+});
+
+test('155. Form market (synthetic edits of the real page): another market\'s form, another koneCountry, two sites on one page, no market', function () {
+  var firstAction = '/content/experience-fragments/frontlines/us/en/forms/sales-form-with-sfdc/sales-master/';
+  var ae = US_CONTACT.replace(firstAction, firstAction.replace('/us/en/', '/ae/en/'));
+  var m = registry.aemMarketFinding(null, registry.readPage(ae));
+  var breaks = m.findings.filter(function (f) { return f.severity === 'break'; }).map(function (f) { return f.note; });
+  assert.ok(breaks.some(function (n) { return /more than one market's AEM site/.test(n); }), 'two sites on one page');
+  assert.ok(breaks.some(function (n) {
+    return n === 'form sales-form-with-sfdc/sales-master posts to frontlines/ae/en — another market\'s form — on a United States page (expected frontlines/us/en)';
+  }), breaks.join(' / '));
+  assert.strictEqual(m.row.state, 'differs');
+  var uae = US_CONTACT.replace('name="koneCountry" type="hidden" value="USA"', 'name="koneCountry" type="hidden" value="UAE"');
+  var k = registry.aemMarketFinding(null, registry.readPage(uae));
+  assert.ok(k.findings.some(function (f) { return f.severity === 'break' && /sends koneCountry UAE; United States leads need USA/.test(f.note); }));
+  // Moved to a domain with no market: nothing graded but the forms' disagreement.
+  var nowhere = US_CONTACT.replace(/https:\/\/www\.kone\.com\/en-us\/contact\.html/g, 'https://www.example.com/contact.html');
+  var n = registry.aemMarketFinding(null, registry.readPage(nowhere));
+  assert.strictEqual(n.checked, false);
+  assert.strictEqual(n.row.state, 'not-checked');
+  assert.deepStrictEqual(n.findings, []);
+  // UAE has no aemSite configured yet.
+  var onAe = US_CONTACT.replace(/https:\/\/www\.kone\.com\/en-us\/contact\.html/g, 'https://www.kone.ae/contact.html');
+  assert.ok(/no AEM site is configured for UAE/.test(registry.aemMarketFinding(null, registry.readPage(onAe)).note));
+});
+
+test('156. any other form that posts is reported as unrecognised; a GET search form is not a form', function () {
+  var page = '<html><body><form action="/en-us/search-results.html" method="get"><input name="q"></form>' +
+    '<form action="https://forms.example.com/submit" method="post"><label for="e">Email</label><input id="e" name="email"></form></body></html>';
+  var forms = registry.forms(page);
+  assert.strictEqual(forms.length, 1);
+  assert.deepStrictEqual([forms[0].embed, forms[0].provider, forms[0].postHost, forms[0].formId], ['other', null, 'forms.example.com', null]);
+  var f = registry.formIdFinding(null, registry.readPage(pageWith('https://www.kone.ae/c/') ), {});
+  assert.strictEqual(f.row.state, 'no-form');
+});
+
+test('157. KONE India has moved to kone.com/en-in: its pages are India, old kone.in pages still are, and its sitemap is in the registry', function () {
+  assert.strictEqual(marketAt('https://www.kone.com/en-in.html'), 'India');
+  assert.strictEqual(marketAt('https://www.kone.com/en-in/contact.html'), 'India');
+  assert.strictEqual(marketAt('https://www.kone.in/existing-buildings/'), 'India', 'a page still on kone.in');
+  assert.strictEqual(marketAt('https://www.kone.com/en-in/contact.html', comparer), 'India', 'the in-code registry mirror agrees');
+  var f = registry.formIdFinding(null, registry.readPage(pageWith('https://www.kone.com/en-in/contact/', DIGITALDATA_SCRIPT.replace('"758"', '"1490"'))));
+  assert.deepStrictEqual([f.country, f.expected, f.severity], ['India', '1490', null]);
+  var india = SITES.countries.India;
+  assert.deepStrictEqual([india.domain, india.langPath, india.sitemap, india.formerDomains, india.aemSite, india.koneCountry, india.corporateTitle],
+    ['kone.com', 'en-in', 'https://www.kone.com/en-in/sitemap.xml', ['kone.in'], 'in/en', 'India', false]);
+  assert.strictEqual(SITES.countries['United States'].sitemap, 'https://www.kone.com/en-us/sitemap.xml');
+});
+
+test('158. Form market on India (synthetic: the real US contact page moved to /en-in, its forms to frontlines/in/en and koneCountry India)', function () {
+  var html = US_CONTACT.replace(/https:\/\/www\.kone\.com\/en-us\/contact\.html/g, 'https://www.kone.com/en-in/contact.html')
+    .replace(/frontlines\/us\/en/g, 'frontlines/in/en').replace(/name="koneCountry" type="hidden" value="USA"/g, 'name="koneCountry" type="hidden" value="India"');
+  var m = registry.aemMarketFinding(null, registry.readPage(html));
+  assert.strictEqual(m.row.expected, 'frontlines/in/en · koneCountry India');
+  assert.deepStrictEqual(m.findings.map(function (f) { return f.severity; }), ['check'], 'only the missing koneCountry');
+  // The US page's forms on an India page belong to another market.
+  var usForms = US_CONTACT.replace(/https:\/\/www\.kone\.com\/en-us\/contact\.html/g, 'https://www.kone.com/en-in/contact.html');
+  var u = registry.aemMarketFinding(null, registry.readPage(usForms));
+  assert.ok(u.findings.some(function (f) { return f.severity === 'break' && /posts to frontlines\/us\/en — another market's form — on a India page/.test(f.note); }));
+  assert.ok(u.findings.some(function (f) { return /sends koneCountry USA; India leads need India/.test(f.note); }));
+});
+
+test('159. US titles end " | KONE US"; US and India pages open in AEM author under their -temp trees', function () {
+  var us = SITES.countries['United States'], india = SITES.countries.India;
+  assert.deepStrictEqual([us.siteNames, us.siteNamesDraft, us.titleSeparator, us.aemContentRoot],
+    [['US'], [], '|', '/content/frontlines/us-temp/en']);
+  assert.strictEqual(india.aemContentRoot, '/content/frontlines/in-temp/en');
+  var m = registry.marketOf(null, { canonical: 'https://www.kone.com/en-us/contact.html' });
+  assert.deepStrictEqual([m.aemContentRoot, m.titleSeparator], ['/content/frontlines/us-temp/en', '|']);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

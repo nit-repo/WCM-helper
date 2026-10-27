@@ -798,7 +798,12 @@ test('86. rendered FormAssembly markup (synthetic, from the team\'s 752 example)
   assert.strictEqual(f.title, 'Contact us & get a quote');
   assert.deepStrictEqual([f.language, f.localization, f.submit, f.captcha], ['en_GB', 'en_GB', true, true]);
   assert.strictEqual(formRow(r).state, 'matches');
-  assert.ok(!cat(r, 'structure').deviations.some(function (x) { return /Form/.test(x.field); }));
+  assert.ok(!cat(r, 'structure').deviations.some(function (x) { return /Form/.test(x.field) && x.field !== 'Form accessibility'; }));
+  // The example's one visible field, tfa_1, has no <label> — a screen reader reads it out unnamed.
+  var acc = cat(r, 'structure').deviations.filter(function (x) { return x.field === 'Form accessibility'; });
+  assert.strictEqual(acc.length, 1);
+  assert.strictEqual(acc[0].severity, 'check');
+  assert.strictEqual(acc[0].note, 'no label on tfa_1');
 });
 
 test('87. a form whose parts name different forms is a wiring fix, each part named', function () {
@@ -850,13 +855,172 @@ test('92. crawlRow carries each form, and the crawl URL list reads an optional e
   assert.strictEqual(row.formId, 'matches');
   assert.strictEqual(row.formIdFound, '1491');
   assert.strictEqual(row.expectedFormId, '1491');
-  assert.deepStrictEqual(row.forms, [{ formId: '1491', idSource: 'embed script URL', embed: 'aem-component', postHost: null,
-    version: null, title: null, language: null, localization: null, submit: null, captcha: null }]);
+  assert.deepStrictEqual(row.forms, [{ formId: '1491', idSource: 'embed script URL', embed: 'aem-component', provider: 'FormAssembly',
+    postHost: null, version: null, title: null, language: null, localization: null, submit: null, captcha: null,
+    formPath: null, aemSite: null, koneCountry: null, businessType: null, topic: null }]);
+  assert.strictEqual(row.formMarket, null);
+  assert.strictEqual(row.aemForms, 0);
   assert.deepStrictEqual(BriefQA.parseUrlList('url,expected_form_id\nhttps://www.kone.ae/a/, 752\nwww.kone.ae/b/\t1491\n\nhttps://www.kone.ae/c/\nhttps://www.kone.ae/a/ 9'), [
     { url: 'https://www.kone.ae/a/', expectedFormId: '752' },
     { url: 'https://www.kone.ae/b/', expectedFormId: '1491' },
     { url: 'https://www.kone.ae/c/', expectedFormId: null }
   ]);
+});
+
+// ─── KONE US ON kone.com/en-us (AEM) ───────────────────────────────────────
+// The real contact page, kone.com/en-us/contact.html (trimmed; see its header).
+var US_CONTACT = load('fixtures/kone-com-en-us-contact.html');
+function devs(r, category, field) {
+  return cat(r, category).deviations.filter(function (d) { return d.field === field; });
+}
+
+test('93. the real KONE US contact page: market United States, AEM forms, Form market check, 1488 not applicable', function () {
+  var r = qa.run(US_CONTACT);
+  assert.strictEqual(r.facts.market, 'United States');
+  assert.deepStrictEqual(r.facts.site, { domain: 'kone.com', langPath: 'en-us', sitemap: 'https://www.kone.com/en-us/sitemap.xml' });
+  assert.strictEqual(formRow(r).state, 'aem');
+  assert.ok(!devs(r, 'structure', 'Form Assembly ID').length, 'no Form Assembly ID finding on an AEM-only page');
+  var row = cat(r, 'structure').rows.filter(function (x) { return x.field === 'Form market'; })[0];
+  assert.deepStrictEqual([row.state, row.found], ['matches', 'frontlines/us/en · koneCountry USA']);
+  var fm = devs(r, 'structure', 'Form market');
+  assert.deepStrictEqual(fm.map(function (d) { return d.severity; }), ['check']);
+  // Forms behind a topic of the layout switch are on the page, not hidden.
+  assert.ok(r.facts.forms.every(function (f) { return f.hidden === false; }));
+  var crawl = qa.crawlRow(r, null);
+  assert.deepStrictEqual([crawl.formId, crawl.formMarket, crawl.aemForms], ['aem', 'check', 4]);
+  assert.deepStrictEqual(crawl.forms.map(function (f) { return [f.provider, f.aemSite, f.koneCountry]; }),
+    [['AEM', 'us/en', 'USA'], ['AEM', 'us/en', 'USA'], ['AEM', 'us/en', null], ['AEM', 'us/en', null]]);
+});
+
+test('94. "| KONE Corporation" is not accepted on KONE US pages; it still is on kone.ae', function () {
+  var r = qa.run(US_CONTACT);
+  var t = devs(r, 'metadata', 'Title format')[0];
+  assert.strictEqual(t.severity, 'break');
+  assert.strictEqual(t.note, '"KONE Corporation" is not accepted on United States pages — end the title with " | KONE US"');
+  var ae = qa.run(KONE_AE.replace(/<title>[^<]*<\/title>/, '<title>Elevator modernization | KONE Corporation</title>'));
+  assert.ok(!devs(ae, 'metadata', 'Title format').some(function (d) { return /Elevator modernization \| KONE Corporation/.test(d.found); }));
+});
+
+test('95. form accessibility on the real page: empty legends, once per distinct form, under its topic', function () {
+  var acc = devs(qa.run(US_CONTACT), 'structure', 'Form accessibility');
+  assert.deepStrictEqual(acc.map(function (d) { return d.found; }), [
+    'AEM form sales-form-with-sfdc/sales-master', 'AEM form sales-form-with-sfdc/sales-form-master---mod-trb',
+    'AEM form customer-service-master-variation/master', 'AEM form customer-service-master-variation-2/master']);
+  assert.ok(acc.every(function (d) { return d.severity === 'check'; }));
+  assert.strictEqual(acc[2].note, '2 empty <legend>s — a group of fields with no name read out');
+  assert.strictEqual(acc[0].where, 'Form topic "Adding new equipment to an existing building"');
+  // Synthetic: a field with no label, no wrapping label and no aria-label.
+  // (That label is the "Adding new equipment" form's First Name.)
+  var bare = devs(qa.run(US_CONTACT.replace(/<label class="input-label" for="form-text-1589433490">\s*First Name \*\s*<\/label>/, '')),
+    'structure', 'Form accessibility').filter(function (d) { return /sfdc\/sales-master$/.test(d.found); })[0];
+  assert.strictEqual(bare.note, '1 empty <legend> — a group of fields with no name read out; no label on firstName');
+});
+
+test('96. links that leave KONE US on kone.com: the header\'s "KONE global" item is a check, a link to KONE India names it; hreflang alternates are not links', function () {
+  var r = qa.run(US_CONTACT);
+  var x = devs(r, 'links', 'Cross-market link');
+  assert.strictEqual(x.length, 1, 'en-IN and fr-FR hreflang alternates are not flagged');
+  assert.strictEqual(x[0].severity, 'check');
+  assert.strictEqual(x[0].found, '1 link to kone.com/global/ (the corporate site)');
+  // Synthetic: a body link to KONE India, now at kone.com/en-in.
+  var withIn = qa.run(US_CONTACT.replace('<h1 class="cmp-title__text">', '<p><a href="https://www.kone.com/en-in/contact.html">KONE India</a></p><h1 class="cmp-title__text">'));
+  var x2 = devs(withIn, 'links', 'Cross-market link').map(function (d) { return d.found; });
+  assert.deepStrictEqual(x2.sort(), ['1 link to kone.com/en-in/ (India)', '1 link to kone.com/global/ (the corporate site)']);
+  // Not on a whole-domain market, nor between one market's languages.
+  assert.ok(!devs(qa.run(KONE_AE), 'links', 'Cross-market link').length);
+});
+
+test('97. header and footer must be KONE US\'s own: search, logo links and language buttons agree on the real page; another market\'s is a fix', function () {
+  var r = qa.run(US_CONTACT);
+  assert.deepStrictEqual(r.facts.chrome, { searchCountry: 'us', searchLanguage: 'en', headerLogo: '/en-us.html', footerLogo: '/en-us.html',
+    languageLabels: ['US - EN', 'US - EN'] });
+  assert.ok(!devs(r, 'structure', 'Header/footer market').length);
+  // Synthetic: the UAE's header on a US page.
+  var ae = US_CONTACT.replace('data-search-country="us"', 'data-search-country="ae"')
+    .replace('<a href="/en-us.html" class="kone-header__logo-link"', '<a href="/en-ae.html" class="kone-header__logo-link"')
+    .replace('<span class="language-button__label">US - EN</span>', '<span class="language-button__label">AE - EN</span>');
+  var fx = devs(qa.run(ae), 'structure', 'Header/footer market');
+  assert.deepStrictEqual(fx.map(function (d) { return d.severity + ' ' + d.found; }), [
+    'break search ae/en', 'break header logo → /en-ae.html', 'break language button "AE - EN"']);
+});
+
+test('98. the crawl picker\'s areas and frontlines are KONE\'s own codes, and Australia and New Zealand are sites', function () {
+  var r = config.sites.regions;
+  assert.strictEqual(r.draft, false);
+  assert.deepStrictEqual(Object.keys(r.areas), ['EU', 'APM', 'AME']);
+  assert.deepStrictEqual(r.areas.EU, ['ITIB', 'EEM', 'GIN', 'NORD', 'FBL']);
+  assert.deepStrictEqual(r.areas.APM, ['KANZ', 'KMTA', 'KSEA', 'KEI']);
+  assert.deepStrictEqual(r.areas.AME, ['USCA']);
+  assert.deepStrictEqual(r.frontlines.ITIB, ['Italy', 'Spain', 'Portugal']);
+  assert.deepStrictEqual(r.frontlines.KANZ, ['Australia', 'New Zealand']);
+  assert.deepStrictEqual(r.frontlines.USCA, ['United States', 'Canada (EN)', 'Canada (FR)']);
+  assert.deepStrictEqual([config.sites.countries.Australia.domain, config.sites.countries['New Zealand'].domain], ['kone.com.au', 'kone.co.nz']);
+  assert.ok(!config.sites.countries.Australia.formAssemblyId, 'no form id until the team supplies one');
+  var us = config.sites.countries['United States'];
+  assert.deepStrictEqual([us.domain, us.langPath, us.formAssemblyId, us.aemSite, us.koneCountry, us.corporateTitle],
+    ['kone.com', 'en-us', '1488', 'us/en', 'USA', false]);
+});
+
+test('99. a crawl URL list can name an area or frontline by code, and an AEM form path as the expected form', function () {
+  var list = BriefQA.parseUrlList('ITIB\nitib\nhttps://www.kone.com/en-us/contact.html, customer-service-master-variation/master\nEU\nfoo\nkone.ae/a', config.sites.regions);
+  assert.deepStrictEqual(list[0], { group: 'ITIB', kind: 'frontline', markets: ['Italy', 'Spain', 'Portugal'] });
+  assert.strictEqual(list.filter(function (x) { return x.group === 'ITIB'; }).length, 1, 'any case, once');
+  assert.deepStrictEqual(list[1], { url: 'https://www.kone.com/en-us/contact.html', expectedFormId: 'customer-service-master-variation/master' });
+  assert.strictEqual(list[2].group, 'EU');
+  assert.strictEqual(list[2].markets.length, 25);
+  assert.deepStrictEqual(list[3], { invalid: 'foo' });
+  assert.deepStrictEqual(list[4], { url: 'https://kone.ae/a', expectedFormId: null });
+  assert.deepStrictEqual(BriefQA.parseUrlList('ITIB'), [{ invalid: 'ITIB' }], 'without the registry, a code is not a URL either');
+});
+
+test('100. "| KONE Corporation" is not accepted on KONE India pages either; "- KONE India" passes, on kone.com/en-in and kone.in', function () {
+  function title(t, url) {
+    var r = qa.run('<!DOCTYPE html><html lang="en"><head><title>' + t + '</title><link rel="canonical" href="' + url + '"></head><body><main><h1>Lifts</h1></main></body></html>');
+    return cat(r, 'metadata').rows.filter(function (x) { return x.field === 'Title format'; })[0];
+  }
+  var corp = title('Contact | KONE Corporation', 'https://www.kone.com/en-in/contact.html');
+  assert.deepStrictEqual([corp.state, corp.stateLabel], ['red', '"KONE Corporation" is not accepted on India pages — end the title with " - KONE India"']);
+  assert.strictEqual(title('Contact - KONE India', 'https://www.kone.com/en-in/contact.html').state, 'green');
+  assert.strictEqual(title('Contact - KONE India', 'https://www.kone.in/contact/').state, 'green');
+  assert.strictEqual(qa.run(US_CONTACT).facts.site.sitemap, 'https://www.kone.com/en-us/sitemap.xml');
+});
+
+function bare(title, url) {
+  return qa.run('<!DOCTYPE html><html lang="en"><head><title>' + title + '</title><link rel="canonical" href="' + url + '"></head>' +
+    '<body><main><h1>Page</h1></main></body></html>');
+}
+
+test('101. US titles are "Page name | KONE US": that passes; " - KONE US" and "KONE USA" are checks; "KONE Corporation" a fix', function () {
+  function state(t) {
+    var row = cat(bare(t, 'https://www.kone.com/en-us/explore-by-industry.html'), 'metadata').rows
+      .filter(function (x) { return x.field === 'Title format'; })[0];
+    return [row.state, row.stateLabel];
+  }
+  assert.deepStrictEqual(state('Explore by industry | KONE US'), ['green', 'KONE US — the confirmed name for United States']);
+  assert.deepStrictEqual(state('Explore by industry - KONE US'), ['amber', '"- KONE US" — United States titles use " | KONE US"']);
+  assert.strictEqual(state('Explore by industry | KONE USA')[0], 'amber');
+  assert.strictEqual(state('Explore by industry | KONE Corporation')[0], 'red');
+});
+
+test('102. Open in AEM: the page path after /en-us or /en-in, without .html, under the market\'s author tree (the team\'s three examples)', function () {
+  var AUTHOR = 'https://author-p156420-e1658594.adobeaemcloud.com/ui#/aem/sites.html';
+  var a = bare('Explore by industry | KONE US', 'https://www.kone.com/en-us/explore-by-industry.html').facts;
+  assert.strictEqual(a.aemPath, '/content/frontlines/us-temp/en/explore-by-industry');
+  assert.strictEqual(a.aemUrl, AUTHOR + '/content/frontlines/us-temp/en/explore-by-industry');
+  assert.strictEqual(bare('Bloomberg | KONE US', 'https://www.kone.com/en-us/newsroom/reference-cases/bloomberg-london.html').facts.aemUrl,
+    AUTHOR + '/content/frontlines/us-temp/en/newsroom/reference-cases/bloomberg-london');
+  assert.strictEqual(bare('Bloomberg - KONE India', 'https://www.kone.com/en-in/newsroom/reference-cases/bloomberg-london.html').facts.aemUrl,
+    AUTHOR + '/content/frontlines/in-temp/en/newsroom/reference-cases/bloomberg-london');
+  assert.strictEqual(bare('Home | KONE US', 'https://www.kone.com/en-us.html').facts.aemPath, '/content/frontlines/us-temp/en', 'the home page is the root');
+  assert.strictEqual(bare('X', 'https://preview.kone.com/en-us/contact.html').facts.aemPath, '/content/frontlines/us-temp/en/contact');
+  ['https://www.kone.ae/contact.html', 'https://www.kone.in/contact/', 'https://www.kone.com/global/en.html'].forEach(function (u) {
+    assert.strictEqual(bare('X', u).facts.aemUrl, null, u);
+  });
+  var r = qa.run(US_CONTACT);
+  assert.strictEqual(r.facts.aemPath, '/content/frontlines/us-temp/en/contact');
+  var row = qa.crawlRow(r, null);
+  assert.deepStrictEqual([row.aemPath, row.aem], ['/content/frontlines/us-temp/en/contact', AUTHOR + '/content/frontlines/us-temp/en/contact']);
+  assert.strictEqual(qa.crawlRow(qa.run(KONE_AE), null).aem, null);
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
