@@ -57,6 +57,14 @@ var server = http.createServer(function (req, res) {
         .map(function (p) { return '<url><loc>http://www.kone.be:' + PORT + p + '</loc></url>'; }).join('') + '</urlset>');
     }
   }
+  if (host === 'www.kone.com') {
+    if (url === '/robots.txt') return send(200, 'text/plain', 'Sitemap: http://www.kone.com:' + PORT + '/sitemap.xml');
+    if (url === '/sitemap.xml') {
+      return send(200, 'application/xml', '<urlset>' + ['/en-us.html', '/en-us/contact.html', '/en-us/new-buildings/x.html',
+        '/en-usa/x.html', '/en-in/contact.html', '/global/en.html']
+        .map(function (p) { return '<url><loc>http://www.kone.com:' + PORT + p + '</loc></url>'; }).join('') + '</urlset>');
+    }
+  }
   var hopN = /^\/hop\/(\d+)$/.exec(url);
   if (hopN) return send(301, 'text/html', '', { location: +hopN[1] > 0 ? '/hop/' + (+hopN[1] - 1) : '/page' });
   switch (url) {
@@ -95,7 +103,7 @@ var server = http.createServer(function (req, res) {
 });
 
 function localResolve(host, cb) {
-  if (/(^|\.)kone\.(es|be)$/.test(host) || host === 'evil.example') return cb(null, [{ address: '127.0.0.1', family: 4 }]);
+  if (/(^|\.)kone\.(es|be)$/.test(host) || host === 'www.kone.com' || host === 'evil.example') return cb(null, [{ address: '127.0.0.1', family: 4 }]);
   cb(Object.assign(new Error('not found'), { code: 'ENOTFOUND' }));
 }
 
@@ -112,7 +120,8 @@ test('1. every registry domain is a KONE base, plus kone.com', function () {
 });
 
 test('2. KONE hosts: www., preview. and the bare domain pass; look-alikes do not', function () {
-  ['kone.es', 'www.kone.es', 'preview.kone.es', 'preview-training.kone.com', 'www.kone.co.uk', 'www.kone.com.tr']
+  ['kone.es', 'www.kone.es', 'preview.kone.es', 'preview-training.kone.com', 'www.kone.co.uk', 'www.kone.com.tr',
+    'www.kone.com.au', 'www.kone.co.nz']
     .forEach(function (h) { assert.ok(guard.isKoneHost(h, bases), h); });
   ['kone.es.evil.com', 'notkone.es', 'kone.esx', 'evil.com', 'kone.co', 'uk']
     .forEach(function (h) { assert.ok(!guard.isKoneHost(h, bases), h); });
@@ -330,6 +339,15 @@ test('21. discover: a two-language domain keeps only its own language path', fun
   return sitemaps.discover({ domain: 'kone.be', langPath: 'fr' }, { pathPrefix: 'new-buildings' }).then(function (r) {
     assert.deepStrictEqual(r.urls.map(function (u) { return new URL(u).pathname; }), ['/fr/new-buildings/y/']);
     assert.strictEqual(r.site, 'kone.be/fr');
+  });
+});
+
+test('21b. discover: KONE US on kone.com keeps only /en-us (the home page /en-us.html included), not India or the corporate site', function () {
+  return sitemaps.discover({ domain: 'kone.com', langPath: 'en-us' }, {}).then(function (r) {
+    assert.deepStrictEqual(r.urls.map(function (u) { return new URL(u).pathname; }),
+      ['/en-us.html', '/en-us/contact.html', '/en-us/new-buildings/x.html']);
+    assert.strictEqual(r.site, 'kone.com/en-us');
+    assert.strictEqual(r.excluded.outsidePath, 3);
   });
 });
 

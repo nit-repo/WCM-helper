@@ -437,6 +437,68 @@
     return (' ' + attr(tag, 'class').split(/\s+/).join(' ') + ' ').indexOf(' ' + cls + ' ') !== -1;
   }
 
+  // AEM's form layout switch shows one form per topic: topic buttons open
+  // panels (aria-labelledby names the button), and a nested switch is driven
+  // by a <select> whose <option value="N"> opens panel data-panel-index="N".
+  function layoutPanels(src) {
+    var out = [], re = /<div\b[^>]*>/gi, m;
+    while ((m = re.exec(src)) !== null) {
+      if (!hasClass(m[0], 'kone-form-layout-switch__panel')) continue;
+      out.push({ start: m.index, end: elementEnd(src, 'div', m.index),
+        labelledBy: attr(m[0], 'aria-labelledby'), index: attr(m[0], 'data-panel-index') });
+    }
+    return out;
+  }
+
+  function idPattern(id) { return String(id).replace(/[^\w-]/g, ''); }
+  function cleanText(s) { return stripTags(decodeEntities(String(s))).replace(/\s+/g, ' ').trim(); }
+
+  function panelLabel(src, p) {
+    if (!p.labelledBy) return null;
+    var t = new RegExp('<([a-z][a-z0-9]*)\\b[^>]*\\sid\\s*=\\s*["\']' + idPattern(p.labelledBy) + '["\'][^>]*>', 'i').exec(src);
+    if (!t) return null;
+    var name = t[1].toLowerCase(), inner = src.slice(t.index + t[0].length, elementEnd(src, name, t.index));
+    if (name === 'select') {
+      var o = new RegExp('<option\\b[^>]*\\bvalue\\s*=\\s*["\']' + idPattern(p.index) + '["\'][^>]*>([\\s\\S]*?)</option>', 'i').exec(inner);
+      return o ? cleanText(o[1]) || null : null;
+    }
+    return name === 'label' || name === 'input' ? null : cleanText(inner) || null;
+  }
+
+  // "Customer service › Invoices": every panel around the form, outermost first.
+  function topicOf(src, panels, at) {
+    var names = panels.filter(function (p) { return at >= p.start && at < p.end; })
+      .sort(function (a, b) { return a.start - b.start; })
+      .map(function (p) { return panelLabel(src, p); }).filter(Boolean);
+    return names.length ? names.join(' \u203a ') : null;
+  }
+
+  // What a screen-reader user meets in the form: every field a visitor fills
+  // in needs a name — a <label for>, a wrapping <label>, or aria-label(ledby)
+  // — and a <legend> that is empty announces a group with no name. Hidden
+  // fields, buttons and the spam honeypot are not fields a visitor fills in.
+  function accessibility(f, region) {
+    var unlabelled = [], seen = {}, m;
+    var labelFor = {}, lre = /<label\b[^>]*\bfor\s*=\s*["']([^"']+)["'][^>]*>/gi;
+    while ((m = lre.exec(region)) !== null) labelFor[m[1]] = true;
+    var wraps = [], wre = /<label\b[^>]*>/gi;
+    while ((m = wre.exec(region)) !== null) wraps.push({ start: m.index, end: elementEnd(region, 'label', m.index) });
+    var fre = /<(input|select|textarea)\b[^>]*>/gi;
+    while ((m = fre.exec(region)) !== null) {
+      var tag = m[0], type = (attr(tag, 'type') || '').toLowerCase(), name = attr(tag, 'name') || attr(tag, 'id') || m[1];
+      if (m[1].toLowerCase() === 'input' && /^(hidden|submit|button|reset|image)$/.test(type)) continue;
+      if (/hptext/i.test(name)) continue;
+      var id = attr(tag, 'id');
+      var named = (id && labelFor[id]) || attr(tag, 'aria-label') || attr(tag, 'aria-labelledby') ||
+        wraps.some(function (w) { return m.index > w.start && m.index < w.end; });
+      if (!named && !seen[name]) { seen[name] = true; unlabelled.push(name); }
+    }
+    var empty = 0, gre = /<legend\b[^>]*>([\s\S]*?)<\/legend>/gi;
+    while ((m = gre.exec(region)) !== null) if (!cleanText(m[1])) empty++;
+    f.unlabelled = unlabelled;
+    f.emptyLegends = empty;
+  }
+
   function formsIn(html) {
     html = String(html == null ? '' : html);
     // Comments and script bodies blanked, offsets kept: a commented-out or
@@ -451,9 +513,13 @@
       return null;
     }
     function blank(start, end, embed) {
-      return { start: start, end: end, embed: embed, formId: null, idSource: null, ids: {},
+      return { start: start, end: end, embed: embed, provider: embed === 'aem-form' ? 'AEM' : embed === 'other' ? null : 'FormAssembly',
+        formId: null, idSource: null, ids: {},
         formElementId: null, wrapperId: null, postHost: null, action: null, version: null, title: null,
-        language: null, localization: null, submit: null, captcha: null, anchor: null, rendered: false };
+        language: null, localization: null, submit: null, captcha: null, anchor: null, rendered: false,
+        formPath: null, aemSite: null, koneCountry: null, businessType: null, leadSource: null, sourceIdentifier: null,
+        recordTypeId: null, errorRedirect: null, steps: null, honeypot: null, topic: null, method: null,
+        unlabelled: null, emptyLegends: null };
     }
 
     // 1. AEM's integration component.
@@ -493,7 +559,7 @@
     // 3. The rendered form: its <form>, the hidden tfa_dbFormId inside it,
     // and the div.wForm "<id>-WRPR" around it (or, in an abridged paste,
     // inside it).
-    var wforms = [];
+    var wforms = [], claimed = {};
     var wRe = /<div\b[^>]*>/gi;
     while ((m = wRe.exec(src)) !== null) if (hasClass(m[0], 'wForm')) wforms.push({ at: m.index, tag: m[0], used: false });
     var formRe = /<form\b[^>]*>/gi;
@@ -510,6 +576,8 @@
       var rf = holder(fs);
       if (!rf) { rf = blank(regionStart, fe, 'markup'); forms.push(rf); }
       rf.rendered = true;
+      claimed[fs] = true;
+      accessibility(rf, region);
       var input = function (name) {
         var t = new RegExp('<input\\b[^>]*\\b(?:name|id)\\s*=\\s*["\']' + name + '["\'][^>]*>', 'i').exec(region);
         return t ? attr(t[0], 'value') || null : null;
@@ -535,6 +603,64 @@
       rf.captcha = /\bid\s*=\s*["'](?:g-recaptcha-render-div|tfa_captcha_text)["']/i.test(region);
     }
 
+    // 4. AEM's own form component (kone.com/en-us): <form data-nc="Form"
+    // class="cmp-form"> posting to the experience fragment that defines it,
+    // /content/experience-fragments/frontlines/<country>/<lang>/forms/<path>/
+    // _jcr_content/…koneformsubmit.json. There is no FormAssembly id: the
+    // form is named by <path>, and the market it serves by <country>/<lang>
+    // and the hidden koneCountry field it sends with every lead.
+    var panels = null;
+    var aemFormRe = /<form\b[^>]*>/gi;
+    while ((m = aemFormRe.exec(src)) !== null) {
+      if (claimed[m.index]) continue;
+      var ftag = m[0], fact = attr(ftag, 'action');
+      var fend = elementEnd(src, 'form', m.index);
+      var fbody = src.slice(m.index, fend);
+      var method = (attr(ftag, 'method') || 'get').toLowerCase();
+      var isAem = (/data-nc\s*=\s*["']Form["']/i.test(ftag) || hasClass(ftag, 'cmp-form')) &&
+        /\/content\/experience-fragments\/|\.koneformsubmit\.json(?:$|[?#])/i.test(fact);
+      if (!isAem) {
+        // 5. Any other form that sends data somewhere is reported, never
+        // silently "No forms found". A GET form (the header search) is not.
+        if (method !== 'post') continue;
+        var of = blank(m.index, fend, 'other');
+        of.action = fact || null;
+        of.method = method;
+        var oh = /^https?:\/\/([^\/?#]+)/i.exec(fact || '');
+        of.postHost = oh ? oh[1].toLowerCase() : null;
+        of.formElementId = attr(ftag, 'id') || null;
+        accessibility(of, fbody);
+        forms.push(of);
+        continue;
+      }
+      var af = blank(m.index, fend, 'aem-form');
+      af.rendered = true;
+      af.action = fact;
+      af.method = method;
+      af.formElementId = attr(ftag, 'id') || null;
+      var pm = /\/forms\/(.+?)\/_jcr_content\//i.exec(fact) || /\/experience-fragments\/(.+?)\/_jcr_content\//i.exec(fact);
+      af.formPath = pm ? pm[1] : fact;
+      af.formId = af.formPath;
+      af.idSource = 'AEM form path';
+      var sm2 = /\/frontlines\/([a-z]{2,3})\/([a-z]{2,3})(?:\/|$)/i.exec(fact);
+      af.aemSite = sm2 ? (sm2[1] + '/' + sm2[2]).toLowerCase() : null;
+      ['koneCountry', 'businessType', 'leadSource', 'sourceIdentifier', 'recordTypeId'].forEach(function (name) {
+        var t = new RegExp('<input\\b[^>]*\\bname\\s*=\\s*["\']' + name + '["\'][^>]*>', 'i').exec(fbody);
+        af[name] = t ? attr(t[0], 'value') || null : null;
+      });
+      af.errorRedirect = attr(ftag, 'data-error-redirect') || null;
+      af.captcha = !!attr(ftag, 'data-recaptchav3-sitekey') || /recaptcha\/api\.js/i.test(fbody);
+      af.submit = /<(?:button|input)\b[^>]*\btype\s*=\s*["']?submit\b/i.test(fbody);
+      var steps = 0, sRe = /<div\b[^>]*>/gi, st;
+      while ((st = sRe.exec(fbody)) !== null) if (hasClass(st[0], 'cmp-form__step')) steps++;
+      af.steps = steps || null;
+      af.honeypot = /\bname\s*=\s*["'][^"']*hptext["']/i.test(fbody);
+      panels = panels || layoutPanels(src);
+      af.topic = topicOf(src, panels, m.index);
+      accessibility(af, fbody);
+      forms.push(af);
+    }
+
     // A tfa_dbFormId with no <form> around it — a fragment pasted on its own.
     if (!forms.some(function (f) { return f.rendered; })) {
       var lone = /<input\b[^>]*\b(?:name|id)\s*=\s*["']tfa_dbFormId["'][^>]*>/i.exec(src);
@@ -557,6 +683,7 @@
       for (var k = seen.length - 1; k >= 0; k--) {
         if (elementEnd(src, seen[k].name, seen[k].at) > f.start) { f.anchor = seen[k].id; break; }
       }
+      if (f.embed === 'aem-form' || f.embed === 'other') return;
       // The id, by the strongest source first: what FormAssembly itself
       // submits, then the form, its wrapper, the embed URL, the component.
       var order = [['dbFormId', 'tfa_dbFormId'], ['formElement', 'form id'], ['wrapper', 'wForm wrapper'],
@@ -1946,7 +2073,8 @@
       'Latvia': { domain: 'kone.lv', formAssemblyId: '874', siteNames: [], siteNamesDraft: ['Latvija'] },
       'Lithuania': { domain: 'kone.lt', formAssemblyId: '878', siteNames: [], siteNamesDraft: ['Lietuva'] },
       'Iceland': { domain: 'kone.is', formAssemblyId: '17', siteNames: [], siteNamesDraft: ['Ísland'] },
-      'United States': { domain: 'kone.us', formAssemblyId: '1488', siteNames: [], siteNamesDraft: ['USA', 'United States'] },
+      'United States': { domain: 'kone.com', langPath: 'en-us', formAssemblyId: '1488', aemSite: 'us/en', koneCountry: 'USA',
+        corporateTitle: false, siteNames: [], siteNamesDraft: ['USA', 'United States'] },
       'Canada (EN)': { domain: 'kone.ca', langPath: 'en', formAssemblyId: '779', siteNames: [], siteNamesDraft: ['Canada'] },
       'Canada (FR)': { domain: 'kone.ca', langPath: 'fr', formAssemblyId: '778', siteNames: [], siteNamesDraft: ['Canada'] },
       'India': { domain: 'kone.in', formAssemblyId: '1490', siteNames: ['India'], siteNamesDraft: [] },
@@ -1969,7 +2097,9 @@
       'Malaysia': { domain: 'kone.my', formAssemblyId: '830', siteNames: [], siteNamesDraft: ['Malaysia'] },
       'Thailand': { domain: 'kone.co.th', formAssemblyId: '832', siteNames: [], siteNamesDraft: ['Thailand'] },
       'Philippines': { domain: 'kone.ph', formAssemblyId: '785', siteNames: [], siteNamesDraft: ['Philippines'] },
-      'Slovenia': { domain: 'kone.si', siteNames: ['Slovenija'], siteNamesDraft: [] }
+      'Slovenia': { domain: 'kone.si', siteNames: ['Slovenija'], siteNamesDraft: [] },
+      'Australia': { domain: 'kone.com.au', siteNames: [], siteNamesDraft: ['Australia'] },
+      'New Zealand': { domain: 'kone.co.nz', siteNames: [], siteNamesDraft: ['New Zealand'] }
     },
     pageOverrides: []
   };
@@ -1985,21 +2115,42 @@
         langPath: c.langPath || null,
         formAssemblyId: c.formAssemblyId != null ? String(c.formAssemblyId) : null,
         siteNames: c.siteNames || [],
-        siteNamesDraft: c.siteNamesDraft || []
+        siteNamesDraft: c.siteNamesDraft || [],
+        aemSite: c.aemSite ? String(c.aemSite).toLowerCase() : null,
+        koneCountry: c.koneCountry || null,
+        corporateTitle: c.corporateTitle !== false
       };
     });
   }
 
-  // Three domains (kone.be, kone.ch, kone.ca) are shared by two language
-  // variants with two different expected ids — a bare domain match is
-  // ambiguous between them, resolved only by the first path segment.
+  // A market's place on its domain is its langPath: one segment on kone.be,
+  // kone.ch and kone.ca (two languages each), possibly several (au/de), and
+  // on kone.com a whole market (en-us) beside the corporate site. A page
+  // belongs to a langPath when its path is that path or sits under it —
+  // whole segments only, so /en-usa is not /en-us.
+  function underLangPath(path, langPath) {
+    var p = '/' + String(langPath || '').replace(/^\/+|\/+$/g, '').toLowerCase();
+    return p !== '/' && (path === p || path.indexOf(p + '/') === 0);
+  }
+
+  // Picks the entry a page belongs to among those sharing its domain. The
+  // longest matching langPath wins. With none matching: a domain whose
+  // entries are one market's languages (kone.be) is ambiguous between them;
+  // a domain shared by different markets (kone.com: KONE US beside the
+  // corporate site) places the page in none of them, never in a guess.
   // Returns one entry, an { ambiguous: true, ... } marker, or null.
   function disambiguateByPath(hits, page) {
-    if (hits.length <= 1) return hits[0] || null;
-    var seg = page && page.canonical ? pathOf(page.canonical).split('/').filter(Boolean)[0] : null;
-    var bySeg = seg ? hits.filter(function (e) { return e.langPath && e.langPath.toLowerCase() === seg.toLowerCase(); }) : [];
-    if (bySeg.length === 1) return bySeg[0];
-    return { ambiguous: true, base: hits[0].base, candidates: hits };
+    var path = page && page.canonical ? pathOf(page.canonical) : null;
+    var scoped = hits.filter(function (e) { return e.langPath; });
+    var onPath = path ? scoped.filter(function (e) { return underLangPath(path, e.langPath); }) : [];
+    if (onPath.length) {
+      return onPath.sort(function (a, b) { return b.langPath.length - a.langPath.length; })[0];
+    }
+    var whole = hits.filter(function (e) { return !e.langPath; });
+    if (whole.length === 1) return whole[0];
+    var pool = whole.length ? whole : scoped;
+    var oneMarket = pool.length > 1 && pool.every(function (e) { return e.base === pool[0].base; });
+    return oneMarket ? { ambiguous: true, base: pool[0].base, candidates: pool } : null;
   }
 
   // Resolved from the brief's own declared Market row (e.g. "Italy") — the
@@ -2008,6 +2159,8 @@
     var wanted = String(name || '').trim().toLowerCase();
     if (!wanted) return null;
     var hits = siteEntries(sitesCfg).filter(function (e) { return e.base.toLowerCase() === wanted; });
+    // The brief names the market outright: its path only chooses a language.
+    if (hits.length === 1) return hits[0];
     return hits.length ? disambiguateByPath(hits, page) : null;
   }
 
@@ -2061,22 +2214,62 @@
 
   // The form ids the page carries: the FormAssembly forms embedded in it
   // when there are any (AEM pages carry no digitalData at all), otherwise
-  // the id its digitalData names (Tridion). Returns { ids, source, forms }.
+  // the id its digitalData names (Tridion). AEM's own forms carry no
+  // FormAssembly id — they are kept apart, named by their form path.
+  // Returns { ids, source, forms, aem, paths, other }.
   function carriedFormIds(page) {
-    var forms = (page && page.forms) || [];
+    var all = (page && page.forms) || [];
+    var forms = all.filter(function (f) { return f.embed !== 'aem-form' && f.embed !== 'other'; });
+    var aem = all.filter(function (f) { return f.embed === 'aem-form'; });
+    var paths = [];
+    aem.forEach(function (f) { if (f.formPath && paths.indexOf(f.formPath) === -1) paths.push(f.formPath); });
+    var other = all.filter(function (f) { return f.embed === 'other'; });
     var ids = [];
     forms.forEach(function (f) { if (f.formId && ids.indexOf(f.formId) === -1) ids.push(f.formId); });
-    if (forms.length) return { ids: ids, source: 'embedded', forms: forms };
+    if (forms.length) return { ids: ids, source: 'embedded', forms: forms, aem: aem, paths: paths, other: other };
     var dd = page && page.digitalData && page.digitalData.formAssemblyId;
-    return { ids: dd ? [String(dd)] : [], source: dd ? 'digitalData' : null, forms: forms };
+    return { ids: dd ? [String(dd)] : [], source: dd ? 'digitalData' : null, forms: forms, aem: aem, paths: paths, other: other };
+  }
+
+  function aemFormsText(paths) { return 'AEM forms (' + paths.length + '): ' + paths.join(', '); }
+  function sameFormPath(a, b) {
+    function k(x) { return String(x || '').trim().toLowerCase().replace(/^\/+|\/+$/g, ''); }
+    return k(a) === k(b);
   }
 
   function formIdFinding(expect, page, sitesCfg, opts) {
     sitesCfg = sitesCfg || DEFAULT_SITES;
     opts = opts || {};
     var carried = carriedFormIds(page);
-    var foundAll = carried.ids.length ? carried.ids.join(', ') : null;
+    var aemOnly = !carried.ids.length && carried.paths.length > 0;
+    var foundAll = carried.ids.length ? carried.ids.join(', ') : aemOnly ? aemFormsText(carried.paths) : null;
     var expectedId = null, label = null, override = null, country = null;
+    // A crawl list may name an AEM form by its path rather than a number.
+    if (opts.expectedFormId && !/^\d+$/.test(String(opts.expectedFormId))) {
+      var wantPath = String(opts.expectedFormId);
+      var hasPath = carried.paths.some(function (pth) { return sameFormPath(pth, wantPath); });
+      if (hasPath) {
+        return { checked: true, severity: null, country: 'expected for this URL', expected: wantPath, found: foundAll,
+          row: formIdRow('expected for this URL', wantPath, foundAll, 'matches') };
+      }
+      return { checked: true, severity: 'break', country: 'expected for this URL', expected: wantPath, found: foundAll,
+        note: 'AEM form ' + wantPath + ' was expected on this URL, but ' +
+          (carried.paths.length ? 'the page carries ' + carried.paths.join(', ') : 'no AEM form was found on the page') + '.',
+        row: formIdRow('expected for this URL', wantPath, foundAll, 'missing') };
+    }
+    // Only AEM forms: there is no FormAssembly id to compare. Which market
+    // they belong to is the Form market check's question.
+    if (aemOnly && !opts.expectedFormId) {
+      country = resolveFormIdCountry(expect, page, sitesCfg);
+      var market = country && !country.ambiguous ? country : null;
+      var faId = market && market.formAssemblyId;
+      var noteA = 'This page carries AEM forms only (' + carried.paths.length + ' distinct, ' + carried.aem.length +
+        ' on the page)' + (faId ? ', so FormAssembly ' + faId + ' is not applicable' : '') +
+        ' — the Form market check covers them.';
+      return { checked: true, severity: null, aem: true, country: market ? market.name : null, expected: null, found: foundAll,
+        note: noteA, row: Object.assign(formIdRow(market ? market.name : null, null, foundAll, 'aem'),
+          { stateLabel: faId ? 'FormAssembly ' + faId + ' not applicable' : null }) };
+    }
     if (opts.expectedFormId) {
       // Named for this very URL (a crawl list's expected_form_id): it wins
       // over the market's id, and needs no market at all.
@@ -2114,7 +2307,8 @@
       // URL was named as carrying one.
       if (opts.expectedFormId) {
         return { checked: true, severity: 'break', country: label,
-          note: 'Form ' + expectedId + ' was expected on this URL, but no form was found on the page.',
+          note: 'Form ' + expectedId + ' was expected on this URL, but ' +
+            (carried.paths.length ? 'the page carries AEM forms only (' + carried.paths.join(', ') + ').' : 'no form was found on the page.'),
           expected: expectedId, found: null, row: formIdRow(label, expectedId, null, 'missing') };
       }
       return { checked: true, severity: null, country: label, expected: expectedId, found: null, noForm: true,
@@ -2135,6 +2329,83 @@
     }
     return { checked: true, severity: null, country: label, expected: expectedId, found: foundAll,
       row: formIdRow(label, expectedId, foundAll, 'matches') };
+  }
+
+  // ─── FORM MARKET (AEM) ───────────────────────────────────────────────────
+  // An AEM form says which market it serves twice: the experience fragment it
+  // posts to (/content/experience-fragments/frontlines/<country>/<lang>/…)
+  // and the koneCountry it sends with the lead. Both must be the page's own
+  // market's: a form copied from another market's site sends its leads
+  // there. A form with no koneCountry at all is not wrong on its face, but
+  // nothing in it says where its leads go — a check for the team.
+  // Returns null (no AEM forms), or { checked, findings[], row, note }.
+  function aemMarketFinding(expect, page, sitesCfg) {
+    sitesCfg = sitesCfg || DEFAULT_SITES;
+    var aem = carriedFormIds(page).aem;
+    if (!aem.length) return null;
+    var groups = [], byPath = {};
+    aem.forEach(function (f) {
+      var g = byPath[f.formPath];
+      if (!g) { g = byPath[f.formPath] = { path: f.formPath, site: f.aemSite, countries: [], topics: [], count: 0, missing: 0, where: f.where || null }; groups.push(g); }
+      g.count++;
+      if (f.topic && g.topics.indexOf(f.topic) === -1) g.topics.push(f.topic);
+      if (f.koneCountry) { if (g.countries.indexOf(f.koneCountry) === -1) g.countries.push(f.koneCountry); } else g.missing++;
+    });
+    function named(g) { return g.path + (g.count > 1 ? ' (' + g.count + ' topics)' : ''); }
+    function list(xs) { return xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]; }
+    var sites = [];
+    groups.forEach(function (g) { if (g.site && sites.indexOf(g.site) === -1) sites.push(g.site); });
+    var kcs = [];
+    groups.forEach(function (g) { g.countries.forEach(function (c) { if (kcs.indexOf(c) === -1) kcs.push(c); }); });
+    var found = (sites.length ? 'frontlines/' + sites.join(', frontlines/') : 'no AEM site') +
+      ' · koneCountry ' + (kcs.length ? kcs.join(', ') : 'none');
+    var findings = [];
+    if (sites.length > 1) {
+      findings.push({ severity: 'break', found: found,
+        note: 'the forms on this page post to more than one market\'s AEM site — ' + sites.map(function (st) {
+          return 'frontlines/' + st + ': ' + groups.filter(function (g) { return g.site === st; }).map(named).join(', ');
+        }).join('; ') + ' — every form on a page should belong to the same market' });
+    }
+    var country = resolveFormIdCountry(expect, page, sitesCfg);
+    var market = country && !country.ambiguous ? country : null;
+    if (!market || !market.aemSite) {
+      var why = !country ? 'the page\'s market could not be determined'
+        : country.ambiguous ? country.base + '\'s language version could not be determined'
+        : 'no AEM site is configured for ' + country.name + ' (aemSite in config/sites.json)';
+      return { checked: false, findings: findings, note: 'Form market not checked — ' + why + '.',
+        row: { field: 'Form market', source: market ? market.name : null, expected: null, found: found,
+          state: 'not-checked', stateLabel: why, soft: false, basis: 'expected' } };
+    }
+    var want = market.aemSite;
+    groups.forEach(function (g) {
+      if (!g.site) {
+        findings.push({ severity: 'check', found: g.path, where: g.where,
+          note: 'form ' + named(g) + ' posts to no frontlines/<country>/<language> site, so which market it serves could not be read' });
+      } else if (g.site !== want) {
+        findings.push({ severity: 'break', found: 'frontlines/' + g.site, expected: 'frontlines/' + want, where: g.where,
+          note: 'form ' + named(g) + ' posts to frontlines/' + g.site + ' — another market\'s form — on a ' + market.name +
+            ' page (expected frontlines/' + want + ')' });
+      }
+      if (market.koneCountry) {
+        g.countries.filter(function (c) { return c !== market.koneCountry; }).forEach(function (c) {
+          findings.push({ severity: 'break', found: 'koneCountry ' + c, expected: 'koneCountry ' + market.koneCountry, where: g.where,
+            note: 'form ' + named(g) + ' sends koneCountry ' + c + '; ' + market.name + ' leads need ' + market.koneCountry });
+        });
+      }
+    });
+    var silent = groups.filter(function (g) { return g.missing > 0; });
+    if (silent.length) {
+      findings.push({ severity: 'check', found: list(silent.map(named)),
+        note: list(silent.map(named)) + (silent.length === 1 ? ' carries' : ' carry') + ' no koneCountry — confirm ' +
+          (silent.length === 1 ? 'its' : 'their') + ' leads route to ' + market.name +
+          (silent.some(function (g) { return g.topics.length; }) ? ' (topics: ' + list(silent.reduce(function (all, g) { return all.concat(g.topics); }, [])) + ')' : '') });
+    }
+    var worst = findings.some(function (f) { return f.severity === 'break'; }) ? 'differs' : 'matches';
+    var label = 'frontlines/' + want + (market.koneCountry ? ' · koneCountry ' + market.koneCountry : '');
+    return { checked: true, findings: findings, country: market.name,
+      row: { field: 'Form market', source: market.name, expected: label, found: found, state: worst,
+        stateLabel: silent.length && worst === 'matches' ? 'koneCountry missing on ' + silent.length + ' form' + (silent.length === 1 ? '' : 's') : null,
+        soft: false, basis: 'expected' } };
   }
 
   // Analyse mode has no page at all — only the question "what should this
@@ -2414,6 +2685,7 @@
       // without a brief: pass expect: null to resolve the country from the
       // page's own domain alone.
       formIdFinding: function (expect, page, opts) { return formIdFinding(expect, page, sitesCfg, opts); },
+      aemMarketFinding: function (expect, page) { return aemMarketFinding(expect, page, sitesCfg); },
       // Every finding the page carries about itself, with no brief at all —
       // QA starts from these rather than re-implementing any of them.
       pageOnlyCategories: function (page) { return pageOnlyCategories(page, cfg); },

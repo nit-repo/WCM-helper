@@ -210,9 +210,16 @@
     if (prev !== -1 && isSiteName(head.slice(prev + 3).trim())) {
       return { state: 'amber', reason: 'two site names — "' + head.slice(prev + 3).trim() + '" and "KONE ' + m[1] + '"; keep only "' + sep + ' KONE ' + m[1] + '"' };
     }
-    if (name === 'corporation') return { state: 'green', reason: 'KONE Corporation' };
-
     var own = market && !market.ambiguous ? market : null;
+    if (name === 'corporation') {
+      // KONE US is a market of its own on kone.com, not the corporate site.
+      if (own && own.corporateTitle === false) {
+        return { state: 'red', reason: '"KONE Corporation" is not accepted on ' + own.name + ' pages — end the title with the ' +
+          own.name + ' site name' };
+      }
+      return { state: 'green', reason: 'KONE Corporation' };
+    }
+
     if (own && has(own.siteNames)) return { state: 'green', reason: 'KONE ' + m[1] + ' — the confirmed name for ' + own.name };
 
     var other = entries.filter(function (e) { return has(e.siteNames) && (!own || e.base !== own.base); })[0];
@@ -494,17 +501,39 @@
 
   // ─── URL LIST ────────────────────────────────────────────────────────────
   // A crawl's URL list: one URL per line, optionally followed by the form id
-  // that page should carry — "https://www.kone.ae/contact/, 752", tab- or
+  // (or AEM form path) that page should carry — "https://www.kone.ae/contact/, 752", tab- or
   // space-separated too. A header line ("url,expected_form_id") is skipped.
-  function parseUrlList(text) {
+  // Given the registry's regions, a line that is just an area or frontline
+  // code (EU, ITIB — any case) names those markets instead: { group, kind,
+  // markets }. A bare word that is neither a URL nor a code is { invalid },
+  // never fetched as https://word.
+  function parseUrlList(text, regions) {
     var out = [], seen = {};
+    var areas = (regions && regions.areas) || {}, frontlines = (regions && regions.frontlines) || {};
+    function code(word, table) {
+      var w = word.toUpperCase();
+      return Object.keys(table).filter(function (k) { return k.toUpperCase() === w; })[0] || null;
+    }
     String(text == null ? '' : text).split(/\r?\n/).forEach(function (line) {
       var parts = line.trim().split(/\s*[,;\t]\s*|\s+/).filter(Boolean);
       if (!parts.length || /^url$/i.test(parts[0])) return;
+      if (!/[./:]/.test(parts[0])) {
+        var fl = code(parts[0], frontlines), area = !fl && code(parts[0], areas);
+        if (seen['#' + (fl || area || parts[0])]) return;
+        seen['#' + (fl || area || parts[0])] = true;
+        if (fl) out.push({ group: fl, kind: 'frontline', markets: frontlines[fl].slice() });
+        else if (area) {
+          out.push({ group: area, kind: 'area', markets: areas[area].reduce(function (all, f) {
+            return all.concat(frontlines[f] || []);
+          }, []) });
+        } else out.push({ invalid: parts[0] });
+        return;
+      }
       var url = /^https?:\/\//i.test(parts[0]) ? parts[0] : 'https://' + parts[0];
       if (seen[url]) return;
       seen[url] = true;
-      var id = parts[1] && /^\d+$/.test(parts[1]) ? parts[1] : null;
+      // A FormAssembly id, or an AEM form path (sales-form-with-sfdc/sales-master).
+      var id = parts[1] && (/^\d+$/.test(parts[1]) || /^[\w-]+(\/[\w-]+)+$/.test(parts[1])) ? parts[1] : null;
       out.push({ url: url, expectedFormId: id });
     });
     return out;
@@ -534,13 +563,138 @@
       }
     });
     var dd = digitalData && digitalData.formAssemblyId;
-    var embedded = (forms || []).map(function (f) { return f.formId; }).filter(Boolean);
+    var embedded = (forms || []).filter(function (f) { return f.provider === 'FormAssembly'; })
+      .map(function (f) { return f.formId; }).filter(Boolean);
     if (dd && embedded.length && embedded.indexOf(String(dd)) === -1) {
       out.push({ category: 'structure', severity: 'check', field: 'Form Assembly ID', expected: String(dd),
         found: embedded.join(', '),
         note: 'the page\'s digitalData names form ' + dd + ', but the form embedded on it is ' + embedded.join(', ') +
           ' — analytics and the form disagree' });
     }
+    return out;
+  }
+
+  // Whether a visitor can use each form with a screen reader: a field with
+  // no name read out, or a group (<fieldset>) whose <legend> is empty. One
+  // finding per distinct form — AEM repeats one form under many topics.
+  function formAccessFindings(forms) {
+    var out = [], seen = {};
+    (forms || []).forEach(function (f) {
+      var key = f.formPath || f.formId || f.formElementId || String(f.start);
+      if (seen[key]) return;
+      seen[key] = true;
+      var parts = [];
+      if (f.emptyLegends) parts.push(f.emptyLegends + ' empty <legend>' + (f.emptyLegends === 1 ? '' : 's') +
+        ' — a group of fields with no name read out');
+      if (f.unlabelled && f.unlabelled.length) parts.push('no label on ' + f.unlabelled.join(', '));
+      if (!parts.length) return;
+      var name = f.embed === 'aem-form' ? 'AEM form ' + f.formPath : f.embed === 'other' ? 'form posting to ' + (f.action || 'this page')
+        : 'FormAssembly form ' + (f.formId || '');
+      out.push({ category: 'structure', severity: 'check', field: 'Form accessibility', found: name,
+        where: f.topic ? 'Form topic "' + f.topic + '"' : f.where || null, note: parts.join('; ') });
+    });
+    return out;
+  }
+
+  // Where a market shares its domain with other sites — KONE US at
+  // kone.com/en-us, beside the corporate site at kone.com/global — a link to
+  // another path on that domain leaves the market without leaving the host.
+  // Each destination is reported once, with how many links go there. Not
+  // for one market's languages on one domain (kone.be/fr ↔ /nl), and not
+  // for whole-domain markets, where every link on the domain is their own.
+  function crossMarketFindings(html, market, entries, baseUrl, places) {
+    if (!market || market.ambiguous || !market.langPath) return [];
+    var onDomain = entries.filter(function (e) { return e.domain === market.domain; });
+    if (onDomain.length > 1 && onDomain.every(function (e) { return e.base === onDomain[0].base; })) return [];
+    function bare(h) { return String(h || '').toLowerCase().replace(/^(www|preview(-[a-z]+)?)\./, ''); }
+    function under(path, lp) {
+      var p = '/' + String(lp).replace(/^\/+|\/+$/g, '').toLowerCase();
+      return path === p || path.indexOf(p + '/') === 0;
+    }
+    var groups = [], byKey = {};
+    resourcesIn(html).forEach(function (r) {
+      if (r.tag !== 'a') return;
+      var abs = absHref(r.url, baseUrl);
+      if (!abs || bare(hostOf(abs)) !== market.domain) return;
+      var path;
+      try { path = new URL(abs).pathname.toLowerCase().replace(/\.(aspx|html?)$/, '').replace(/\/+$/, '') || '/'; } catch (e) { return; }
+      if (under(path, market.langPath) || /^\/(content\/dam|etc\.clientlibs)\//.test(path)) return;
+      var other = entries.filter(function (e) { return e.domain === market.domain && e.langPath && under(path, e.langPath); })
+        .sort(function (a, b) { return b.langPath.length - a.langPath.length; })[0];
+      var seg = path.split('/').filter(Boolean)[0] || '';
+      var key = other ? other.langPath : seg;
+      var label = market.domain + '/' + (key ? key + '/' : '') + (other ? ' (' + other.name + ')'
+        : seg === 'global' || !seg ? ' (the corporate site)' : '');
+      var g = byKey[key];
+      if (!g) { g = byKey[key] = { label: label, urls: [] }; groups.push(g); }
+      if (g.urls.indexOf(abs) === -1) g.urls.push(abs);
+    });
+    return groups.map(function (g) {
+      var where = (places && places[g.urls[0]] || [])[0];
+      var n = g.urls.reduce(function (sum, u) { return sum + Math.max(1, (places && places[u] || []).length); }, 0);
+      return { category: 'links', severity: 'check', field: 'Cross-market link',
+        found: n + ' link' + (n === 1 ? '' : 's') + ' to ' + g.label, where: where ? where.where : null,
+        note: 'this ' + market.name + ' page links out of its own site (' + market.domain + '/' + market.langPath + '/) to ' +
+          g.urls.slice(0, 3).join(', ') + (g.urls.length > 3 ? ' and ' + (g.urls.length - 3) + ' more' : '') +
+          ' — check each is meant to leave the market' };
+    });
+  }
+
+  // The header and footer are shared experience fragments, one per market.
+  // Three things in them name the market they were built for: the search
+  // overlay's data-search-country / -language, where the KONE logo links,
+  // and the language button ("US - EN"). Any of them naming another market
+  // means the page is wearing another market's header or footer. Graded only
+  // for a market with an AEM site configured; markers not found are not
+  // graded, and every marker found is listed in the facts.
+  function chromeMarkers(html) {
+    var src = String(html).replace(/<!--[\s\S]*?-->|<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, function (m) { return m.replace(/[^\n]/g, ' '); });
+    var out = { searchCountry: null, searchLanguage: null, headerLogo: null, footerLogo: null, languageLabels: [] };
+    var sm = /<[a-z][a-z0-9-]*\b[^>]*\sdata-search-country\s*=[^>]*>/i.exec(src);
+    if (sm) { out.searchCountry = attr(sm[0], 'data-search-country') || null; out.searchLanguage = attr(sm[0], 'data-search-language') || null; }
+    var hl = /<a\b[^>]*\bclass\s*=\s*["'][^"']*\bkone-header__logo-link\b[^"']*["'][^>]*>/i.exec(src);
+    if (hl) out.headerLogo = attr(hl[0], 'href') || null;
+    var fc = /<div\b[^>]*\bclass\s*=\s*["'][^"']*\bkone-footer__content-logo\b[^"']*["'][^>]*>\s*<a\b[^>]*>/i.exec(src);
+    if (fc) out.footerLogo = attr(fc[0].slice(fc[0].search(/<a\b/i)), 'href') || null;
+    var lre = /<span\b[^>]*\bclass\s*=\s*["'][^"']*\blanguage-button__label\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi, m;
+    while ((m = lre.exec(src)) !== null) {
+      var t = decodeText(m[1].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+      if (t) out.languageLabels.push(t);
+    }
+    var any = out.searchCountry || out.headerLogo || out.footerLogo || out.languageLabels.length;
+    return any ? out : null;
+  }
+
+  function chromeFindings(markers, market, pathOf) {
+    if (!markers || !market || market.ambiguous || !market.aemSite) return [];
+    var cc = market.aemSite.split('/')[0], lang = market.aemSite.split('/')[1] || '';
+    var out = [];
+    function fix(found, expected, note) {
+      out.push({ category: 'structure', severity: 'break', field: 'Header/footer market', found: found, expected: expected, note: note });
+    }
+    if (markers.searchCountry && (markers.searchCountry.toLowerCase() !== cc ||
+        (markers.searchLanguage && markers.searchLanguage.toLowerCase() !== lang))) {
+      fix('search ' + markers.searchCountry + '/' + (markers.searchLanguage || '?'), 'search ' + cc + '/' + lang,
+        'the header\'s search is set up for ' + markers.searchCountry + '/' + (markers.searchLanguage || '?') + ', not ' + market.name +
+        ' (' + cc + '/' + lang + ') — the page is using another market\'s header');
+    }
+    [['header', markers.headerLogo], ['footer', markers.footerLogo]].forEach(function (lg) {
+      if (!lg[1] || !market.langPath) return;
+      var p = pathOf(lg[1]), want = '/' + market.langPath.toLowerCase();
+      var host = /^https?:\/\/([^\/?#]+)/i.exec(lg[1]);
+      var offHost = host && host[1].toLowerCase().replace(/^www\./, '') !== market.domain;
+      if (offHost || (p !== want && p.indexOf(want + '/') !== 0)) {
+        fix(lg[0] + ' logo → ' + lg[1], want, 'the ' + lg[0] + ' KONE logo links to ' + lg[1] + ', not to the ' + market.name +
+          ' home page (' + want + ') — the ' + lg[0] + ' belongs to another site');
+      }
+    });
+    var wantLabel = (cc + '-' + lang).toUpperCase();
+    markers.languageLabels.forEach(function (l, i) {
+      if (l.replace(/\s+/g, '').toUpperCase() === wantLabel) return;
+      fix('language button "' + l + '"', cc.toUpperCase() + ' - ' + lang.toUpperCase(),
+        'the ' + (i === 0 && markers.languageLabels.length > 1 ? 'header\'s ' : i > 0 ? 'footer\'s ' : '') +
+        'language button reads "' + l + '", not "' + cc.toUpperCase() + ' - ' + lang.toUpperCase() + '" for ' + market.name);
+    });
     return out;
   }
 
@@ -846,9 +1000,13 @@
       var forms = (page.forms || []).map(function (f) { return Object.assign({}, f); });
       if (forms.length) {
         placesAt(html, forms.map(function (f) { return f.start; }), comparer.modules(html), comparer.moduleLabel)
-          .forEach(function (pl, i) { forms[i].where = pl.where; forms[i].hidden = pl.hidden; });
+          // A form behind a topic of AEM's layout switch is closed until a
+          // visitor picks its topic — on the page, not hidden; its topic says where.
+          .forEach(function (pl, i) { forms[i].where = pl.where; forms[i].hidden = forms[i].topic ? false : pl.hidden; });
       }
       var market = comparer.marketOf(expect, placed);
+      var aemMarket = comparer.aemMarketFinding(expect, Object.assign({}, placed, { forms: forms }));
+      var markers = chromeMarkers(html);
 
       var facts = {
         canonical: page.canonical || null,
@@ -869,6 +1027,8 @@
         digitalData: page.digitalData || null,
         forms: forms,
         expectedFormId: options.expectedFormId || null,
+        formMarket: aemMarket ? { checked: aemMarket.checked, row: aemMarket.row, note: aemMarket.note || null } : null,
+        chrome: markers,
         hreflang: []
       };
 
@@ -909,7 +1069,13 @@
         .concat(linkTextFindings(comparer.mainRegion(html).html, qaCfg, normalise))
         .concat(liveFindings(options.live, facts, pathOf, speed))
         .concat(linkStatusFindings(options.links, koneDomains, linkPlacesOf()))
-        .concat(formFindings(forms, page.digitalData));
+        .concat(formFindings(forms, page.digitalData))
+        .concat(formAccessFindings(forms))
+        .concat(crossMarketFindings(html, market, comparer.siteEntries(), linkBase, linkPlacesOf()))
+        .concat(chromeFindings(markers, market, pathOf))
+        .concat(aemMarket ? aemMarket.findings.map(function (f) {
+          return Object.assign({ category: 'structure', field: 'Form market' }, f);
+        }) : []);
 
       if (options.live) {
         var lv = options.live;
@@ -958,6 +1124,7 @@
           note: formId.note, expected: formId.expected, found: formId.found });
       }
       byId.structure.rows.push(formId.row);
+      if (aemMarket) byId.structure.rows.push(aemMarket.row);
 
       // What the page carries, shown whether or not anything is wrong with it.
       // With a brief, Compare's rows already show the titles, description and
@@ -1102,6 +1269,11 @@
       var meta = r.categories.filter(function (c) { return c.id === 'metadata'; })[0] || {};
       var structure = r.categories.filter(function (c) { return c.id === 'structure'; })[0] || {};
       var form = (structure.rows || []).filter(function (row) { return row.field === 'Form Assembly ID'; })[0] || null;
+      var fm = (structure.deviations || []).filter(function (d) { return d.field === 'Form market'; });
+      var formMarket = !r.facts.formMarket ? null
+        : fm.some(function (d) { return d.severity !== 'check'; }) ? 'fix'
+        : fm.length ? 'check' : r.facts.formMarket.checked ? 'pass' : 'not-checked';
+      var aemForms = (r.facts.forms || []).filter(function (f) { return f.embed === 'aem-form'; });
       return {
         url: live ? live.url : (r.facts.canonical || ''),
         finalUrl: live ? live.finalUrl : null,
@@ -1111,6 +1283,8 @@
         titleFormat: worst(meta.rows, 'Title format'),
         formId: form ? form.state : null,
         formIdFound: form ? form.found : null,
+        formMarket: formMarket,
+        aemForms: aemForms.length,
         breaks: r.breaks,
         checks: r.checks,
         known: r.knownIssues.length,
@@ -1126,8 +1300,9 @@
         bytes: live ? live.bytes : null,
         expectedFormId: r.facts.expectedFormId || null,
         forms: (r.facts.forms || []).map(function (f) {
-          return { formId: f.formId, idSource: f.idSource, embed: f.embed, postHost: f.postHost, version: f.version,
-            title: f.title, language: f.language, localization: f.localization, submit: f.submit, captcha: f.captcha };
+          return { formId: f.formId, idSource: f.idSource, embed: f.embed, provider: f.provider, postHost: f.postHost, version: f.version,
+            title: f.title, language: f.language, localization: f.localization, submit: f.submit, captcha: f.captcha,
+            formPath: f.formPath, aemSite: f.aemSite, koneCountry: f.koneCountry, businessType: f.businessType, topic: f.topic };
         })
       };
     }
