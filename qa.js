@@ -1022,7 +1022,8 @@
         dataLang: page.dataLang || null,
         market: market ? (market.ambiguous ? market.base + ' (language version not determined)' : market.name) : null,
         // Which site's sitemap to read for link suggestions.
-        site: market && !market.ambiguous && market.domain ? { domain: market.domain, langPath: market.langPath || null } : null,
+        site: market && !market.ambiguous && market.domain
+          ? { domain: market.domain, langPath: market.langPath || null, sitemap: market.sitemap || null } : null,
         robots: robotsTag ? attr(robotsTag, 'content') : null,
         digitalData: page.digitalData || null,
         forms: forms,

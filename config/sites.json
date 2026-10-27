@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "The KONE site registry: one entry per country site (or language variant of one). domain and langPath identify a page's market — kone.be, kone.ch and kone.ca carry two languages each, told apart by langPath, and a market can live under a path on a shared domain (United States is kone.com + en-us, beside the corporate site) — a page belongs to the entry whose langPath its path starts with, longest first, and a kone.com page under no registered path belongs to no market; a preview host (preview.kone.es) resolves to the same market as its live one. formAssemblyId is the FormAssembly form every page on that site is expected to carry (read from the page's 'var digitalData' script); a market with no formAssemblyId is not form-checked. siteNames are the confirmed 'KONE <name>' site names a page title may end in, in the market's own spelling — a title ending in one scores green. siteNamesDraft are unconfirmed spellings: a title using one scores amber, never red, until it is moved into siteNames. pageOverrides lets a campaign/landing page carry its own form id; match is a path prefix. aemSite (e.g. \"us/en\") is the market's AEM content root under /content/experience-fragments/frontlines/ — every AEM form on its pages must post there — and koneCountry the value its AEM forms' hidden koneCountry field must carry. corporateTitle false means a '| KONE Corporation' title is not accepted on that market's pages.",
+  "note": "The KONE site registry: one entry per country site (or language variant of one). domain and langPath identify a page's market — kone.be, kone.ch and kone.ca carry two languages each, told apart by langPath, and a market can live under a path on a shared domain (United States is kone.com + en-us and India kone.com + en-in, beside the corporate site) — a page belongs to the entry whose langPath its path starts with, longest first, and a kone.com page under no registered path belongs to no market; a preview host (preview.kone.es) resolves to the same market as its live one. formAssemblyId is the FormAssembly form every page on that site is expected to carry (read from the page's 'var digitalData' script); a market with no formAssemblyId is not form-checked. siteNames are the confirmed 'KONE <name>' site names a page title may end in, in the market's own spelling — a title ending in one scores green. siteNamesDraft are unconfirmed spellings: a title using one scores amber, never red, until it is moved into siteNames. pageOverrides lets a campaign/landing page carry its own form id; match is a path prefix. aemSite (e.g. \"us/en\") is the market's AEM content root under /content/experience-fragments/frontlines/ — every AEM form on its pages must post there — and koneCountry the value its AEM forms' hidden koneCountry field must carry. corporateTitle false means a '| KONE Corporation' title is not accepted on that market's pages. sitemap is the market's own sitemap URL, read first when its pages are discovered (a market under a path keeps its sitemap there — the root sitemap of a shared domain is another site's). formerDomains are domains a market has moved from (India from kone.in): their pages still resolve to the market, and their links are still checked, but crawls use the current domain.",
   "countries": {
     "Germany": {
       "domain": "kone.de",
@@ -202,6 +202,7 @@
     "United States": {
       "domain": "kone.com",
       "langPath": "en-us",
+      "sitemap": "https://www.kone.com/en-us/sitemap.xml",
       "formAssemblyId": "1488",
       "aemSite": "us/en",
       "koneCountry": "USA",
@@ -231,8 +232,16 @@
       ]
     },
     "India": {
-      "domain": "kone.in",
+      "domain": "kone.com",
+      "langPath": "en-in",
+      "sitemap": "https://www.kone.com/en-in/sitemap.xml",
+      "formerDomains": [
+        "kone.in"
+      ],
       "formAssemblyId": "1490",
+      "aemSite": "in/en",
+      "koneCountry": "India",
+      "corporateTitle": false,
       "siteNames": [
         "India"
       ],

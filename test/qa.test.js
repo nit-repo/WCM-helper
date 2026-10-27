@@ -877,7 +877,7 @@ function devs(r, category, field) {
 test('93. the real KONE US contact page: market United States, AEM forms, Form market check, 1488 not applicable', function () {
   var r = qa.run(US_CONTACT);
   assert.strictEqual(r.facts.market, 'United States');
-  assert.deepStrictEqual(r.facts.site, { domain: 'kone.com', langPath: 'en-us' });
+  assert.deepStrictEqual(r.facts.site, { domain: 'kone.com', langPath: 'en-us', sitemap: 'https://www.kone.com/en-us/sitemap.xml' });
   assert.strictEqual(formRow(r).state, 'aem');
   assert.ok(!devs(r, 'structure', 'Form Assembly ID').length, 'no Form Assembly ID finding on an AEM-only page');
   var row = cat(r, 'structure').rows.filter(function (x) { return x.field === 'Form market'; })[0];
@@ -916,16 +916,16 @@ test('95. form accessibility on the real page: empty legends, once per distinct 
   assert.strictEqual(bare.note, '1 empty <legend> — a group of fields with no name read out; no label on firstName');
 });
 
-test('96. links that leave KONE US on kone.com: the header\'s "KONE global" item is a check; hreflang alternates are not links', function () {
+test('96. links that leave KONE US on kone.com: the header\'s "KONE global" item is a check, a link to KONE India names it; hreflang alternates are not links', function () {
   var r = qa.run(US_CONTACT);
   var x = devs(r, 'links', 'Cross-market link');
   assert.strictEqual(x.length, 1, 'en-IN and fr-FR hreflang alternates are not flagged');
   assert.strictEqual(x[0].severity, 'check');
   assert.strictEqual(x[0].found, '1 link to kone.com/global/ (the corporate site)');
-  // Synthetic: a body link to KONE India's new path on kone.com.
+  // Synthetic: a body link to KONE India, now at kone.com/en-in.
   var withIn = qa.run(US_CONTACT.replace('<h1 class="cmp-title__text">', '<p><a href="https://www.kone.com/en-in/contact.html">KONE India</a></p><h1 class="cmp-title__text">'));
   var x2 = devs(withIn, 'links', 'Cross-market link').map(function (d) { return d.found; });
-  assert.deepStrictEqual(x2.sort(), ['1 link to kone.com/en-in/', '1 link to kone.com/global/ (the corporate site)']);
+  assert.deepStrictEqual(x2.sort(), ['1 link to kone.com/en-in/ (India)', '1 link to kone.com/global/ (the corporate site)']);
   // Not on a whole-domain market, nor between one market's languages.
   assert.ok(!devs(qa.run(KONE_AE), 'links', 'Cross-market link').length);
 });
@@ -971,6 +971,18 @@ test('99. a crawl URL list can name an area or frontline by code, and an AEM for
   assert.deepStrictEqual(list[3], { invalid: 'foo' });
   assert.deepStrictEqual(list[4], { url: 'https://kone.ae/a', expectedFormId: null });
   assert.deepStrictEqual(BriefQA.parseUrlList('ITIB'), [{ invalid: 'ITIB' }], 'without the registry, a code is not a URL either');
+});
+
+test('100. "| KONE Corporation" is not accepted on KONE India pages either; "- KONE India" passes, on kone.com/en-in and kone.in', function () {
+  function title(t, url) {
+    var r = qa.run('<!DOCTYPE html><html lang="en"><head><title>' + t + '</title><link rel="canonical" href="' + url + '"></head><body><main><h1>Lifts</h1></main></body></html>');
+    return cat(r, 'metadata').rows.filter(function (x) { return x.field === 'Title format'; })[0];
+  }
+  var corp = title('Contact | KONE Corporation', 'https://www.kone.com/en-in/contact.html');
+  assert.deepStrictEqual([corp.state, corp.stateLabel], ['red', '"KONE Corporation" is not accepted on India pages — end the title with the India site name']);
+  assert.strictEqual(title('Contact - KONE India', 'https://www.kone.com/en-in/contact.html').state, 'green');
+  assert.strictEqual(title('Contact - KONE India', 'https://www.kone.in/contact/').state, 'green');
+  assert.strictEqual(qa.run(US_CONTACT).facts.site.sitemap, 'https://www.kone.com/en-us/sitemap.xml');
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

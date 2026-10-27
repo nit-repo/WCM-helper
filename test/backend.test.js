@@ -57,13 +57,19 @@ var server = http.createServer(function (req, res) {
         .map(function (p) { return '<url><loc>http://www.kone.be:' + PORT + p + '</loc></url>'; }).join('') + '</urlset>');
     }
   }
+  // kone.com as it is: the root robots.txt and sitemap are the corporate
+  // site's; KONE US and KONE India keep their own sitemaps under their paths.
   if (host === 'www.kone.com') {
-    if (url === '/robots.txt') return send(200, 'text/plain', 'Sitemap: http://www.kone.com:' + PORT + '/sitemap.xml');
-    if (url === '/sitemap.xml') {
-      return send(200, 'application/xml', '<urlset>' + ['/en-us.html', '/en-us/contact.html', '/en-us/new-buildings/x.html',
-        '/en-usa/x.html', '/en-in/contact.html', '/global/en.html']
-        .map(function (p) { return '<url><loc>http://www.kone.com:' + PORT + p + '</loc></url>'; }).join('') + '</urlset>');
+    var com = function (paths) {
+      return '<urlset>' + paths.map(function (p) { return '<url><loc>http://www.kone.com:' + PORT + p + '</loc></url>'; }).join('') + '</urlset>';
+    };
+    if (url === '/robots.txt') return send(200, 'text/plain', 'User-agent: *\nDisallow: /en-us/private/\nSitemap: http://www.kone.com:' + PORT + '/sitemap.xml');
+    if (url === '/sitemap.xml') return send(200, 'application/xml', com(['/global/en.html', '/global/en/about.html', '/en-usa/x.html']));
+    if (url === '/en-us/sitemap.xml') {
+      return send(200, 'application/xml', com(['/en-us.html', '/en-us/contact.html', '/en-us/new-buildings/x.html', '/en-us/private/y.html', '/en-in/contact.html']));
     }
+    if (url === '/en-us/sitemap-pages.xml') return send(200, 'application/xml', com(['/en-us/contact.html']));
+    if (url === '/en-in/sitemap.xml') return send(200, 'application/xml', com(['/en-in.html', '/en-in/contact.html']));
   }
   var hopN = /^\/hop\/(\d+)$/.exec(url);
   if (hopN) return send(301, 'text/html', '', { location: +hopN[1] > 0 ? '/hop/' + (+hopN[1] - 1) : '/page' });
@@ -342,12 +348,43 @@ test('21. discover: a two-language domain keeps only its own language path', fun
   });
 });
 
-test('21b. discover: KONE US on kone.com keeps only /en-us (the home page /en-us.html included), not India or the corporate site', function () {
+test('21b. discover: KONE US on kone.com reads its own /en-us/sitemap.xml — the root sitemap is the corporate site\'s', function () {
   return sitemaps.discover({ domain: 'kone.com', langPath: 'en-us' }, {}).then(function (r) {
+    assert.strictEqual(r.error, null, r.error);
     assert.deepStrictEqual(r.urls.map(function (u) { return new URL(u).pathname; }),
       ['/en-us.html', '/en-us/contact.html', '/en-us/new-buildings/x.html']);
+    assert.deepStrictEqual(r.sitemaps.map(function (u) { return new URL(u).pathname; }), ['/en-us/sitemap.xml']);
     assert.strictEqual(r.site, 'kone.com/en-us');
-    assert.strictEqual(r.excluded.outsidePath, 3);
+    assert.deepStrictEqual(r.excluded, { robots: 1, otherHost: 0, outsidePath: 1 }, 'robots.txt still applies; India\'s page is not US\'s');
+  });
+});
+
+test('21c. discover: the registry\'s own sitemap URL is read first; one on another domain is ignored; India has its own', function () {
+  return Promise.all([
+    sitemaps.discover({ domain: 'kone.com', langPath: 'en-us', sitemap: 'http://www.kone.com:' + PORT + '/en-us/sitemap-pages.xml' }, {}),
+    sitemaps.discover({ domain: 'kone.com', langPath: 'en-us', sitemap: 'http://www.kone.es:' + PORT + '/sitemap.xml' }, {}),
+    sitemaps.discover({ domain: 'kone.com', langPath: 'en-in', sitemap: 'http://www.kone.com:' + PORT + '/en-in/sitemap.xml' }, {})
+  ]).then(function (rs) {
+    // The registry's sitemap first, then the path's own /en-us/sitemap.xml too.
+    assert.deepStrictEqual(rs[0].sitemaps.map(function (u) { return new URL(u).pathname; }), ['/en-us/sitemap-pages.xml', '/en-us/sitemap.xml']);
+    assert.deepStrictEqual(rs[0].urls.map(function (u) { return new URL(u).pathname; }), ['/en-us/contact.html', '/en-us.html', '/en-us/new-buildings/x.html']);
+    assert.ok(rs[1].sitemaps.every(function (u) { return u.indexOf('kone.es') === -1; }), 'another domain\'s sitemap is never read for kone.com');
+    assert.strictEqual(rs[1].urls.length, 3);
+    assert.deepStrictEqual(rs[2].urls.map(function (u) { return new URL(u).pathname; }), ['/en-in.html', '/en-in/contact.html']);
+  });
+});
+
+test('21d. discover: a path with no sitemap of its own falls back to the root; nothing anywhere names every URL tried', function () {
+  return Promise.all([
+    sitemaps.discover({ domain: 'kone.com', langPath: 'global' }, {}),
+    sitemaps.discover({ domain: 'kone.com', langPath: 'en-gb' }, {})
+  ]).then(function (rs) {
+    assert.deepStrictEqual(rs[0].urls.map(function (u) { return new URL(u).pathname; }), ['/global/en.html', '/global/en/about.html']);
+    assert.strictEqual(rs[1].error, null, 'the root sitemap was read; it just lists nothing under /en-gb');
+    assert.deepStrictEqual(rs[1].urls, []);
+    return sitemaps.discover({ domain: 'kone.de', langPath: 'de' }, {}).then(function (r) {
+      assert.ok(/^no sitemap could be read — tried /.test(r.error), r.error);
+    });
   });
 });
 

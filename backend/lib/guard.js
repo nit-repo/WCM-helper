@@ -30,6 +30,11 @@ function koneBases(sites) {
   Object.keys(countries).forEach(function (k) {
     var d = String(countries[k].domain || '').toLowerCase().trim();
     if (d) bases[d] = true;
+    // A domain the market has moved from is still KONE's, and still linked.
+    (countries[k].formerDomains || []).forEach(function (f) {
+      f = String(f || '').toLowerCase().trim();
+      if (f) bases[f] = true;
+    });
   });
   return Object.keys(bases).sort();
 }

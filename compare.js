@@ -2073,11 +2073,12 @@
       'Latvia': { domain: 'kone.lv', formAssemblyId: '874', siteNames: [], siteNamesDraft: ['Latvija'] },
       'Lithuania': { domain: 'kone.lt', formAssemblyId: '878', siteNames: [], siteNamesDraft: ['Lietuva'] },
       'Iceland': { domain: 'kone.is', formAssemblyId: '17', siteNames: [], siteNamesDraft: ['Ísland'] },
-      'United States': { domain: 'kone.com', langPath: 'en-us', formAssemblyId: '1488', aemSite: 'us/en', koneCountry: 'USA',
-        corporateTitle: false, siteNames: [], siteNamesDraft: ['USA', 'United States'] },
+      'United States': { domain: 'kone.com', langPath: 'en-us', sitemap: 'https://www.kone.com/en-us/sitemap.xml', formAssemblyId: '1488',
+        aemSite: 'us/en', koneCountry: 'USA', corporateTitle: false, siteNames: [], siteNamesDraft: ['USA', 'United States'] },
       'Canada (EN)': { domain: 'kone.ca', langPath: 'en', formAssemblyId: '779', siteNames: [], siteNamesDraft: ['Canada'] },
       'Canada (FR)': { domain: 'kone.ca', langPath: 'fr', formAssemblyId: '778', siteNames: [], siteNamesDraft: ['Canada'] },
-      'India': { domain: 'kone.in', formAssemblyId: '1490', siteNames: ['India'], siteNamesDraft: [] },
+      'India': { domain: 'kone.com', langPath: 'en-in', sitemap: 'https://www.kone.com/en-in/sitemap.xml', formerDomains: ['kone.in'],
+        formAssemblyId: '1490', aemSite: 'in/en', koneCountry: 'India', corporateTitle: false, siteNames: ['India'], siteNamesDraft: [] },
       'UAE': { domain: 'kone.ae', formAssemblyId: '752', siteNames: [], siteNamesDraft: ['UAE', 'United Arab Emirates'] },
       'Bahrain': { domain: 'kone.bh', formAssemblyId: '821', siteNames: [], siteNamesDraft: ['Bahrain'] },
       'Egypt': { domain: 'kone.eg', formAssemblyId: '818', siteNames: [], siteNamesDraft: ['Egypt'] },
@@ -2118,7 +2119,9 @@
         siteNamesDraft: c.siteNamesDraft || [],
         aemSite: c.aemSite ? String(c.aemSite).toLowerCase() : null,
         koneCountry: c.koneCountry || null,
-        corporateTitle: c.corporateTitle !== false
+        corporateTitle: c.corporateTitle !== false,
+        sitemap: c.sitemap || null,
+        formerDomains: (c.formerDomains || []).map(function (x) { return String(x).toLowerCase(); })
       };
     });
   }
@@ -2171,8 +2174,12 @@
     // A preview host is the same market as its live one: QA runs on
     // preview.kone.es before kone.es exists, and it is still a Spain page.
     var host = pageHost(page.canonical).replace(/^preview(-[a-z]+)?\./, '');
-    var hits = siteEntries(sitesCfg).filter(function (e) { return e.domain === host; });
-    return hits.length ? disambiguateByPath(hits, page) : null;
+    var entries = siteEntries(sitesCfg);
+    var hits = entries.filter(function (e) { return e.domain === host; });
+    if (hits.length) return disambiguateByPath(hits, page);
+    // A domain the market has moved from (kone.in → kone.com/en-in): its
+    // pages are still that market's while they are live.
+    return entries.filter(function (e) { return e.formerDomains.indexOf(host) !== -1; })[0] || null;
   }
 
   function resolveFormIdCountry(expect, page, sitesCfg) {

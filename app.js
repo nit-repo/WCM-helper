@@ -971,7 +971,7 @@
     var key = siteKey(site);
     state.sitemaps[key] = { status: 'loading' };
     updateSitemapStatus();
-    state.backend.discover({ domain: site.domain, langPath: site.langPath }, { perSiteLimit: 0 }).then(function (r) {
+    state.backend.discover({ domain: site.domain, langPath: site.langPath, sitemap: site.sitemap || null }, { perSiteLimit: 0 }).then(function (r) {
       if (!r.urls.length) {
         var other = r.excluded && r.excluded.otherHost;
         throw new Error(r.error || ('the sitemap lists no pages on ' + site.domain + (other ? ' (' + other + ' URL' + (other === 1 ? ' is' : 's are') + ' on other hosts)' : '')));
@@ -1143,7 +1143,7 @@
     if (!site2) { toast('This page\'s site is not in the registry, so its sitemap cannot be fetched.'); renderQa(row.result, null, crawlRowOpts(row)); return; }
     var cached = state.sitemaps[siteKey(site2)];
     var get = cached && cached.status === 'ready' ? Promise.resolve(cached.urls)
-      : state.backend.discover({ domain: site2.domain, langPath: site2.langPath }, { perSiteLimit: 0 }).then(function (r) {
+      : state.backend.discover({ domain: site2.domain, langPath: site2.langPath, sitemap: site2.sitemap || null }, { perSiteLimit: 0 }).then(function (r) {
         if (!r.urls.length) throw new Error(r.error || 'the sitemap lists no pages on ' + site2.domain);
         keepSitemap(site2, r.urls);
         return r.urls;
@@ -1627,7 +1627,9 @@
   function markets() {
     var countries = (state.sites && state.sites.countries) || {};
     return Object.keys(countries).map(function (name) {
-      return { name: name, domain: countries[name].domain, langPath: countries[name].langPath || null };
+      var c = countries[name];
+      return { name: name, domain: c.domain, langPath: c.langPath || null, sitemap: c.sitemap || null,
+        formerDomains: c.formerDomains || [] };
     });
   }
   function regions() { return (state.sites && state.sites.regions) || { areas: {}, frontlines: {} }; }
@@ -1753,17 +1755,25 @@
   function siteOfUrl(url) {
     var host = hostKey(url).replace(/^(www|preview(-[a-z]+)?)\./, '');
     var hits = markets().filter(function (m) { return m.domain === host; });
-    if (!hits.length) return null;
+    if (!hits.length) {
+      // A page still on a domain its market has moved from (kone.in) is read
+      // against the market's current site.
+      var moved = markets().filter(function (m) { return m.formerDomains.indexOf(host) !== -1; })[0];
+      return moved ? siteOf(moved) : null;
+    }
     var path = '';
     try { path = new URL(url).pathname.toLowerCase().replace(/\.(aspx|html?)$/, '').replace(/\/+$/, ''); } catch (e) { /* no path */ }
     var onPath = hits.filter(function (m) {
       var p = m.langPath && '/' + String(m.langPath).replace(/^\/+|\/+$/g, '').toLowerCase();
       return p && (path === p || path.indexOf(p + '/') === 0);
     }).sort(function (a, b) { return b.langPath.length - a.langPath.length; })[0];
-    if (onPath) return { domain: host, langPath: onPath.langPath };
+    if (onPath) return siteOf(onPath);
     var whole = hits.filter(function (m) { return !m.langPath; });
-    return whole.length === 1 ? { domain: host, langPath: null } : null;
+    return whole.length === 1 ? siteOf(whole[0]) : null;
   }
+  // What the backend needs to find a market's pages: its domain, its path,
+  // and its own sitemap when the registry names one.
+  function siteOf(m) { return { domain: m.domain, langPath: m.langPath || null, sitemap: m.sitemap || null }; }
   function siteLabel(site, url) {
     return site ? site.domain + (site.langPath ? '/' + site.langPath : '') : hostKey(url).replace(/^www\./, '');
   }
@@ -1780,7 +1790,7 @@
     crawl.phase = 'Reading sitemaps for link suggestions';
     renderCrawlSoon();
     return pool(list, function () { return 'discover'; }, function (site) {
-      return state.backend.discover({ domain: site.domain, langPath: site.langPath }, { perSiteLimit: 0 }).then(function (r) {
+      return state.backend.discover({ domain: site.domain, langPath: site.langPath, sitemap: site.sitemap || null }, { perSiteLimit: 0 }).then(function (r) {
         if (r.urls.length) keepSitemap(site, r.urls);
         else crawl.notes.push(site.domain + ' — no sitemap for link suggestions' + (r.error ? ': ' + r.error : ''));
       }, function (err) { crawl.notes.push(site.domain + ' — no sitemap for link suggestions: ' + err.message); });
@@ -1847,7 +1857,7 @@
     crawl.phase = 'Reading sitemaps — 0 of ' + picked.length + ' sites';
     renderCrawlSoon();
     return pool(picked, function () { return 'discover'; }, function (m) {
-      var site = { domain: m.domain, langPath: m.langPath };
+      var site = siteOf(m);
       // With link suggestions on, the whole sitemap is read (no prefix, no
       // cap) and the worklist is cut from it here.
       var opts = full ? { perSiteLimit: 0 } : { perSiteLimit: limit, pathPrefix: prefix };
