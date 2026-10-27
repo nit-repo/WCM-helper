@@ -1070,7 +1070,10 @@
       '<p class="headline">' + esc(f.environment.label) + '</p>' +
       '<p class="sub">' + esc(f.environment.why) + '</p>' +
       factLine('Canonical', f.canonical ? esc(f.canonical) : '<i>none on the page</i>') +
-      factLine('TCM ID', tcm) +
+      (f.aemPath && !f.tcmId ? '' : factLine('TCM ID', tcm)) +
+      (f.aemPath ? factLine('AEM', esc(f.aemPath) +
+        ' · <a href="' + esc(f.aemUrl) + '" target="_blank" rel="noopener noreferrer">Open in AEM</a>' +
+        ' · <button type="button" class="btn-ghost qa-copy" data-copy="' + esc(f.aemPath) + '">Copy</button>') : '') +
       factLine('Market', f.market ? esc(f.market) : '<i>could not be determined</i>') +
       factLine('Language', lang) +
       formFactLine(f) +
@@ -2138,12 +2141,13 @@
         '<td>' + title + '</td><td>' + form + '</td>' +
         '<td class="num">' + (r.result ? r.breaks : '') + '</td><td class="num">' + (r.result ? r.checks : '') + '</td>' +
         (crawl.links ? '<td class="num">' + (r.brokenLinks || '') + '</td>' : '') +
-        '<td>' + (r.tcmId ? esc(r.tcmId) : '') + '</td></tr>';
+        '<td>' + (r.tcmId ? esc(r.tcmId) : r.aem ? '<a href="' + esc(r.aem) + '" target="_blank" rel="noopener noreferrer" title="' +
+          esc(r.aemPath) + '">Open in AEM</a>' : '') + '</td></tr>';
     }).join('');
     return '<section class="card"><h3>Pages — ' + shown.length + '</h3><div class="filters">' + chips + '</div>' +
       '<div class="table-wrap"><table class="crawl"><thead><tr><th>Page</th><th>Status</th><th>Redirects</th><th>TTFB / load</th>' +
       '<th>Title</th><th>Form ID</th>' +
-      '<th>To fix</th><th>To check</th>' + (crawl.links ? '<th>Broken links</th>' : '') + '<th>TCM ID</th></tr></thead><tbody>' +
+      '<th>To fix</th><th>To check</th>' + (crawl.links ? '<th>Broken links</th>' : '') + '<th>TCM ID / AEM</th></tr></thead><tbody>' +
       (body || '<tr><td colspan="10"><i>No pages match this filter.</i></td></tr>') + '</tbody></table></div>' +
       '<div class="input-actions"><button type="button" class="btn-ghost" id="crawl-csv">Export CSV</button></div>' +
       '<p class="caution">Click a page for its full report. The export carries CME edit links — keep it within the team.</p></section>';
@@ -2243,7 +2247,8 @@
       ['Submit button', formCol(function (f) { return f.submit == null ? 'not read' : f.submit ? 'yes' : 'no'; })],
       ['CAPTCHA', formCol(function (f) { return f.captcha == null ? 'not read' : f.captcha ? 'yes' : 'no'; })],
       ['To fix', 'breaks'], ['To check', 'checks'], ['Known template issues', 'known'],
-      ['Broken links', 'brokenLinks'], ['TCM ID', 'tcmId'], ['Open in CME', 'cme']];
+      ['Broken links', 'brokenLinks'], ['TCM ID', 'tcmId'], ['Open in CME', 'cme'],
+      ['AEM path', 'aemPath'], ['Open in AEM', 'aem']];
     var lines = [cols.map(function (c) { return csvCell(c[0]); }).join(',')].concat(crawl.rows.map(function (r) {
       return cols.map(function (c) {
         return csvCell(typeof c[1] === 'function' ? c[1](r) : c[1] === 'titleFormat' && r.titleFormat ? verdictWord(r.titleFormat) : r[c[1]]);

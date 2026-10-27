@@ -2073,11 +2073,13 @@
       'Latvia': { domain: 'kone.lv', formAssemblyId: '874', siteNames: [], siteNamesDraft: ['Latvija'] },
       'Lithuania': { domain: 'kone.lt', formAssemblyId: '878', siteNames: [], siteNamesDraft: ['Lietuva'] },
       'Iceland': { domain: 'kone.is', formAssemblyId: '17', siteNames: [], siteNamesDraft: ['Ísland'] },
-      'United States': { domain: 'kone.com', langPath: 'en-us', sitemap: 'https://www.kone.com/en-us/sitemap.xml', formAssemblyId: '1488',
-        aemSite: 'us/en', koneCountry: 'USA', corporateTitle: false, siteNames: [], siteNamesDraft: ['USA', 'United States'] },
+      'United States': { domain: 'kone.com', langPath: 'en-us', sitemap: 'https://www.kone.com/en-us/sitemap.xml',
+        aemContentRoot: '/content/frontlines/us-temp/en', formAssemblyId: '1488', aemSite: 'us/en', koneCountry: 'USA',
+        corporateTitle: false, titleSeparator: '|', siteNames: ['US'], siteNamesDraft: [] },
       'Canada (EN)': { domain: 'kone.ca', langPath: 'en', formAssemblyId: '779', siteNames: [], siteNamesDraft: ['Canada'] },
       'Canada (FR)': { domain: 'kone.ca', langPath: 'fr', formAssemblyId: '778', siteNames: [], siteNamesDraft: ['Canada'] },
-      'India': { domain: 'kone.com', langPath: 'en-in', sitemap: 'https://www.kone.com/en-in/sitemap.xml', formerDomains: ['kone.in'],
+      'India': { domain: 'kone.com', langPath: 'en-in', sitemap: 'https://www.kone.com/en-in/sitemap.xml',
+        aemContentRoot: '/content/frontlines/in-temp/en', formerDomains: ['kone.in'],
         formAssemblyId: '1490', aemSite: 'in/en', koneCountry: 'India', corporateTitle: false, siteNames: ['India'], siteNamesDraft: [] },
       'UAE': { domain: 'kone.ae', formAssemblyId: '752', siteNames: [], siteNamesDraft: ['UAE', 'United Arab Emirates'] },
       'Bahrain': { domain: 'kone.bh', formAssemblyId: '821', siteNames: [], siteNamesDraft: ['Bahrain'] },
@@ -2121,6 +2123,8 @@
         koneCountry: c.koneCountry || null,
         corporateTitle: c.corporateTitle !== false,
         sitemap: c.sitemap || null,
+        aemContentRoot: c.aemContentRoot ? String(c.aemContentRoot).replace(/\/+$/, '') : null,
+        titleSeparator: c.titleSeparator || null,
         formerDomains: (c.formerDomains || []).map(function (x) { return String(x).toLowerCase(); })
       };
     });

@@ -896,7 +896,7 @@ test('94. "| KONE Corporation" is not accepted on KONE US pages; it still is on 
   var r = qa.run(US_CONTACT);
   var t = devs(r, 'metadata', 'Title format')[0];
   assert.strictEqual(t.severity, 'break');
-  assert.strictEqual(t.note, '"KONE Corporation" is not accepted on United States pages — end the title with the United States site name');
+  assert.strictEqual(t.note, '"KONE Corporation" is not accepted on United States pages — end the title with " | KONE US"');
   var ae = qa.run(KONE_AE.replace(/<title>[^<]*<\/title>/, '<title>Elevator modernization | KONE Corporation</title>'));
   assert.ok(!devs(ae, 'metadata', 'Title format').some(function (d) { return /Elevator modernization \| KONE Corporation/.test(d.found); }));
 });
@@ -979,10 +979,48 @@ test('100. "| KONE Corporation" is not accepted on KONE India pages either; "- K
     return cat(r, 'metadata').rows.filter(function (x) { return x.field === 'Title format'; })[0];
   }
   var corp = title('Contact | KONE Corporation', 'https://www.kone.com/en-in/contact.html');
-  assert.deepStrictEqual([corp.state, corp.stateLabel], ['red', '"KONE Corporation" is not accepted on India pages — end the title with the India site name']);
+  assert.deepStrictEqual([corp.state, corp.stateLabel], ['red', '"KONE Corporation" is not accepted on India pages — end the title with " - KONE India"']);
   assert.strictEqual(title('Contact - KONE India', 'https://www.kone.com/en-in/contact.html').state, 'green');
   assert.strictEqual(title('Contact - KONE India', 'https://www.kone.in/contact/').state, 'green');
   assert.strictEqual(qa.run(US_CONTACT).facts.site.sitemap, 'https://www.kone.com/en-us/sitemap.xml');
+});
+
+function bare(title, url) {
+  return qa.run('<!DOCTYPE html><html lang="en"><head><title>' + title + '</title><link rel="canonical" href="' + url + '"></head>' +
+    '<body><main><h1>Page</h1></main></body></html>');
+}
+
+test('101. US titles are "Page name | KONE US": that passes; " - KONE US" and "KONE USA" are checks; "KONE Corporation" a fix', function () {
+  function state(t) {
+    var row = cat(bare(t, 'https://www.kone.com/en-us/explore-by-industry.html'), 'metadata').rows
+      .filter(function (x) { return x.field === 'Title format'; })[0];
+    return [row.state, row.stateLabel];
+  }
+  assert.deepStrictEqual(state('Explore by industry | KONE US'), ['green', 'KONE US — the confirmed name for United States']);
+  assert.deepStrictEqual(state('Explore by industry - KONE US'), ['amber', '"- KONE US" — United States titles use " | KONE US"']);
+  assert.strictEqual(state('Explore by industry | KONE USA')[0], 'amber');
+  assert.strictEqual(state('Explore by industry | KONE Corporation')[0], 'red');
+});
+
+test('102. Open in AEM: the page path after /en-us or /en-in, without .html, under the market\'s author tree (the team\'s three examples)', function () {
+  var AUTHOR = 'https://author-p156420-e1658594.adobeaemcloud.com/ui#/aem/sites.html';
+  var a = bare('Explore by industry | KONE US', 'https://www.kone.com/en-us/explore-by-industry.html').facts;
+  assert.strictEqual(a.aemPath, '/content/frontlines/us-temp/en/explore-by-industry');
+  assert.strictEqual(a.aemUrl, AUTHOR + '/content/frontlines/us-temp/en/explore-by-industry');
+  assert.strictEqual(bare('Bloomberg | KONE US', 'https://www.kone.com/en-us/newsroom/reference-cases/bloomberg-london.html').facts.aemUrl,
+    AUTHOR + '/content/frontlines/us-temp/en/newsroom/reference-cases/bloomberg-london');
+  assert.strictEqual(bare('Bloomberg - KONE India', 'https://www.kone.com/en-in/newsroom/reference-cases/bloomberg-london.html').facts.aemUrl,
+    AUTHOR + '/content/frontlines/in-temp/en/newsroom/reference-cases/bloomberg-london');
+  assert.strictEqual(bare('Home | KONE US', 'https://www.kone.com/en-us.html').facts.aemPath, '/content/frontlines/us-temp/en', 'the home page is the root');
+  assert.strictEqual(bare('X', 'https://preview.kone.com/en-us/contact.html').facts.aemPath, '/content/frontlines/us-temp/en/contact');
+  ['https://www.kone.ae/contact.html', 'https://www.kone.in/contact/', 'https://www.kone.com/global/en.html'].forEach(function (u) {
+    assert.strictEqual(bare('X', u).facts.aemUrl, null, u);
+  });
+  var r = qa.run(US_CONTACT);
+  assert.strictEqual(r.facts.aemPath, '/content/frontlines/us-temp/en/contact');
+  var row = qa.crawlRow(r, null);
+  assert.deepStrictEqual([row.aemPath, row.aem], ['/content/frontlines/us-temp/en/contact', AUTHOR + '/content/frontlines/us-temp/en/contact']);
+  assert.strictEqual(qa.crawlRow(qa.run(KONE_AE), null).aem, null);
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

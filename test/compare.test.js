@@ -2174,5 +2174,14 @@ test('158. Form market on India (synthetic: the real US contact page moved to /e
   assert.ok(u.findings.some(function (f) { return /sends koneCountry USA; India leads need India/.test(f.note); }));
 });
 
+test('159. US titles end " | KONE US"; US and India pages open in AEM author under their -temp trees', function () {
+  var us = SITES.countries['United States'], india = SITES.countries.India;
+  assert.deepStrictEqual([us.siteNames, us.siteNamesDraft, us.titleSeparator, us.aemContentRoot],
+    [['US'], [], '|', '/content/frontlines/us-temp/en']);
+  assert.strictEqual(india.aemContentRoot, '/content/frontlines/in-temp/en');
+  var m = registry.marketOf(null, { canonical: 'https://www.kone.com/en-us/contact.html' });
+  assert.deepStrictEqual([m.aemContentRoot, m.titleSeparator], ['/content/frontlines/us-temp/en', '|']);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

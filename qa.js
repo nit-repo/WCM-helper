@@ -43,7 +43,9 @@
     cme: {
       newUi: 'https://web-cms.kone.com/ui/editor/page?activeItem={id}&item={id}&tab=general.constraints',
       oldUi: 'https://web-cms.kone.com/WebUI/item.aspx?tcm=64#id={id}'
-    }
+    },
+    // An AEM page opens in the author's Sites console by its content path.
+    aem: { sites: 'https://author-p156420-e1658594.adobeaemcloud.com/ui#/aem/sites.html{path}' }
   };
 
   var CATEGORIES = [
@@ -211,13 +213,21 @@
       return { state: 'amber', reason: 'two site names — "' + head.slice(prev + 3).trim() + '" and "KONE ' + m[1] + '"; keep only "' + sep + ' KONE ' + m[1] + '"' };
     }
     var own = market && !market.ambiguous ? market : null;
+    // The ending this market's titles take: " | KONE US", " - KONE India".
+    function ending(e) {
+      var n = (e.siteNames || [])[0] || (e.siteNamesDraft || [])[0];
+      return n ? '"' + (e.titleSeparator ? ' ' + e.titleSeparator + ' ' : ' - ') + 'KONE ' + n + '"' : 'the ' + e.name + ' site name';
+    }
     if (name === 'corporation') {
-      // KONE US is a market of its own on kone.com, not the corporate site.
+      // KONE US and KONE India are markets of their own on kone.com, not the corporate site.
       if (own && own.corporateTitle === false) {
-        return { state: 'red', reason: '"KONE Corporation" is not accepted on ' + own.name + ' pages — end the title with the ' +
-          own.name + ' site name' };
+        return { state: 'red', reason: '"KONE Corporation" is not accepted on ' + own.name + ' pages — end the title with ' + ending(own) };
       }
       return { state: 'green', reason: 'KONE Corporation' };
+    }
+    // A market that names its separator accepts only that one before its own name.
+    if (own && own.titleSeparator && sep !== own.titleSeparator && has(own.siteNames)) {
+      return { state: 'amber', reason: '"' + sep + ' KONE ' + m[1] + '" — ' + own.name + ' titles use ' + ending(own) };
     }
 
     if (own && has(own.siteNames)) return { state: 'green', reason: 'KONE ' + m[1] + ' — the confirmed name for ' + own.name };
@@ -932,6 +942,7 @@
     var wt = config['work-types'] || {};
     var qaCfg = wt.qa || {};
     var cme = qaCfg.cme || DEFAULT_QA.cme;
+    var aemCfg = qaCfg.aem || DEFAULT_QA.aem;
     var speed = Object.assign({}, DEFAULT_QA.speed, qaCfg.speed || {});
     var comparerConfig = { 'work-types': wt };
     if (config['sites']) comparerConfig['sites'] = config['sites'];
@@ -940,6 +951,25 @@
     var pathOf = comparer.pathOf;
 
     function cmeLink(pattern, id) { return id ? pattern.split('{id}').join(id) : null; }
+
+    // Where an AEM page lives in author: its market's content root (US:
+    // /content/frontlines/us-temp/en — the author tree, which the published
+    // page never names) plus the page's path after the market's langPath,
+    // without .html. kone.com/en-us/explore-by-industry.html →
+    // /content/frontlines/us-temp/en/explore-by-industry; /en-us.html → the root.
+    function aemPathOf(url, market) {
+      if (!url || !market || market.ambiguous || !market.aemContentRoot) return null;
+      var u;
+      try { u = new URL(url); } catch (e) { return null; }
+      if (u.hostname.toLowerCase().replace(/^(www|preview(-[a-z]+)?)\./, '') !== market.domain) return null;
+      var path = u.pathname.replace(/\.html?$/i, '').replace(/\/+$/, '');
+      var lp = market.langPath ? '/' + String(market.langPath).replace(/^\/+|\/+$/g, '') : '';
+      if (lp) {
+        if (path.toLowerCase() !== lp.toLowerCase() && path.toLowerCase().indexOf(lp.toLowerCase() + '/') !== 0) return null;
+        path = path.slice(lp.length);
+      }
+      return market.aemContentRoot + path;
+    }
 
     // The proofreading pass and the sitemap-aware link judge, both optional:
     // without their scripts QA still runs, with no Summary card.
@@ -1006,6 +1036,7 @@
       }
       var market = comparer.marketOf(expect, placed);
       var aemMarket = comparer.aemMarketFinding(expect, Object.assign({}, placed, { forms: forms }));
+      var aemPath = aemPathOf(placed.canonical, market);
       var markers = chromeMarkers(html);
 
       var facts = {
@@ -1017,6 +1048,8 @@
         tcmRaw: tcmRaw || null,
         cmeNewUi: cmeLink(cme.newUi, tcmId),
         cmeOldUi: cmeLink(cme.oldUi, tcmId),
+        aemPath: aemPath,
+        aemUrl: aemPath ? aemCfg.sites.split('{path}').join(aemPath) : null,
         pageTitle: page.pageName || null,
         lang: page.lang || null,
         dataLang: page.dataLang || null,
@@ -1291,6 +1324,8 @@
         known: r.knownIssues.length,
         tcmId: r.facts.tcmId,
         cme: r.facts.cmeNewUi,
+        aemPath: r.facts.aemPath || null,
+        aem: r.facts.aemUrl || null,
         market: r.facts.market,
         environment: r.facts.environment.label,
         redirects: live ? (live.redirects || []).length : null,
