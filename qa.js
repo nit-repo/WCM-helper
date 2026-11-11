@@ -857,14 +857,14 @@
     pending.forEach(function (p0) { probes[p0.i] = { start: p0.at, ancestors: stack.slice(), selfTag: null }; });
 
     function describe(chain, hidden, start) {
-      var modEl = null, itemEl = null, landEl = null, land = null;
+      var modEl = null, itemEl = null, landEl = null;
       for (var i = chain.length - 1; i >= 0; i--) {
         var a = chain[i];
         if (a.hidden) hidden = true;
         if (!modEl && a.module) modEl = a;
         if (!modEl && !itemEl && a.item) itemEl = a;
         // The outermost landmark names it: a header's own <nav> is still the header.
-        if ((land = landmarkOf(a))) landEl = a;
+        if (landmarkOf(a)) landEl = a;
       }
       if (!modEl) itemEl = null;
       var mod = modEl && modEl.module;

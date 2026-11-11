@@ -50,8 +50,6 @@ Metadata always shows what the page carries — title, `og:title`, description, 
 
 A preview build is read as one. `noindex` is expected there and stays silent; links to preview hosts are expected too, and QA says to run it on the live page rather than flagging each one.
 
-**Building it turned up a bug in the comparison.** The check for a link pasted straight from the CME only recognised `/ui/editor/item?item=`. Neither real CME URL matches that — the new UI is `web-cms.kone.com/ui/editor/page?activeItem=…`, the old one `web-cms.kone.com/WebUI/item.aspx?tcm=…` — so the defect it exists to catch went unreported on both. It now recognises all three.
-
 ### Live URL and crawl
 
 With the backend deployed (see [The backend](#the-backend)), QA has three sources instead of one — **Pasted page**, **Live URL** and **Crawl sites**. The backend only ever *fetches*; every page is still judged here in the browser, by the same checks as a pasted one, so there is one rulebook.
@@ -204,12 +202,6 @@ It reads the page's own metadata, section headings, copy, assets and internal li
 
 **Page → brief → QA is a round trip, and it is the test.** Generate a brief from a page, compare it back against that same page, and nothing the generator wrote should fail to match. Two fixtures assert exactly that. What the round trip does *not* have to explain is the page's own defects — a missing H1, a field published empty, a CME link — which exist whether or not anyone wrote a brief, and are excluded by `fromBrief`.
 
-Writing the generator turned up three faults in extraction that had been quietly costing the comparison matches on real pages, all now fixed and covered:
-
-- **A percent-encoded filename never matched its own name.** A brief writing `Graphic 1` resolved to `graphic1`; the page's own `Graphic%201.jpg` resolved to `graphic201`. Every asset with a space in its name, on every AEM page.
-- **A Scene7 rendition preset was read as part of the asset name.** `Monospace100_img_3-1:669x475` is one asset delivered at one size, not an asset called `Monospace100_img_3-1:669x475`.
-- **`&reg;` was not decoded** while `&trade;` was, so a brief writing `KONE MonoSpace®` never matched a page rendering the entity. `&copy;`, `&deg;`, `&hellip;` and hex numeric entities were missing too.
-
 **Component-mapped field tables.** The plain draft above is what the comparison actually reads, untouched. Alongside it, the results pane shows the same page read a second way — through the shared model Analyse's mock page already uses — laid out the way a person writes a Tridion content brief by hand: one card per component, headed by how it was identified (`HeroBanner (Component Field marker)` on a CMS preview page, `HeroBanner (.hero-banner-wrapper › CSS-class match)` on a live one, or `hero (read from page structure — no named component identified)` on a page with neither, from `config/tridion-taxonomy.json`'s real component/field-slot data), a Field slot | Content table in the component's own documented order, an image placeholder wherever it carries one, and any quoted text flagged *do not paraphrase*. Content that fits no documented slot — a stat row or a bullet list built from bare `<div>`s, which no `<p>`/`<li>`-only reading ever sees — is never dropped or forced into the wrong field: it lands in its own **Unmapped content** block, always shown. An **Open items** section below it collects both the component-placement failures and any literal `to be aligned with KONE`/`to confirm`/`TBD`-style note already in the text, never invented. Verified against a real eleven-page agency mockup the tool has never seen a KONE class name or Tridion marker in — the generic tier that makes this work on any pasted page, not only KONE's own markup.
 
 ## Briefs as files
@@ -225,11 +217,31 @@ Pasted-from-Word briefs are checked for paste damage — bullets that arrived as
 ## Running it
 
 ```
-npm start     # http://localhost:3600
-npm test      # 506 verification cases across eleven suites
+npm start            # the tool at http://localhost:3600
+npm test             # the unit tests
+npm run test:e2e     # the browser tests (needs: npm install, npx playwright install chromium)
+npm run lint         # the code-style check (needs: npm install)
 ```
 
-No dependencies, no build step. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`. The page itself needs no backend: with none configured it is paste and bookmarklet only, as it always was.
+The tool itself has no dependencies and no build step: `npm start` works on a fresh clone. It has to be *served* rather than opened from disk, because the playbooks are fetched at runtime and browsers block `fetch` over `file://`. The page itself needs no backend: with none configured it is paste and bookmarklet only, as it always was.
+
+## Development
+
+**Every pull request runs the tests.** `.github/workflows/test.yml` runs the code-style check and the unit tests on Node 18 and 20, and the browser tests on Node 20. The packages in `devDependencies` (ESLint, Playwright) are for those checks only; nothing the tool or the backend runs depends on them, and deploying installs nothing.
+
+**Unit tests** (`test/*.test.js`) load the same files the browser does and run them in Node. Fixtures are real KONE pages and briefs first; a made-up case is labelled as one.
+
+**Browser tests** (`test/e2e/`) drive the real tool in a real browser against the real backend code and stand-in KONE sites, all on localhost (`harness.js` says what each port is). One spec per area in `specs/`; `npm run test:e2e -- crawl` runs only the specs whose file name contains "crawl". A Content-Security-Policy violation or an uncaught page error in any spec fails the run.
+
+**Code style.** The tool is plain ES5 scripts that run unbuilt in the browser, and the linter parses them as ES5 on purpose: syntax a browser would need a build step for is an error (`eslint.config.js`).
+
+**Security headers.** `vercel.json` sends a Content-Security-Policy (scripts from this site only, connections to this site and the backend only), `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy` with every file, and `serve.js` sends the same locally. So no page may carry an inline `<script>` or an `onclick=`: page scripts are files (`gate.js`, `login.js`, `bookmarklet.js`). If the backend moves, its address changes in two places — `config/backend.json` and the policy's `connect-src` in `vercel.json` — and `test/site.test.js` fails until they agree.
+
+**What is published.** The site is the repo's files served as they are, so `.vercelignore` keeps `test/`, `scripts/`, `.github/` and the Markdown files out of it, and `vercel.json` redirects `/backend/` away. `backend/` and `config/` are not ignored, because the backend project deploys from this same repo and needs both.
+
+**Releasing.** `npm run version:set -- 2026-11-11a` sets the build string on every script tag of every page (`npm run version:set` alone prints the current one). Add the release to `CHANGELOG.md`. Merging to `main` deploys the tool; the backend project redeploys from `main` too.
+
+Design notes that explain *why* parts of the tool work the way they do are in [`docs/design-notes.md`](docs/design-notes.md).
 
 ## The backend
 
@@ -259,7 +271,7 @@ To run it locally: `WCM_PASSWORD=… WCM_SESSION_SECRET=… node backend/server.
 
 **Still out, permanently** — whatever the backend can reach: submitting forms, testing where a form routes, observing consent banners or tags firing, rendering pages across breakpoints, Core Web Vitals, and anything inside a cross-origin iframe.
 
-**Which build am I looking at?** The sidebar says, under the wordmark — `BUILD 2026-09-11A`. It is worth knowing, because a deployed page that looks current can still be running older code: the shell comes from `index.html` and the behaviour comes from six separate `.js` files, and a browser can hold an old copy of any one of them. So every script is referenced with the version on its URL (`<script src="compare.js?v=2026-09-11a">`) — a changed query is a different URL, which no cache can satisfy from the old entry — and `app.js` reads that same value back out of its own `src` to display it. One string to bump, in `index.html`, and what the sidebar shows is necessarily the file that ran. `vercel.json` sets `Cache-Control: public, max-age=0, must-revalidate` for the one file the query strings cannot protect, `index.html` itself.
+**Which build am I looking at?** The sidebar says, under the wordmark — `BUILD 2026-09-11A`. It is worth knowing, because a deployed page that looks current can still be running older code: the shell comes from `index.html` and the behaviour comes from separate `.js` files, and a browser can hold an old copy of any one of them. So every script is referenced with the version on its URL (`<script src="compare.js?v=2026-09-11a">`) — a changed query is a different URL, which no cache can satisfy from the old entry — and `app.js` reads that same value back out of its own `src` to display it. One string, set on every tag by `npm run version:set`, and what the sidebar shows is necessarily the file that ran. `vercel.json` sets `Cache-Control: public, max-age=0, must-revalidate` for the one file the query strings cannot protect, `index.html` itself.
 
 **On Vercel, use the branch alias.** A URL like `wcm-helper-<hash>-<team>.vercel.app` is a *per-deployment* URL, frozen to the commit that built it — it will never show anything newer however many times it is reloaded. The alias that follows the newest build on a branch is the `-git-<branch>-` one, which is the link the Vercel bot posts on the pull request. If the two ever disagree, the sidebar stamp settles it.
 
@@ -290,55 +302,13 @@ Assets now live in Adobe DAM whichever CMS serves the page, so a `adobecqms.net`
 
 **A confident call needs real evidence, not just a positive score.** A country-by-country rollout-tracking sheet — no content brief at all — used to classify as `content-update`, confident, off a single weight-1 hit: the word "update" appearing once in a column header, with every other playbook scoring 0. Beating the runner-up isn't enough on its own any more; the winning score also has to clear `classification.minConfidentScore` in `config/work-types.json` (2, by default) — a lone weak (weight-1) signal is not enough, the way a lone structural or strong signal already was.
 
-## The page names its own components
-
-For a long time the page side of the comparer could see six things: `<title>`, the meta tags, `h1`–`h3`, `<img>`, `<a>`, and one flat blob of text. Everything else went into how carefully two strings were compared. So the worst a finding could say was *"not found on the page — row 75"*: an absence, a brief row number, and nothing about the page at all.
-
-The markup was already carrying the answer. A KONE page is built from components, and Tridion prints what it authored:
-
-```html
-<section class="module module-faq module-with-h2" id="item-142402">
-  <!-- Start Component Field: {"XPath":"tcm:Content/custom:Accordion/custom:items[1]/custom:title"} -->
-```
-
-The component's name is its class token, its id is on the tag, and every authored field carries its CMS path — repeat index included. "The second item in the FAQ" is not inferred from indentation or counted by hand; the page states it. Modules are read in document order by a depth-counting scan rather than a lazy match, so a nested wrapper can never close one early.
-
-What that buys, on a real page:
-
-- **Untranslated content is named, not merely missed.** A field reading as English on a page whose brief is not English is reported as *"FAQ (item-142402) · Accordion/items[2]/title — this field reads as English on a page the brief localizes"*, quoting the English sitting there. That is the defect a missing-row finding can never describe, because the row is looking for text nobody ever wrote. It only fires when the brief itself is not English, so an English brief never accuses the page of anything.
-- **A component published with a hole in it is caught.** Three empty `MultiCTAModule/module[n]/title` fields on the live Slovenia page, each named by its field. Asset fields are exempt — they hold a URL, and the image checks already cover those.
-- **A link into the CME** (`/ui/editor/item?item=tcm:…`) is a break, the Tridion twin of the `/content/` author path already checked for on AEM.
-- **`lang="sl"` against `data-lang="EN"`** — the page contradicting itself about its own language.
-- **Hidden headings stop producing phantom duplicates.** The template stamps the window title into several `display:none` H2s; counting those reported three duplicate headings on a page that renders one.
-
-**The name is what stays the same between pages.** A component is named by its type and its field path — `FAQ · Accordion/items[2]/title` — because both are identical wherever that component is used. The item id is not: `item-142402` here is `item-93871` on the next page, and three sections on the real page carry no id at all, the carousel among them with nine authored fields. So the ids ride alongside the name rather than inside it: the anchor to jump to the block in a browser, the `tcm:` id to open it in the CME. Where a page carries two of the same component — it carries two content-rivers and two multi-CTAs — they are told apart by position, `Content river #1` and `#2`.
-
-**A brief's front matter is not page copy.** A labelled brief opens with rows saying what the page *is* — `Page Title/Title Tag`, `Meta Description/Meta Tag`, `Keywords`, `Internal Links` — and only then the copy it must carry. Reading those rows by four exact spellings (`Meta Title:`, `Meta Description:`, `Meta Keywords:`, `URL Path:`) worked until a real kone.com.au blog brief arrived writing every one of them differently: tab-separated instead of colon-separated, `Page Title/` wrapped onto the next line by the paste, four keywords and three internal links on `●` bullet rows underneath. None of it matched, so all five metadata fields reported *"not defined in the brief"* on a page that matched the brief exactly — and the front matter fell through to the body catch-all and reported as eleven missing paragraphs, of which one was real. The front matter is now read as what it is: the leading run of label rows, whether tab- or colon-separated, with a wrapped label rejoined and bullet rows attached to the label above them. The vocabulary lives in `config/work-types.json` (`compare.briefLabels`) — add a spelling when a brief uses one the tool doesn't know. The whole label is matched before either half of a slashed one, which is what makes `Blog Topic/Title` the H1 rather than the meta title. A label the vocabulary doesn't recognise is never silently dropped: it stays out of the body copy and is named on the Metadata block, so the difference between *checked* and *ignored* stays visible. The first row that isn't a label row closes the front matter for good, and everything below it is copy, read exactly as before.
-
-**A URL is not four sentences.** When a whole paragraph doesn't match, the comparer descends to sentences — and it split on every `.`, so one brief row carrying three internal links reported four missing paragraphs reading `https://www.`, `kone.`, `com.`, `au/blogs/x.`. A terminator now only ends a sentence when whitespace or the end of the text follows it. In the same pass, keywords compare as the set they are: a brief writing them one per bullet and a page rendering them comma-joined with no spaces are the same list, and only a genuinely missing or extra keyword is a defect. And a brief declaring a bare internal URL is matched by where it points, not by its label — the page's own anchor says "KONE elevator modernisation", and matching that by text reported three present links as missing.
-
-**The report shows what passed, not only what failed.** Body Text and Hyperlinks / CTAs each lead with their summary, and opens to a row-by-row ledger: every line the brief asked for, whether it landed, and which component it landed in. A link says which anchor it was found under, so *"found as “KONE elevator modernisation”"* answers the question a bare "No deviations" never could: were the three internal links the brief named actually checked, and where did they land.
-
-```
-row 4 · not found — sits between Hero banner and Content river
-row 2 · found in Hero banner
-```
-
-A missing row is placed by the rows around it that did match — the nearest located row above and below name the span it belongs in. That is derived from the matches, never guessed: with nothing on one side it says "after Hero banner", and with no components on the page at all it says nothing rather than inventing a location. Found-or-missing is still decided by the whole-region count, so a page built without module sections reports exactly as it always did — the components only answer *where*.
-
-**Reading text out of markup respects inline vs block elements.** Word-pasted content — the India blog page is a real example — carries a tag boundary right up against punctuation with no space in the source: `Construction elevators</span></a></strong><span lang="EN-IN">, also known as…`. A browser renders no gap there because `span`/`a`/`strong` are inline. The extractor used to replace every tag with a space regardless, so its copy of the page read `Construction elevators , also known as…` and an exact-match brief row reported "not found" for a paragraph that was there verbatim. Inline tags now contribute nothing; block tags and `<br>` still contribute a space, which is what keeps `<p>One</p><p>Two</p>` from reading as `OneTwo`. `filler.js` carried the identical bug — an English master pasted with a link before a comma would fail the exact match and fall through to a lower-confidence fuzzy match — and gets the identical fix.
-
-**A brief's section marker doesn't know it's looking at a question, not a heading.** `Emergency Braking Systems[2.1]` and `What is an MRL elevator and why is it popular?[8.6]` carry the identical bracket convention, so both become an expected page heading — but the Structure check only ever looked for `<h1>`–`<h3>`. On the real KONE India FAQ, every question is a bare `<button class="accordion-trigger">` with no heading tag around it at all, so all eight questions reported "section heading missing" while sitting in the accordion exactly where they belonged. An accordion question functions as a heading — it labels a block of content a reader expands — whether or not the template wrapped it in an `h`-tag, so the Structure check now reads a configurable `accordionTriggers` class (`config/work-types.json`) alongside real headings for both presence and order. The duplicate-heading check is untouched: that one is about genuine HTML structure, and an accordion legitimately reuses the same button markup for every question.
-
-## One shared understanding of the brief
-
-`engine.js`, `compare.js` and `filler.js` used to each parse the brief their own way, and each had found the same class of bug independently: raw-newline splitting that a quoted multi-line cell would shatter, and a target inferred from structure that never checked whether more than one candidate existed. `brief.js` now does the one thing all three need — quote-aware row splitting, which row is a section header, which columns are markets, and which market the brief actually targets — and the other three consume it rather than re-deriving it. Fixing a parsing bug once, in one file that all three load, is the point.
-
 ## Structure
 
 ```
 index.html                    UI, two tabs — Analyse, QA
-login.html                    the password page, once a backend is configured
+login.html, login.js          the password page, once a backend is configured
+bookmarklet.html, .js         the bookmarklet's install page
+gate.js                       hides the tool until the sign-in is checked
 app.js                        renders what the modules return — no analysis of its own
 backend-client.js             the browser's one way to the backend: sign-in, fetch, crawl, link status
 brief.js                      one parse shared by the others: rows, sections, markets, target
@@ -362,18 +332,17 @@ config/proofreading.json      additions to the built-in misspellings, product na
 backend/                      the live-fetch service: lib/guard.js (what may be fetched), lib/fetcher.js,
                                lib/sitemap.js, lib/auth.js, lib/handlers.js (the routes); api/index.js
                                for Vercel, server.js for plain Node
-test/brief.test.js            22 cases, the shared parse alone
-test/engine.test.js           53 cases, fixtures are real briefs
-test/compare.test.js          162 cases, deviations planted one per category,
-                               plus excerpts of real KONE pages as fixtures
-test/readers.test.js          10 cases, run against real ZIP bytes
-test/filler.test.js           26 cases, including markup that must never be guessed
-test/page-model.test.js       48 cases, including a real agency mockup with no Tridion markup at all
-test/mock-page.test.js        26 cases, safety-first: escaping, hrefs, no external requests
-test/qa.test.js               72 cases, the real Slovenia preview and Italian landing pages among them
-test/linkmatch.test.js        14 cases on the real kone.bh builders page and sitemap
-test/proof.test.js            15 cases: each rule caught and each rule quiet, on every real fixture
-test/backend.test.js          29 cases against a local stand-in for www.kone.es — and the shipping guard
-                               refusing that same 127.0.0.1
-serve.js                      local static server
+test/*.test.js                the unit tests, one file per module — real briefs and real KONE pages
+                               as fixtures (test/fixtures/), made-up cases labelled as such
+test/site.test.js             the deployed site's own rules: no inline script, the security policy,
+                               one build string, what is published
+test/e2e/                     the browser tests: harness.js (the tool, the backend and stand-in KONE
+                               sites on localhost), run.js, and one spec per area in specs/
+scripts/set-version.js        sets the build string on every script tag
+eslint.config.js              the code-style check
+.github/workflows/test.yml    runs lint, unit and browser tests on every pull request
+vercel.json, .vercelignore    the site's response headers, and what is left out of it
+docs/design-notes.md          why parts of the tool work the way they do
+CHANGELOG.md                  what changed, release by release
+serve.js                      local static server, sending the deployed site's headers
 ```
