@@ -185,20 +185,6 @@
     return patterns.some(function (p) { return text.indexOf(String(p).toLowerCase()) !== -1; });
   }
 
-  // The visible text in document order, one entry per run between tags. Lets
-  // a check reason about what a reader sees without depending on which
-  // elements a template happened to wrap it in.
-
-  function textNodes(html) {
-    var out = [], re = /<[^>]*>/g, last = 0, m;
-    while ((m = re.exec(html)) !== null) {
-      if (m.index > last) out.push(html.slice(last, m.index));
-      last = re.lastIndex;
-    }
-    if (last < html.length) out.push(html.slice(last));
-    return out;
-  }
-
   // ─── COMPONENTS ──────────────────────────────────────────────────────────
   // Tridion prints what it authored. A content block is a <section> carrying a
   // module-<name> class and an item id, and every authored field inside it
@@ -1009,7 +995,7 @@
     var tries = [key].concat(key.split('/').map(function (p) { return p.trim(); }));
     for (var t = 0; t < tries.length; t++) {
       for (var field in labels) {
-        if (labels.hasOwnProperty(field) && labels[field].indexOf(tries[t]) !== -1) return field;
+        if (Object.prototype.hasOwnProperty.call(labels, field) && labels[field].indexOf(tries[t]) !== -1) return field;
       }
     }
     return null;
@@ -1202,7 +1188,7 @@
       // separate rows ("CTA / Learn more" then "CTA Link / /digital-services/").
       // Pairing them in order is what lets the comparer check where a button
       // actually points, not just what it says.
-      var labels = [], hrefs = [];
+      var ctaLabels = [], hrefs = [];
       rows.forEach(function (cells, i) {
         if (cells.length < 3) return;
         var key = normalise(cells[0]);
@@ -1210,9 +1196,9 @@
         var value = cells[cells.length - 1].trim();
         if (!value) return;
         if (/link/i.test(key)) hrefs.push(value);
-        else labels.push({ value: value, section: sectionAt[i], row: i + 1 });
+        else ctaLabels.push({ value: value, section: sectionAt[i], row: i + 1 });
       });
-      labels.forEach(function (label, i) {
+      ctaLabels.forEach(function (label, i) {
         var href = hrefs[i];
         // Only treat it as a destination if it looks like one — these rows
         // sometimes hold prose ("Anchor link to the tech specs table").

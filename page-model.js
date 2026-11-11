@@ -299,9 +299,6 @@
     multictamodule: 'cta', valuehighlight: 'value-highlights', form: 'form'
   };
 
-  var CONF_RANK = { high: 3, medium: 2, low: 1 };
-  function weaker(a, b) { return CONF_RANK[a] <= CONF_RANK[b] ? a : b; }
-
   function normaliseLabel(s) {
     return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   }
@@ -384,7 +381,7 @@
   function taxonomyType(label) {
     if (!label) return null;
     for (var type in TAXONOMY_SLOTS) {
-      if (TAXONOMY_SLOTS.hasOwnProperty(type) && TAXONOMY_SLOTS[type].test(label)) {
+      if (Object.prototype.hasOwnProperty.call(TAXONOMY_SLOTS, type) && TAXONOMY_SLOTS[type].test(label)) {
         return { type: type, why: '"' + label + '" is a recognised ' + type + ' slot' };
       }
     }
@@ -730,7 +727,7 @@
   };
   function leafRole(leaf) {
     for (var role in LEAF_ROLE) {
-      if (LEAF_ROLE.hasOwnProperty(role) && LEAF_ROLE[role].test(String(leaf || ''))) return role;
+      if (Object.prototype.hasOwnProperty.call(LEAF_ROLE, role) && LEAF_ROLE[role].test(String(leaf || ''))) return role;
     }
     return null;
   }
@@ -1112,7 +1109,7 @@
   };
   function fieldRoleOf(label) {
     for (var role in FIELD_TYPE) {
-      if (FIELD_TYPE.hasOwnProperty(role) && FIELD_TYPE[role].test(String(label || '').trim())) return role;
+      if (Object.prototype.hasOwnProperty.call(FIELD_TYPE, role) && FIELD_TYPE[role].test(String(label || '').trim())) return role;
     }
     return null;
   }

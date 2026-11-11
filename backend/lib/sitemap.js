@@ -111,7 +111,7 @@ function createSitemaps(fetcher, options) {
   var originOf = options.originOf || function (host) { return 'https://' + host; };
 
   // Walk sitemap URLs (and indexes) breadth-first, a few at a time.
-  function walk(start, keepUrl) {
+  function walk(start) {
     var started = now();
     var queue = start.map(function (u) { return { url: u, depth: 0 }; });
     var seenFiles = {}, read = [], failed = [], urls = [], seenUrls = {}, partial = false;

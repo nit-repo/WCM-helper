@@ -487,7 +487,7 @@ test('21. a quoted multi-line cell does not corrupt signal counts', function () 
 test('22. a redirect brief missing most of its destinations is not ready', function () {
   var rows = [];
   for (var i = 0; i < 10; i++) rows.push('https://www.kone.dk/old-' + i + '/\thttps://www.kone.dk/new-' + i + '/');
-  for (var i = 0; i < 7; i++) rows[i] = 'https://www.kone.dk/old-' + i + '/';
+  for (i = 0; i < 7; i++) rows[i] = 'https://www.kone.dk/old-' + i + '/';
 
   var a = engine.analyse(rows.join('\n'));
 

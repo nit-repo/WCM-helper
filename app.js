@@ -2047,11 +2047,10 @@
       (crawl.notes.length ? '<ul class="crawl-notes">' + crawl.notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul>' : ''));
     if (!rows.length) { paintCrawl(head); return; }
 
-    var broken = 0, unverifiedLinks = 0;
+    var broken = 0;
     if (crawl.links) {
       Object.keys(crawl.links.statuses).forEach(function (u) {
-        var v = crawl.links.statuses[u].verdict;
-        if (v === 'dead') broken++; else if (v !== 'ok') unverifiedLinks++;
+        if (crawl.links.statuses[u].verdict === 'dead') broken++;
       });
     }
     var tally = '<p class="tally"><b>' + rows.length + '</b> pages · <b>' + count(function (r) { return r.verdict === 'ok'; }) + '</b> ok · <b>' +

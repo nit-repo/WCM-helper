@@ -1,0 +1,13 @@
+# What the deployed site does not need. The tool is static files served from
+# the repo root, so anything not listed here is downloadable by anyone.
+#
+# backend/ and config/ are deliberately NOT listed: the backend project is
+# deployed from this same repo and needs both (it reads config/sites.json).
+# The site keeps /backend/ unreachable with a redirect in vercel.json instead.
+test
+scripts
+.github
+*.md
+docs
+eslint.config.js
+serve.js

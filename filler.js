@@ -40,7 +40,7 @@
     return decodeEntities(s)
       .replace(/[‘’‛]/g, "'")
       .replace(/[“”]/g, '"')
-      .replace(/ /g, ' ')
+      .replace(/\u00a0/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }
