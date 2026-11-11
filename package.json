@@ -5,7 +5,7 @@
   "description": "Analyse AEM and Tridion work briefs, and compare a brief against the page that got built",
   "license": "MIT",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "start": "node serve.js",

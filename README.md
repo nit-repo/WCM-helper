@@ -227,7 +227,7 @@ The tool itself has no dependencies and no build step: `npm start` works on a fr
 
 ## Development
 
-**Every pull request runs the tests.** `.github/workflows/test.yml` runs the code-style check and the unit tests on Node 18 and 20, and the browser tests on Node 20. The packages in `devDependencies` (ESLint, Playwright) are for those checks only; nothing the tool or the backend runs depends on them, and deploying installs nothing.
+**Every pull request runs the tests.** `.github/workflows/test.yml` runs the code-style check and the unit tests on Node 20 and 22, and the browser tests on Node 22. (Node 20 or newer is needed for the tests: reading `.docx` and `.xlsx` briefs uses a decompression format older Node versions lack. Browsers have it.) The packages in `devDependencies` (ESLint, Playwright) are for those checks only; nothing the tool or the backend runs depends on them, and deploying installs nothing.
 
 **Unit tests** (`test/*.test.js`) load the same files the browser does and run them in Node. Fixtures are real KONE pages and briefs first; a made-up case is labelled as one.
 
